@@ -296,6 +296,25 @@ window.DS = window.DS || {};
     if (!g.trial) return;
     const R = DS.R;
     // Clear of the HUD panels in the top-left corner of the screen.
+    const t = g.trial;
+    const pz = t.puzzle;
+
+    /* The hall's goal, in words. Five plates and five crates are a lot to infer
+       from a room with no labels, and the braziers only say how many are lit,
+       never how many there are. It is a screen-space readout under the depth
+       header, so it has to be drawn BEFORE the wall inscription bails out - the
+       inscription scrolls off screen once you walk down the hall, and leaving
+       the counter after that return hid it exactly where the player needs it. */
+    if (!t.solved && !t.armed && pz && pz.plates) {
+      let held = 0;
+      for (let i = 0; i < pz.plates.length; i++) {
+        if (pz.plates[i].pressed) held++;
+      }
+      const all = held === pz.plates.length;
+      R.textCenter('PLATES ' + held + ' / ' + pz.plates.length,
+                   DS.C.W / 2, 30, all ? '#5cbf62' : '#e8a0a0');
+    }
+
     const x = 5 * T - R.camOffsetX();
     const y = (FLOOR - 5) * T - R.camOffsetY();
     if (x < -140 || x > DS.C.W + 20) return;

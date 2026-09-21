@@ -39,6 +39,7 @@ window.DS = window.DS || {};
   let flameTex = null;
   let portalTex = null;
   let runeTex = null;
+  let glowTex = null;      // soft round falloff for drop light pools
 
   let doorPortalObj = null;
   let chestMeshes = [];
@@ -62,6 +63,7 @@ window.DS = window.DS || {};
   let pickupMeshes = [];
   let gateMeshes = [];
   let leverMeshes = [];
+  let brazierMeshes = [];   // trial hall braziers: { group, flame, light, ref }
   let ropeMeshes = [];      // 3D ropes: { x0,y0,x1,y1 (units), group }
   let elemPuddles = [];     // per-enemy status puddles: { mesh, key }
   let elemFields = [];      // ground field plates: { mesh, key }
@@ -98,6 +100,8 @@ window.DS = window.DS || {};
     prison: { fog: 0x1a1006, ambient: 0x6e5638, hemiSky: 0x846845, hemiGround: 0x241810, dir: 0xfbbf24, dirI: 0.50 },
     vault:  { fog: 0x140728, ambient: 0x5c4290, hemiSky: 0x745aa8, hemiGround: 0x201335, dir: 0xd8b4fe, dirI: 0.48 },
     nest:   { fog: 0x1a060a, ambient: 0x6e323c, hemiSky: 0x86404a, hemiGround: 0x24100f, dir: 0xf43f5e, dirI: 0.45 },
+    /* The gods hate you: clamped, blood-lit stone, and no green in it at all. */
+    trial:  { fog: 0x1c0709, ambient: 0x6e2f2c, hemiSky: 0x8a3a34, hemiGround: 0x26100f, dir: 0xff8a6a, dirI: 0.52 },
     throne: { fog: 0x221806, ambient: 0x74613a, hemiSky: 0x8d7a48, hemiGround: 0x26200f, dir: 0xfde047, dirI: 0.55 }
   };
   const AMBIENT_I = 1.35;
@@ -249,6 +253,26 @@ window.DS = window.DS || {};
     ctx.fillRect(0, 0, 32, 32);
 
     return new THREE.CanvasTexture(cv);
+  }
+
+  /* A soft round falloff for the light pool under a drop. A flat disc reads as
+     a stain on the floor; a gradient reads as light. Painted white so each
+     material can tint it to the drop's own colour. */
+  function makeGlowTexture() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 64;
+    const ctx = cv.getContext('2d');
+    const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+    grad.addColorStop(0.4, 'rgba(255,255,255,0.42)');
+    grad.addColorStop(0.75, 'rgba(255,255,255,0.12)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    return tex;
   }
 
   function makePortalTexture() {
@@ -481,6 +505,7 @@ window.DS = window.DS || {};
     flameTex = makeFlameTexture();
     portalTex = makePortalTexture();
     runeTex = makeRuneTexture();
+    glowTex = makeGlowTexture();
 
     screenParticleManager = new ScreenParticleManager(scene);
 
@@ -606,6 +631,9 @@ window.DS = window.DS || {};
       if (biome.key === 'throne') return 'throne';
     }
     if (flavor === 'flooded') return 'caves';
+    /* The trial chamber has to look like a place that wants you dead, not like
+       whichever depth it was reached from. */
+    if (flavor === 'trial') return 'trial';
     if (depth === 1) return 'forest';
     if (depth === 2) return 'caves';
     if (depth === 3) return 'prison';
@@ -807,6 +835,44 @@ window.DS = window.DS || {};
     };
   }
 
+  /* A standing brazier. The trial hangs one over every pressure plate, so its
+     flame is the progress bar for the whole hall — and until this existed, the
+     hall had no lights at all in voxel mode and read as an empty corridor.
+     Built here rather than in voxel.js because it needs its own flame sprite
+     and point light, exactly like a wall torch. */
+  function createBrazierMesh(b, map) {
+    const group = new THREE.Group();
+    const iron = new THREE.MeshLambertMaterial({ color: 0x55506a });
+    const ironLight = new THREE.MeshLambertMaterial({ color: 0x8a84a8 });
+    const coalMat = new THREE.MeshLambertMaterial({ color: 0x2a1a18 });
+
+    part(group, 0.34, 0.1, 0.34, 0, 0.05, 0, iron);         // foot
+    part(group, 0.12, 1.0, 0.12, 0, 0.6, 0, iron);          // post
+    part(group, 0.22, 0.08, 0.22, 0, 1.1, 0, ironLight);    // collar
+    part(group, 0.52, 0.26, 0.52, 0, 1.24, 0, iron);        // bowl
+    part(group, 0.6, 0.06, 0.6, 0, 1.39, 0, ironLight);     // lip
+    part(group, 0.42, 0.07, 0.42, 0, 1.4, 0, coalMat);      // coals
+
+    const flame = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: flameTex, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.95
+    }));
+    flame.position.set(0, 1.66, 0);
+    flame.scale.set(0.85, 1.2, 1);
+    flame.visible = false;
+    group.add(flame);
+
+    const light = new THREE.PointLight(0xff9e38, 0, 9, 2.0);
+    light.position.set(0, 1.75, 0.3);
+    scene.add(light);
+
+    // b.y marks the top of an 18px-tall brazier, so its floor line is y + 18.
+    const bottom = (b.y || 0) + 18;
+    const floor = groundAnchor(map, b.x, bottom);
+    group.position.set(b.x * P2U, -floor * P2U, 0.2);
+    propsGroup.add(group);
+    return { group, flame, light, coalMat, ref: b, smooth: 0 };
+  }
+
   // --- puzzle hardware in 3D: gate bars, lever, crates -----------------------
   function part(parent, sx, sy, sz, x, y, z, material) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), material);
@@ -887,7 +953,7 @@ window.DS = window.DS || {};
   /* A pressure plate that reads as hardware from the camera's shallow angle:
      a proud bezel frame, a raised button slab, corner posts, and the rune
      sigil floating upright facing the player instead of lying flat unseen. */
-  function createPressurePlateMesh(px, py) {
+  function createPressurePlateMesh(px, py, map) {
     const group = new THREE.Group();
 
     const frameMat = new THREE.MeshLambertMaterial({ color: 0x2c2838 });
@@ -919,8 +985,11 @@ window.DS = window.DS || {};
     rune.position.set(0, 0.65, 0.2);   // upright, between the posts, facing play
     group.add(rune);
 
-    // pz.plate.x/y is the tile the plate occupies; +16 lands on its floor.
-    group.position.set(px * P2U, -(py + 16) * P2U, 0);
+    /* py is the plate's OWN bottom edge (a plate is 4px tall and rests on the
+       surface). Anchoring through the map keeps it honest instead of adding a
+       magic tile: the old +16 planted the hardware a full tile underground. */
+    const floor = map ? groundAnchor(map, px, py) : py;
+    group.position.set(px * P2U, -floor * P2U, 0);
     propsGroup.add(group);
 
     return {
@@ -935,42 +1004,55 @@ window.DS = window.DS || {};
     };
   }
 
-  function createChestMesh(cx, cy, chestRef) {
-    const group = new THREE.Group();
+  /* Where a prop's bottom edge lands on the map.
 
-    const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3d26 });
-    const trimMat = new THREE.MeshLambertMaterial({ color: 0xd4a046 });
+     Two marker conventions live in the game data: entities whose own box
+     carries a bottom edge (crate, chest — y + h), and map markers whose y is
+     only a TILE ROW (decor, shrine, torch). Both have to be planted on the
+     same thing — the real surface — and every clip-through-the-floor bug so
+     far came from one call site guessing instead of asking. Ask here. */
+  function groundAnchor(map, px, bottomPx) {
+    if (!map || !map.floorBelow) return bottomPx;
+    const tx = Math.floor(px / 16);
+    const ty = Math.floor((bottomPx - 1) / 16);
+    const fb = map.floorBelow(tx, ty);
+    if (fb == null || fb >= map.pixelH) return bottomPx;
+    /* Snap only when the surface is right there: a prop placed on a ledge or a
+       crate must not be dragged down through what it is standing on. */
+    return Math.abs(fb - bottomPx) <= 20 ? fb : bottomPx;
+  }
 
-    const baseGeo = new THREE.BoxGeometry(1.2, 0.65, 0.85);
-    const base = new THREE.Mesh(baseGeo, woodMat);
-    base.position.set(0, 0.325, 0);
-    group.add(base);
+  /* Chests: one voxel model per tier (see voxel.js buildChest), planted on the
+     actual floor.
 
-    const bandGeo = new THREE.BoxGeometry(1.22, 0.67, 0.18);
-    const band1 = new THREE.Mesh(bandGeo, trimMat);
-    band1.position.set(0, 0.325, -0.28);
-    const band2 = new THREE.Mesh(bandGeo, trimMat);
-    band2.position.set(0, 0.325, 0.28);
-    group.add(band1);
-    group.add(band2);
+     The old anchor was cy + 16, but a chest's floor line is its own box bottom
+     — cy + h = cy + 11.5 for the 14x11.5 sprite — so EVERY chest sat about
+     half a world unit below the walkway, buried to its lid. The anchor is now
+     the box bottom confirmed against the map surface. */
+  function createChestMesh(cx, cy, chestRef, map) {
+    const model = (DS.Voxel && DS.Voxel.build)
+      ? DS.Voxel.build('chest', { tier: chestRef && chestRef.tier })
+      : null;
+    const group = model ? model.root : new THREE.Group();
 
-    const lidGroup = new THREE.Group();
-    lidGroup.position.set(0, 0.65, -0.42);
-
-    const lidGeo = new THREE.BoxGeometry(1.24, 0.35, 0.88);
-    const lid = new THREE.Mesh(lidGeo, woodMat);
-    lid.position.set(0, 0.175, 0.44);
-    lidGroup.add(lid);
-
-    const lidBandGeo = new THREE.BoxGeometry(1.26, 0.37, 0.18);
-    const lBand1 = new THREE.Mesh(lidBandGeo, trimMat);
-    lBand1.position.set(0, 0.175, 0.16);
-    const lBand2 = new THREE.Mesh(lidBandGeo, trimMat);
-    lBand2.position.set(0, 0.175, 0.72);
-    lidGroup.add(lBand1);
-    lidGroup.add(lBand2);
-
-    group.add(lidGroup);
+    // Fallback so chests still exist if the voxel layer ever goes away.
+    let lidGroup = model && model.lid;
+    if (!model) {
+      const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3d26 });
+      const trimMat = new THREE.MeshLambertMaterial({ color: 0xd4a046 });
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.85), woodMat);
+      base.position.set(0, 0.3, 0);
+      group.add(base);
+      lidGroup = new THREE.Group();
+      lidGroup.position.set(0, 0.6, -0.42);
+      const lid = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.4, 0.88), woodMat);
+      lid.position.set(0, 0.2, 0.44);
+      lidGroup.add(lid);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.42, 0.18), trimMat);
+      band.position.set(0, 0.2, 0.16);
+      lidGroup.add(band);
+      group.add(lidGroup);
+    }
 
     const beamGeo = new THREE.CylinderGeometry(0.3, 0.7, 4.0, 16, 1, true);
     const beamMat = new THREE.MeshBasicMaterial({
@@ -985,11 +1067,8 @@ window.DS = window.DS || {};
     beam.position.set(0, 2.2, 0);
     group.add(beam);
 
-    /* Chests are created at (x, y+5) with an 11px hitbox, so the sprite's
-       bottom edge sits at y+16 — the floor. Plant the model on that floor
-       line, not on the hitbox top, or the base sinks half its height into
-       the ground. */
-    const floor = cy + 16;
+    const bottom = cy + ((chestRef && chestRef.h) || 11);
+    const floor = groundAnchor(map, cx + 8, bottom);
     group.position.set((cx + 8) * P2U, -floor * P2U, 0.05);
     propsGroup.add(group);
 
@@ -1151,6 +1230,8 @@ window.DS = window.DS || {};
     clearActors();
     gateMeshes = [];
     leverMeshes = [];
+    brazierMeshes.forEach(function (bm) { if (bm.light) scene.remove(bm.light); });
+    brazierMeshes = [];
     crateMeshes = [];
     ropeMeshes = [];
     elemPuddles.forEach(function (ep) { if (ep.mesh.parent) ep.mesh.parent.remove(ep.mesh); });
@@ -1190,7 +1271,9 @@ window.DS = window.DS || {};
 
     const w = map.w, h = map.h;
     const depth = (g && g.depth) || 1;
-    const flavor = (g && g.levelKind === 'normal' && g.flavor) || '';
+    /* Every level's theme keys off the flavor the level builder wrote; the
+       trial writes 'trial' and must not be mistaken for a normal floor. */
+    const flavor = (g && g.flavor) || '';
     const themeName = resolveTheme(depth, biome, flavor);
 
     setupTheme(themeName, w, h, biome);
@@ -1338,9 +1421,27 @@ window.DS = window.DS || {};
         if (pz.kind === 'plate') {
           // The coords live on pz.plate, not on the puzzle itself — using
           // pz.x produced NaN and the plate never appeared anywhere.
-          const plateObj = createPressurePlateMesh(pz.plate.x + 8, pz.plate.y + 4);
+          const plateObj = createPressurePlateMesh(pz.plate.x + 8, pz.plate.y + 4, map);
           plateObj.ref = pz;
           plateMeshes.push(plateObj);
+        }
+        /* The trial's hall is a SET of plates that all have to be held at once.
+           It is a different puzzle kind from a vault plate, and because only
+           'plate' was known here the whole hall — hardware, braziers and all —
+           was invisible in voxel mode. That is why "the gods hate you" looked
+           like an empty corridor with no puzzle in it. */
+        if (pz.kind === 'plateset' && pz.plates) {
+          for (let j = 0; j < pz.plates.length; j++) {
+            const pl = pz.plates[j];
+            const plateObj = createPressurePlateMesh(pl.x + 8, pl.y + 4, map);
+            plateObj.ref = pl;          // pl.pressed is the live held state
+            plateMeshes.push(plateObj);
+          }
+          if (pz.braziers) {
+            for (let j = 0; j < pz.braziers.length; j++) {
+              brazierMeshes.push(createBrazierMesh(pz.braziers[j], map));
+            }
+          }
         }
         if (pz.gate) gateMeshes.push(createGateMesh(pz.gate));
         if (pz.lever) leverMeshes.push(createLeverMesh(pz.lever));
@@ -1368,7 +1469,7 @@ window.DS = window.DS || {};
     if (g && g.chests) {
       for (let i = 0; i < g.chests.length; i++) {
         const c = g.chests[i];
-        const chestObj = createChestMesh(c.x, c.y, c);
+        const chestObj = createChestMesh(c.x, c.y, c, map);
         chestMeshes.push(chestObj);
       }
     }
@@ -1428,6 +1529,146 @@ window.DS = window.DS || {};
 
   /* (Re)build the hero when the loadout changes. The paper-doll palette the
      2D renderer keys on is the same signal the 3D model recolours from. */
+  /* Grip a weapon in a hand. Identical in the world and on the inventory doll,
+     so the blade in the bag is literally the blade that gets swung. */
+  function gripWeapon(arm, item, offhand) {
+    if (!arm || !item) return null;
+    const base = DS.Weapons.WEAPONS[item.type];
+    const mesh = DS.Voxel.buildWeapon(item.type, DS.Weapons.rarityColor(item.rarity));
+    mesh.position.y = -0.34;   // the hand, at arm's end
+    /* Hold it like a tool, not a plank glued to the forearm: blades rise over
+       the shoulder with a slight forward cant, and the broad face yaws back
+       toward the camera. Bow/staff stay near-vertical in the fist. */
+    const release = base && base.holdMode === 'release';
+    mesh.rotation.set(release ? 0.2 : 0.35, release ? 0 : -0.55, release ? 0 : -0.18);
+    if (offhand) mesh.rotation.y = 0.55;    // mirrored cant for the other fist
+    arm.add(mesh);
+    return mesh;
+  }
+
+  /* --- the armory: a live 3D doll for the inventory --------------------------
+
+     The 2D canvas sits ON TOP of the WebGL one, so the bag screen leaves the
+     doll's slot transparent (ui.js punches it out) and this renders into that
+     hole with a second, scissored pass on the same renderer: no second WebGL
+     context, no canvas copies. The model is the same voxel hero the dungeon
+     uses, wearing the equipped armour and holding BOTH equipped weapons, lit
+     for a portrait and turning slowly so the armour reads as real geometry.
+     Rebuilt whenever the loadout changes, so equipping a helm shows up at
+     once. */
+  let armoryScene = null;
+  let armoryCam = null;
+  let armoryModel = null;
+  let armoryKey = '';
+
+  function ensureArmory() {
+    if (armoryScene) return;
+    armoryScene = new THREE.Scene();
+    /* Framed to hold the whole chibi AND a weapon raised over the shoulder:
+       ~2.6 units of height at the model, so the doll sits in the window with
+       air around it instead of touching all four edges. */
+    armoryCam = new THREE.PerspectiveCamera(32, 0.56, 0.1, 40);
+    armoryCam.position.set(0, 1.5, 4.6);
+    armoryCam.lookAt(0, 1.0, 0);
+
+    armoryScene.add(new THREE.AmbientLight(0xa9a2d0, 1.1));
+    const key = new THREE.DirectionalLight(0xfff0cc, 1.45);
+    key.position.set(1.8, 3.0, 2.6);
+    armoryScene.add(key);
+    const rim = new THREE.DirectionalLight(0x4fb3e0, 0.9);
+    rim.position.set(-2.2, 1.5, -1.8);
+    armoryScene.add(rim);
+    const bounce = new THREE.PointLight(0x8a84a8, 0.55, 8);
+    bounce.position.set(0, 0.3, 1.4);
+    armoryScene.add(bounce);
+  }
+
+  /* Main hand first (the active slot), then the off hand — the same pair the
+     world model holds, so the doll cannot drift out of sync with the hero. */
+  function armoryHands(inv) {
+    const eq = inv.equipped || [];
+    const active = inv.active || 0;
+    return [eq[active] || null, eq[1 - active] || null];
+  }
+
+  function armoryLoadoutKey(p) {
+    const inv = p.inv || {};
+    const armor = DS.Paperdoll ? DS.Paperdoll.keyFor(inv.armor) : '';
+    const hands = armoryHands(inv);
+    const a = hands[0], b = hands[1];
+    return [armor, inv.active || 0,
+            a ? a.type + ':' + a.rarity : '-',
+            b ? b.type + ':' + b.rarity : '-'].join('|');
+  }
+
+  function refreshArmory(g) {
+    const p = g.player;
+    if (!p || !p.inv || !DS.Voxel || !armoryScene) return;
+    const key = armoryLoadoutKey(p);
+    if (armoryModel && key === armoryKey) return;
+    armoryKey = key;
+
+    if (armoryModel) {
+      armoryScene.remove(armoryModel.root);
+      disposeModel(armoryModel);
+      armoryModel = null;
+    }
+    armoryModel = DS.Voxel.build('hero', { armor: p.inv.armor });
+    if (!armoryModel) return;
+    const hands = armoryHands(p.inv);
+    gripWeapon(armoryModel.armR, hands[0], false);
+    gripWeapon(armoryModel.armL, hands[1], true);
+
+    // Idle stance: arms slightly out so the gear is not hidden against the body.
+    if (armoryModel.armR) armoryModel.armR.rotation.z = -0.14;
+    if (armoryModel.armL) armoryModel.armL.rotation.z = 0.14;
+    armoryScene.add(armoryModel.root);
+  }
+
+  function renderArmory(g, rect) {
+    if (!renderer || !armoryScene || !armoryModel || !rect) return;
+    const el = renderer.domElement;
+    const kx = el.width / DS.C.W;
+    const ky = el.height / DS.C.H;
+    const sx = Math.round(rect.x * kx);
+    const sy = Math.round(el.height - (rect.y + rect.h) * ky);
+    const sw = Math.max(1, Math.round(rect.w * kx));
+    const sh = Math.max(1, Math.round(rect.h * ky));
+
+    /* A slow turn, pivoting around the model's own feet, so the armour reads as
+       geometry and every slot is visible from some angle. */
+    const t = g.frames * 0.02;
+    armoryModel.root.rotation.y = Math.sin(t * 0.55) * 0.32;
+    if (armoryModel.torso && armoryModel.torsoY0 != null) {
+      armoryModel.torso.position.y = armoryModel.torsoY0 + Math.sin(t * 1.6) * 0.012;
+    }
+    if (armoryModel.head && armoryModel.headY0 != null) {
+      armoryModel.head.rotation.z = Math.sin(t * 0.9) * 0.03;
+    }
+
+    const prevAuto = renderer.autoClear;
+    const prevClear = new THREE.Color();
+    renderer.getClearColor(prevClear);
+    const prevAlpha = renderer.getClearAlpha();
+
+    renderer.autoClear = false;
+    renderer.setScissorTest(true);
+    renderer.setScissor(sx, sy, sw, sh);
+    renderer.setViewport(sx, sy, sw, sh);
+    // Clear only the doll's slot, to the panel's own colour.
+    renderer.setClearColor(0x12101c, 1);
+    renderer.clear(true, true, false);
+
+    armoryCam.aspect = sw / sh;
+    armoryCam.updateProjectionMatrix();
+    renderer.render(armoryScene, armoryCam);
+
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, el.width, el.height);
+    renderer.setClearColor(prevClear, prevAlpha);
+    renderer.autoClear = prevAuto;
+  }
+
   function ensureHero(g) {
     const p = g.player;
     if (!p || !DS.Voxel) return;
@@ -1457,17 +1698,7 @@ window.DS = window.DS || {};
       heroWeaponMesh = null;
       heroWeaponAura = null;
       if (item && heroModel.armR) {
-        const base = DS.Weapons.WEAPONS[item.type];
-        const color = DS.Weapons.rarityColor(item.rarity);
-        heroWeaponMesh = DS.Voxel.buildWeapon(item.type, color);
-        heroWeaponMesh.position.y = -0.34;   // the hand, at arm's end
-        /* Grip it like a tool, not a plank glued to the forearm: blades rise
-           up over the shoulder with a slight forward cant, and the broad face
-           yaws back toward the camera (the root's 66° turn leaves it nearly
-           edge-on otherwise). Bow/staff stay near-vertical in the fist. */
-        const release = base && base.holdMode === 'release';
-        heroWeaponMesh.rotation.set(release ? 0.2 : 0.35, release ? 0 : -0.55, release ? 0 : -0.18);
-        heroModel.armR.add(heroWeaponMesh);
+        heroWeaponMesh = gripWeapon(heroModel.armR, item, false);
         // Elemental weapons carry a visible aura: tiny glowing motes orbit
         // the blade, tinted by the element. Melee weapons hold their element
         // in procs.element (the Flaming/Frozen prefix), staffs in item.element.
@@ -1572,6 +1803,18 @@ window.DS = window.DS || {};
       } else {
         m.armR.rotation.x = M.lerp(-2.6, -0.7, Math.sin(t * Math.PI));
       }
+    } else if (p.aim) {
+      /* Ranged aiming: the shooting arm follows the cursor's pitch, the other
+         steadies the weapon, and the shoulders open toward the target. The
+         pitch is smoothed so a jittery cursor does not vibrate the model. */
+      const pitch = M.clamp(-p.aim.y, -1, 1);        // screen-down is +y
+      m.aimPitch = M.approach(m.aimPitch || 0, pitch, 0.18);
+      const ap = m.aimPitch;
+      const charging2 = p.charging
+        ? M.clamp(p.holdFrames / 30, 0, 1) : 0;
+      m.armR.rotation.x = -1.4 + ap * 1.05 + charging2 * 0.25;
+      m.armL.rotation.x = -1.3 + ap * 0.85 - charging2 * 0.2;
+      m.torso.rotation.y = M.lerp(m.torso.rotation.y, 0.26, 0.22);
     } else if (p.charging) {
       const item2 = DS.Inv.weapon(p.inv);
       const base2 = item2 ? DS.Weapons.WEAPONS[item2.type] : null;
@@ -1909,15 +2152,95 @@ window.DS = window.DS || {};
     }
   }
 
+  /* What colour a drop glows: its own metal or its rarity, so a legendary sword
+     on the floor is visibly a legendary find from across the room. */
+  function dropColor(pk) {
+    if (pk.kind === 'item' && pk.item && DS.Weapons.rarityColor) {
+      return new THREE.Color(DS.Weapons.rarityColor(pk.item.rarity));
+    }
+    if (pk.kind === 'heart') return new THREE.Color(0xc0303c);
+    if (pk.kind === 'shard') return new THREE.Color(0x4fb3e0);
+    if (pk.kind === 'key') return new THREE.Color(0xffe066);
+    return new THREE.Color(0xd4a046);
+  }
+
+  // Identity of a drop's look, so a re-tint only happens when it changes.
+  function dropKey(pk) {
+    return pk.kind === 'item' && pk.item ? pk.kind + ':' + pk.item.rarity : pk.kind;
+  }
+
+  /* Rarities that earn a light shaft. The chest beam already taught the player
+     to read one as "something worth walking to".
+
+     NOTE: item.rarity is an INDEX into Weapons.RARITY, not a name — comparing
+     it to 'epic' silently matched nothing and no drop ever got a beam. */
+  const BEAM_KEYS = { epic: true, legendary: true };
+
+  function rarityKeyOf(item) {
+    if (!item || !DS.Weapons.RARITY) return null;
+    const cfg = DS.Weapons.RARITY[item.rarity];
+    return cfg ? cfg.key : null;
+  }
+
+  function wantsBeam(pk) {
+    if (pk.kind !== 'item' || !pk.item) return false;
+    return !!BEAM_KEYS[rarityKeyOf(pk.item)];
+  }
+
+  /* Drops are read across a room, and the models are authored small — so each
+     kind is blown up to roughly the footprint its 2D sprite used to occupy
+     (coin 6px, heart 8, shard 7, key 8, item icon 12). Without this the loot
+     was three logical pixels of nothing on a 320x180 screen. */
+  const DROP_SCALE = { coin: 1.5, heart: 2.1, shard: 2.1, key: 1.7, item: 3.0 };
+
+  const dropGlowGeo = new THREE.PlaneGeometry(1.9, 1.9);
+
   function ensurePickupMesh(pk, i) {
     let pm = pickupMeshes[i];
     if (!pm || pm.kind !== pk.kind) {
       if (pm && pm.mesh.parent) pm.mesh.parent.remove(pm.mesh);
       const mesh = DS.Voxel.buildPickup(pk.kind,
         pk.kind === 'item' ? DS.Weapons.rarityColor(pk.item.rarity) : null);
-      pm = { mesh, kind: pk.kind };
+      const col = dropColor(pk);
+
+      // A pool of light on the floor, so the drop is not a speck lost in the
+      // dark. Flat, additive, and it never writes depth — it is a glow, not
+      // an object.
+      const glow = new THREE.Mesh(dropGlowGeo, new THREE.MeshBasicMaterial({
+        map: glowTex, color: col, transparent: true, opacity: 0.85,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      }));
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.y = 0.03;
+      mesh.add(glow);
+
+      /* The shaft, for the drops that deserve one. A sprite, not a cylinder:
+         the glow texture fades out at the edges, so it reads as a column of
+         light instead of a brown post, and it always faces the camera. */
+      const beam = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTex, color: col, transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false
+      }));
+      beam.scale.set(1.0, 3.8, 1);
+      beam.position.y = 1.85;
+      beam.visible = wantsBeam(pk);
+      mesh.add(beam);
+
+      pm = { mesh, kind: pk.kind, glow, beam, age: 0, dye: dropKey(pk) };
       pickupMeshes[i] = pm;
       fxGroup.add(mesh);
+    }
+
+    // An item whose rarity changed re-tints its glow, and a drop that becomes
+    // worth a shaft (or stops being) toggles its beam.
+    const want = wantsBeam(pk);
+    if (pm.beam && pm.beam.visible !== want) pm.beam.visible = want;
+    const key = dropKey(pk);
+    if (pm.dye !== key) {
+      pm.dye = key;
+      const col = dropColor(pk);
+      if (pm.glow) pm.glow.material.color.copy(col);
+      if (pm.beam) pm.beam.material.color.copy(col);
     }
     return pm;
   }
@@ -1934,11 +2257,27 @@ window.DS = window.DS || {};
          old centre anchor read as half-buried; a big floor probe read as
          floating. A shallow shimmer bob plays only once it has settled. */
       const settled = Math.abs(pk.vy || 0) < 0.06 && pk.onGround !== false;
-      const bobY = settled ? Math.sin(time * 3 + i) * 0.045 + 0.06 : 0.04;
+      const bobY = settled ? Math.sin(time * 3 + i) * 0.045 + 0.04 : 0.03;
       pm.mesh.position.set((pk.x + pk.w * 0.5) * P2U,
                            -(pk.y + pk.h) * P2U + bobY,
                            0.3);
       pm.mesh.rotation.y = time * 2.4 + i;
+
+      /* Landing pop: the drop scales up out of nothing over ~4 frames and
+         overshoots slightly, which is what pulls the eye to where it fell. */
+      pm.age = (pm.age || 0) + 1;
+      const pop = M.clamp(pm.age / 6, 0, 1);
+      const over = 1 + Math.sin(pop * Math.PI) * 0.25;
+      const size = DROP_SCALE[pk.kind] || 1.4;
+      pm.mesh.scale.setScalar(Math.max(0.05, pop * over) * size);
+
+      // Breathing glow + a slow turn on the shaft so it reads as light.
+      if (pm.glow) {
+        pm.glow.material.opacity = 0.7 + Math.sin(time * 2.6 + i) * 0.16;
+      }
+      if (pm.beam && pm.beam.visible) {
+        pm.beam.material.opacity = 0.42 + Math.sin(time * 2.0 + i * 1.7) * 0.12;
+      }
     }
     for (let i = count; i < pickupMeshes.length; i++) pickupMeshes[i].mesh.visible = false;
   }
@@ -1966,6 +2305,18 @@ window.DS = window.DS || {};
       const cm = crateMeshes[i];
       const c = cm.crate;
       cm.group.position.set((c.x + c.w * 0.5) * P2U, -(c.y + c.h) * P2U, 0.12);
+    }
+
+    // Trial braziers: the flame comes up as each plate is held, so the hall's
+    // progress is legible from the far end of the room.
+    for (let i = 0; i < brazierMeshes.length; i++) {
+      const bm = brazierMeshes[i];
+      const lit = !!(bm.ref && bm.ref.lit);
+      bm.smooth += ((lit ? 1 : 0) - bm.smooth) * 0.12;
+      bm.flame.visible = bm.smooth > 0.05;
+      bm.flame.scale.set(0.85 + bm.smooth * 0.25, 1.05 + bm.smooth * 0.5, 1);
+      bm.light.intensity = bm.smooth * 0.95;
+      bm.coalMat.emissive.setRGB(bm.smooth * 0.85, bm.smooth * 0.3, 0);
     }
   }
 
@@ -2140,7 +2491,10 @@ window.DS = window.DS || {};
       const pm = plateMeshes[i];
       let isSteppedOn = false;
 
-      if (pm.ref && pm.ref.plate && pm.ref.plate.pressed) {
+      /* A vault plate hands us the puzzle (state on ref.plate); a trial plate
+         hands us the plate itself (state on ref.pressed). */
+      const heldRef = pm.ref && (pm.ref.plate ? pm.ref.plate.pressed : pm.ref.pressed);
+      if (heldRef) {
         isSteppedOn = true;
       } else if (g.player) {
         const dx = Math.abs(g.player.x + g.player.w * 0.5 - pm.px);
@@ -2251,6 +2605,15 @@ window.DS = window.DS || {};
     }
 
     renderer.render(scene, camera);
+
+    /* The bag screen leaves a hole where its doll goes; fill it with the live
+       3D model. Runs after the world pass, in its own scissored viewport. */
+    if (g.modal && g.modal.kind === 'bag' && DS.UI && DS.UI.dollRect && DS.Voxel) {
+      const rect = DS.UI.dollRect();
+      ensureArmory();
+      refreshArmory(g);
+      renderArmory(g, rect);
+    }
   }
 
   DS.R3D = {

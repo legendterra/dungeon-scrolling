@@ -15,18 +15,50 @@ window.DS = window.DS || {};
   let shakeAmount = 0, shakeX = 0, shakeY = 0;
   let offX = 0, offY = 0; // rounded camera offset used for this frame
 
+  /* How much the 320x180 frame is blown up to fill the window.
+
+     Two candidates: the scale that fills the window exactly, and the largest
+     whole multiple of RS that fits inside it (even device pixels). The even
+     one wins while it wastes little of the window; otherwise the game fills
+     the screen edge to edge.
+
+     The old rule floored to a multiple of RS after subtracting a 24px pad, so
+     a 1920x1080 window rendered at 1280x720 — two thirds of the screen — and
+     the player had to reach for browser zoom to see the game at a sane size.
+     Gameplay is untouched either way: the logical grid stays 320x180 and
+     nearest-neighbour sampling keeps the voxel look. */
+  const FIT_SLACK = 0.08;   // how much letterbox we accept for even pixels
+
+  function fitScale() {
+    const sx = window.innerWidth / C.W;
+    const sy = window.innerHeight / C.H;
+    const fill = Math.max(0.5, Math.min(sx, sy));
+    const even = Math.floor(fill / C.RS) * C.RS;
+    if (even >= C.RS && even / fill >= 1 - FIT_SLACK) return even;
+    return fill;
+  }
+
   function resize() {
-    const pad = 24;
-    const sx = Math.floor((window.innerWidth - pad) / C.W);
-    const sy = Math.floor((window.innerHeight - pad) / C.H);
-    /* Snap to a multiple of RS so the backing store maps to whole device
-       pixels; below that we accept a 1x window rather than refuse to fit. */
-    let s = Math.min(sx, sy);
-    s = s >= C.RS ? Math.floor(s / C.RS) * C.RS : 1;
-    scale = Math.max(1, s);
-    cv.style.width = (C.W * scale) + 'px';
-    cv.style.height = (C.H * scale) + 'px';
+    scale = fitScale();
+    cv.style.width = Math.round(C.W * scale) + 'px';
+    cv.style.height = Math.round(C.H * scale) + 'px';
     if (DS.R3D && DS.R3D.resize) DS.R3D.resize();
+  }
+
+  /* Real fullscreen, so the game can own the whole monitor instead of however
+     tall the browser chrome leaves the viewport. F2 rather than F (interact)
+     or F11 (the browser's own toggle) - nothing else in the game wants it, and
+     the fit scale above then fills the screen exactly. */
+  function toggleFullscreen() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement) {
+      if (el.requestFullscreen) {
+        const p = el.requestFullscreen();
+        if (p && p.catch) p.catch(function () { /* denied: stay windowed */ });
+      }
+    } else if (document.exitFullscreen) {
+      document.exitFullscreen();
+    }
   }
 
   function init() {
@@ -36,6 +68,11 @@ window.DS = window.DS || {};
     cx = cv.getContext('2d', { alpha: true });
     cx.imageSmoothingEnabled = false;
     window.addEventListener('resize', resize);
+    window.addEventListener('keydown', function (e) {
+      if (e.code === 'F2') { e.preventDefault(); toggleFullscreen(); }
+    });
+    // Fullscreen swaps the viewport out from under us; re-fit when it lands.
+    document.addEventListener('fullscreenchange', resize);
     resize();
     if (DS.R3D && DS.R3D.init) DS.R3D.init();
   }
@@ -524,6 +561,8 @@ window.DS = window.DS || {};
     hints: hints,
     hintsCenter: hintsCenter,
     hintsWidth: hintsWidth,
+    toggleFullscreen: toggleFullscreen,
+    fitScale: fitScale,
     CAP_H: CAP_H
   };
 })(window.DS);

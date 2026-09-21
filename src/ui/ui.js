@@ -779,6 +779,35 @@ window.DS = window.DS || {};
     { ref: { kind: 'armor', slot: 'legs' },  label: 'LEGS', x: 84, y: 104, glyph: 'legs' }
   ];
 
+  /* Where the doll stands, in logical screen units. With voxels running this is
+     a WINDOW: the renderer draws the live 3D doll into exactly this rect (see
+     R3D.renderArmory) and this screen leaves it transparent, so what you see in
+     the bag is the same model that walks around the dungeon — armour, both
+     hands and all. The 2D paperdoll still draws here when WebGL is unavailable. */
+  const DOLL_WINDOW = { x: 34, y: 41, w: 48, h: 86 };
+  /* Where the doll's feet land inside that window, given the armory camera's
+     framing in renderer3d.js — the ledge is drawn on the glass, not the model. */
+  const DOLL_FEET_Y = 117;
+
+  function dollRect() { return DOLL_WINDOW; }
+
+  /* Punch the doll's window out of the 2D canvas so the WebGL pass behind it
+     shows through. The screen dim (R.fade) is painted on this same canvas, so
+     erasing the rect REVEALS the 3D doll instead of darkening it — which is
+     what would happen if the doll were drawn under the veil. */
+  function punchDollHole() {
+    const R = DS.R;
+    const cx = R.ctx;
+    if (!cx) return;
+    const s = DS.C.RS;
+    cx.save();
+    cx.setTransform(s, 0, 0, s, 0, 0);
+    cx.globalCompositeOperation = 'destination-out';
+    cx.fillStyle = '#000000';
+    cx.fillRect(DOLL_WINDOW.x, DOLL_WINDOW.y, DOLL_WINDOW.w, DOLL_WINDOW.h);
+    cx.restore();
+  }
+
   const SLOT_SIZE = 22;
   const BAG_COLS = 6;
   const CELL = 30;
@@ -940,15 +969,31 @@ window.DS = window.DS || {};
     R.textSmall('CURRENTLY WEARING', PANEL.x + 4, PANEL.y + 4, MUTED);
 
     const p = g.player;
-    const doll = (p && p.doll) || DS.Paperdoll.bare();
-    const frame = doll.idle[Math.floor(g.frames / 40) % doll.idle.length];
-    const big = DS.Art.scaled(frame, 2);
-    const dollW = big.uw == null ? big.width : big.uw;
-    const dollX = 58 - dollW / 2;
+    const armory = !!(DS.R3D && DS.R3D.voxels);
 
-    // A plinth of light, so he is standing somewhere rather than floating.
-    R.rectS(dollX - 4, 88, dollW + 8, 2, 'rgba(79,179,224,0.20)');
-    R.sprS(big, dollX, 54);
+    if (armory) {
+      /* Carve the window out of this canvas and let the 3D doll through, then
+         dress the hole: a rim and a ledge to stand on. Everything drawn after
+         the punch sits ON TOP of the hole, so it has to stay outside it. */
+      punchDollHole();
+      R.frameS(DOLL_WINDOW.x - 1, DOLL_WINDOW.y - 1,
+               DOLL_WINDOW.w + 2, DOLL_WINDOW.h + 2, 'rgba(79,179,224,0.35)');
+      // A pool of light under the feet, so the doll stands somewhere.
+      R.rectS(DOLL_WINDOW.x + 5, DOLL_FEET_Y, DOLL_WINDOW.w - 10, 1,
+              'rgba(79,179,224,0.30)');
+      R.rectS(DOLL_WINDOW.x + 10, DOLL_FEET_Y + 1, DOLL_WINDOW.w - 20, 1,
+              'rgba(79,179,224,0.18)');
+    } else {
+      const doll = (p && p.doll) || DS.Paperdoll.bare();
+      const frame = doll.idle[Math.floor(g.frames / 40) % doll.idle.length];
+      const big = DS.Art.scaled(frame, 2);
+      const dollW = big.uw == null ? big.width : big.uw;
+      const dollX = 58 - dollW / 2;
+
+      // A plinth of light, so he is standing somewhere rather than floating.
+      R.rectS(dollX - 4, 88, dollW + 8, 2, 'rgba(79,179,224,0.20)');
+      R.sprS(big, dollX, 54);
+    }
 
     const set = p && p.stats.setBonus;
     if (set) R.textSmall(set.name || 'SET BONUS', PANEL.x + 4, PANEL.y + PANEL.h - 10, GOLD);
@@ -1407,6 +1452,7 @@ window.DS = window.DS || {};
     openShrine: openShrine,
     drawBanner: drawBanner,
     closeModal: closeModal,
+    dollRect: dollRect,
     updateModal: updateModal,
     drawModal: drawModal,
     ownedList: ownedList,

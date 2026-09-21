@@ -408,7 +408,8 @@ window.DS = window.DS || {};
 
     const chosen = W.WEAPONS[LOADOUT[state.pick]];
     R.textCenter(chosen.blurb.toUpperCase(), C.W / 2, C.H - 26, '#a8e4ff');
-    R.hintsCenter([['ENTER', 'DESCEND'], ['ESC', 'BACK']], C.W / 2, C.H - 14, MUTED, GOLD);
+    R.hintsCenter([['ENTER', 'DESCEND'], ['ESC', 'BACK'], ['F2', 'FULLSCREEN']],
+                  C.W / 2, C.H - 14, MUTED, GOLD);
     DS.Ptr.cursor();
   }
 

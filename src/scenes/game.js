@@ -813,6 +813,9 @@ window.DS = window.DS || {};
     if (!vox) DS.Puzzle.draw(g);
     DS.Bonus.draw(g);
     if (!vox) Ent.drawPickups(g);
+    // Rarity tags float over the drop in both modes — the 2D canvas is the top
+    // layer, so the label lands over the 3D model too.
+    Ent.drawDropLabels(g);
 
     if (!vox) {
       for (let i = 0; i < g.enemies.length; i++) {

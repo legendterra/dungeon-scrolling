@@ -445,6 +445,22 @@ window.DS = window.DS || {};
     }
   }
 
+  /* The two rarities worth extra weight: the ones you would cross a room for.
+
+     item.rarity is an INDEX into Weapons.RARITY, not a name — keying a set of
+     names straight off it matched nothing, which is why no drop ever carried a
+     floor ring or a tag. */
+  const RARE_KEYS = { epic: true, legendary: true };
+
+  function rarityKey(item) {
+    const cfg = (item && DS.Weapons.RARITY) ? DS.Weapons.RARITY[item.rarity] : null;
+    return cfg ? cfg.key : null;
+  }
+
+  function isRareDrop(p) {
+    return p.kind === 'item' && !!p.item && !!RARE_KEYS[rarityKey(p.item)];
+  }
+
   function drawPickups(g) {
     const R = DS.R, S = DS.SPR;
     for (let i = 0; i < g.pickups.length; i++) {
@@ -454,15 +470,61 @@ window.DS = window.DS || {};
       // Blink out over the last second of life.
       if (p.life < 60 && Math.floor(p.life / 5) % 2 === 0) continue;
 
-      if (p.kind === 'coin') R.spr(S.coin, p.x, p.y + bob);
-      else if (p.kind === 'heart') R.spr(S.heart, p.x, p.y + bob);
-      else if (p.kind === 'shard') R.spr(S.shard, p.x, p.y + bob);
-      else if (p.kind === 'key') R.spr(S.key, p.x, p.y + bob);
-      else if (p.kind === 'item') {
+      // Without the voxel layer these sprites ARE the drop, so the floor glow
+      // under each one is what makes a coin findable in a dark room.
+      if (p.kind === 'coin') {
+        DS.Map.glow(R, centerX(p), p.y + p.h + bob, 12, 'rgba(212,160,70,0.30)');
+        R.spr(S.coin, p.x, p.y + bob);
+      } else if (p.kind === 'heart') {
+        DS.Map.glow(R, centerX(p), p.y + p.h + bob, 12, 'rgba(192,48,60,0.26)');
+        R.spr(S.heart, p.x, p.y + bob);
+      } else if (p.kind === 'shard') {
+        DS.Map.glow(R, centerX(p), p.y + p.h + bob, 12, 'rgba(79,179,224,0.28)');
+        R.spr(S.shard, p.x, p.y + bob);
+      } else if (p.kind === 'key') {
+        DS.Map.glow(R, centerX(p), centerY(p) + bob, 20, 'rgba(242,193,78,0.30)');
+        R.spr(S.key, p.x, p.y + bob);
+      } else if (p.kind === 'item') {
         const color = DS.Weapons.rarityColor(p.item.rarity);
-        DS.Map.glow(R, centerX(p), centerY(p) + bob, 16, hexToGlow(color));
+        const rare = isRareDrop(p);
+        DS.Map.glow(R, centerX(p), centerY(p) + bob, rare ? 26 : 18, hexToGlow(color));
         R.spr(S.itemIcon(p.item), p.x, p.y + bob);
+        // A ring on the floor for the rarities worth a detour.
+        if (rare) {
+          R.arc(centerX(p), p.y + p.h + 1, 9 + Math.sin(p.frame * 0.08),
+                Math.PI * 1.1, Math.PI * 1.9, color, 1);
+          R.arc(centerX(p), p.y + p.h + 1, 9 - Math.sin(p.frame * 0.08),
+                0.1, 0.9, color, 1);
+        }
       }
+    }
+  }
+
+  /* The tag over a drop worth crossing the room for.
+
+     Glow tells you something dropped; only a name tells you WHICH thing, and
+     on a busy floor the difference between an epic and a common is the only
+     reason to change course. Epic and legendary only — a label on every coin
+     is noise. Drawn in both render modes: the 2D canvas sits over the 3D one,
+     so the tag floats over the model either way. */
+  function drawDropLabels(g) {
+    const R = DS.R;
+    if (!g.pickups || !DS.Weapons.RARITY) return;
+    for (let i = 0; i < g.pickups.length; i++) {
+      const p = g.pickups[i];
+      if (!isRareDrop(p)) continue;
+      const cfg = DS.Weapons.RARITY[p.item.rarity];
+      // Matches the drop's own expire blink rather than floating over a ghost.
+      if (p.life < 60 && Math.floor(p.life / 5) % 2 === 0) continue;
+
+      const label = (cfg.label || cfg.key).toUpperCase();
+      const w = R.textSmallWidth(label);
+      const bob = Math.sin(p.frame * 0.06) * 1.5;
+      // textSmall is a SCREEN-space call — the world position has to go through
+      // the camera first, or the tag lands wherever the camera happens to be.
+      const x = Math.round(R.toScreenX(p.x + p.w * 0.5) - w / 2);
+      const y = Math.round(R.toScreenY(p.y) - 13 + bob);
+      R.textSmall(label, x, y, cfg.color || '#ffffff');
     }
   }
 
@@ -565,6 +627,7 @@ window.DS = window.DS || {};
     updatePickups: updatePickups,
     drawPickups: drawPickups,
     makeChest: makeChest,
+    drawDropLabels: drawDropLabels,
     openChest: openChest,
     drawChests: drawChests,
     spawnLoot: spawnLoot

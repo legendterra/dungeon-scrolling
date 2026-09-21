@@ -472,10 +472,111 @@ window.DS = window.DS || {};
     return { root, torso: root, head: root, rune, armL: null, armR: null, legL: null, legR: null, height: 1.9 };
   }
 
+  /* Chests: one silhouette per tier, so what is inside reads from across the
+     room. Origin at the BOTTOM CENTRE of the box — the same convention as the
+     crates and the shrine — so the renderer can drop one straight onto the
+     floor line without a magic offset. The lid lives in its own hinge group at
+     the back edge; the renderer swings it open by rotating that group. */
+  function buildChest(info) {
+    const tier = (info && info.tier) || 'wood';
+    const root = new THREE.Group();
+
+    let bodyCol = 0x6b4726, trimCol = C.gold, bandCol = 0x442c18;
+    let glow = null, glowI = 0;
+    if (tier === 'iron') { bodyCol = 0x596074; trimCol = C.metal; bandCol = C.metalDark; }
+    else if (tier === 'cursed') {
+      bodyCol = 0x33254a; trimCol = C.purple; bandCol = 0x1d1430;
+      glow = C.purple; glowI = 0.55;
+    } else if (tier === 'vault') {
+      bodyCol = 0x7a5716; trimCol = C.gold; bandCol = C.goldDark;
+      glow = 0xffe066; glowI = 0.45;
+    }
+
+    const W = 1.34, D = 0.9, baseH = 0.6, lidH = 0.42;
+    const bands = tier === 'vault' ? 3 : 2;
+
+    // --- the box ---
+    part(root, W, baseH, D, 0, baseH / 2, 0, bodyCol,
+         glow ? { emissive: glow, emissiveI: glowI * 0.3 } : null);
+    for (let i = -1; i <= 1; i++) {
+      part(root, W + 0.015, 0.03, D + 0.015, 0, baseH * 0.5 + i * 0.17, 0, bandCol);
+    }
+    for (let i = 0; i < bands; i++) {
+      const bx = (i - (bands - 1) / 2) * (W / (bands + 0.45));
+      part(root, 0.1, baseH + 0.02, D + 0.035, bx, baseH / 2, 0, trimCol,
+           glow ? { emissive: glow, emissiveI: glowI } : null);
+      // Rivets on the front face of each band.
+      part(root, 0.045, 0.045, 0.03, bx, baseH * 0.24, D * 0.5 + 0.03, bandCol);
+      part(root, 0.045, 0.045, 0.03, bx, baseH * 0.78, D * 0.5 + 0.03, bandCol);
+    }
+    // Lock plate, hasp and keyhole on the face the player looks at (+z).
+    part(root, 0.22, 0.26, 0.06, 0, baseH * 0.58, D * 0.5 + 0.01, C.metalDark);
+    part(root, 0.1, 0.1, 0.05, 0, baseH * 0.58, D * 0.5 + 0.05, trimCol,
+         glow ? { emissive: glow, emissiveI: glowI } : null);
+    part(root, 0.05, 0.09, 0.05, 0, baseH * 0.46, D * 0.5 + 0.05, C.black);
+    if (tier === 'iron') {
+      // A padlock hanging off the plate: this is the chest that arrives locked.
+      part(root, 0.15, 0.15, 0.11, 0, baseH * 0.33, D * 0.5 + 0.07, C.metalDark);
+      part(root, 0.08, 0.09, 0.05, 0, baseH * 0.42, D * 0.5 + 0.07, C.black);
+      part(root, 0.06, 0.08, 0.05, 0, baseH * 0.24, D * 0.5 + 0.1, C.metal);
+    }
+    // Feet, so the box is not a slab balancing on its edge.
+    for (let sx = -1; sx <= 1; sx += 2) {
+      for (let sz = -1; sz <= 1; sz += 2) {
+        part(root, 0.14, 0.06, 0.14, sx * (W / 2 - 0.12), 0.03, sz * (D / 2 - 0.12), bandCol);
+      }
+    }
+
+    // --- the treasure, so an opened chest is not an empty hole ---
+    const pile = new THREE.Group();
+    pile.position.y = baseH - 0.06;
+    for (let i = 0; i < 5; i++) {
+      part(pile, 0.2, 0.06, 0.2, (i % 3 - 1) * 0.26, i * 0.035, (i % 2 - 0.5) * 0.3, C.gold);
+    }
+    root.add(pile);
+
+    // --- the lid, hinged at the back edge ---
+    const lid = new THREE.Group();
+    lid.position.set(0, baseH, -D / 2);
+    part(lid, W + 0.05, lidH, D + 0.02, 0, lidH / 2, D / 2, bodyCol,
+         glow ? { emissive: glow, emissiveI: glowI * 0.3 } : null);
+    for (let i = 0; i < bands; i++) {
+      const bx = (i - (bands - 1) / 2) * (W / (bands + 0.45));
+      part(lid, 0.1, lidH + 0.03, D + 0.045, bx, lidH / 2, D / 2, trimCol,
+           glow ? { emissive: glow, emissiveI: glowI } : null);
+    }
+    part(lid, W + 0.06, 0.04, D + 0.05, 0, lidH + 0.01, D / 2, bandCol);
+
+    if (tier === 'cursed') {
+      // A skull on the lid: the chest that bites back.
+      part(lid, 0.26, 0.22, 0.1, 0, lidH * 0.6, D * 0.5 + 0.06, C.bone);
+      part(lid, 0.06, 0.06, 0.05, -0.06, lidH * 0.62, D * 0.5 + 0.12, C.purple,
+           { emissive: C.purple, emissiveI: 1 });
+      part(lid, 0.06, 0.06, 0.05, 0.06, lidH * 0.62, D * 0.5 + 0.12, C.purple,
+           { emissive: C.purple, emissiveI: 1 });
+      part(lid, 0.04, 0.06, 0.06, 0, lidH * 0.42, D * 0.5 + 0.1, C.boneDark);
+    } else if (tier === 'vault') {
+      // Crown gem + gold trim: the floor-boss reward.
+      part(lid, 0.24, 0.24, 0.14, 0, lidH + 0.1, D * 0.5 + 0.05, 0xa8e4ff,
+           { emissive: 0x4fb3e0, emissiveI: 1 });
+      part(lid, 0.1, 0.1, 0.16, -0.28, lidH + 0.02, D * 0.5 + 0.02, C.gold);
+      part(lid, 0.1, 0.1, 0.16, 0.28, lidH + 0.02, D * 0.5 + 0.02, C.gold);
+    } else if (tier === 'wood') {
+      // Rope straps: cheap, and they say "wooden" instantly.
+      part(lid, 0.09, lidH + 0.04, D + 0.05, -0.42, lidH / 2, D / 2, C.leatherDark);
+      part(lid, 0.09, lidH + 0.04, D + 0.05, 0.42, lidH / 2, D / 2, C.leatherDark);
+    }
+
+    root.add(lid);
+    return { root, lid, height: baseH + lidH, torso: root, head: root,
+             armL: null, armR: null, legL: null, legR: null };
+  }
+
   // --- registry --------------------------------------------------------------
 
   const BUILDERS = {
     hero: buildHero,
+    chest: buildChest,
     merchant: buildMerchant,
     table: buildTable,
     shrine: buildShrine,
@@ -501,7 +602,7 @@ window.DS = window.DS || {};
     hero: 1.28, slime: 0.9, slimeking: 2.1, zombie: 1.25, skeleton: 1.2,
     bat: 0.8, spider: 0.75, spitter: 1.3, bomber: 1.2, shielder: 1.35,
     wraith: 1.55, necromancer: 1.55, golem: 1.9, warden: 2.8, arbiter: 2.3,
-    merchant: 1.28, table: 0.72, shrine: 1.9
+    merchant: 1.28, table: 0.72, shrine: 1.9, chest: 1.02
   };
 
   // kindForEntity maps any game entity onto a builder key.
@@ -800,31 +901,83 @@ window.DS = window.DS || {};
     return 0xc86ee0;  // hostile dark
   }
 
+  /* A disc — a coin or a key bow is not a box, and at pickup size the
+     silhouette is the whole read. Faces the camera (+z), both sides visible. */
+  function disc(parent, r, thickness, x, y, z, color, opts) {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, thickness, 12), mat(color, opts));
+    m.rotation.x = Math.PI / 2;
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  }
+
+  /* Drops. Read at a glance across a lit floor, so each one is a recognisable
+     little object — a stack of coins, a plump heart, a faceted shard, a real
+     key, a rarity gem with a halo — instead of a coloured speck. Origin sits
+     at the drop's own bottom edge, so the 2D physics can rest it on the floor
+     and the model lands with it. */
   function buildPickup(kind, color) {
     const g = new THREE.Group();
     switch (kind) {
-      case 'coin':
-        part(g, 0.18, 0.18, 0.05, 0, 0, 0, C.gold, { emissive: 0x8a6a10 });
+      case 'coin': {
+        // A leaning stack: three faces at slightly different angles read as a
+        // pile rather than one disc edge-on.
+        for (let i = 0; i < 3; i++) {
+          const y = 0.06 + i * 0.08;
+          const off = i * 0.05;
+          disc(g, 0.24, 0.07, off - 0.05, y, off * 0.6, C.gold,
+               { emissive: 0x8a6a10, emissiveI: 0.55 });
+          disc(g, 0.15, 0.08, off - 0.05, y, off * 0.6 + 0.04, 0xf5d264,
+               { emissive: 0xd4a046, emissiveI: 0.8 });
+        }
+        part(g, 0.08, 0.08, 0.08, 0, 0.36, 0, 0xfff3c4,
+             { emissive: 0xffe066, emissiveI: 1 });
         break;
-      case 'heart':
-        part(g, 0.1, 0.12, 0.08, -0.07, 0.04, 0, C.red);
-        part(g, 0.1, 0.12, 0.08, 0.07, 0.04, 0, C.red);
-        part(g, 0.16, 0.08, 0.08, 0, -0.05, 0, C.red);
-        part(g, 0.05, 0.1, 0.06, 0, -0.1, 0, C.redDark);
+      }
+      case 'heart': {
+        part(g, 0.2, 0.2, 0.18, -0.11, 0.34, 0, C.red, { emissive: C.redDark, emissiveI: 0.5 });
+        part(g, 0.2, 0.2, 0.18, 0.11, 0.34, 0, C.red, { emissive: C.redDark, emissiveI: 0.5 });
+        part(g, 0.3, 0.16, 0.18, 0, 0.22, 0, C.red, { emissive: C.redDark, emissiveI: 0.5 });
+        part(g, 0.2, 0.16, 0.17, 0, 0.12, 0, C.red, { emissive: C.redDark, emissiveI: 0.5 });
+        part(g, 0.1, 0.12, 0.16, 0, 0.05, 0, C.redDark);
+        // Shine so it reads as a solid, not a smudge.
+        part(g, 0.07, 0.09, 0.06, -0.13, 0.4, 0.09, C.white, { opacity: 0.7 });
         break;
-      case 'shard':
-        part(g, 0.1, 0.2, 0.05, 0, 0, 0, C.teal, { emissive: 0x2f6fa8 });
-        part(g, 0.05, 0.1, 0.05, 0, -0.12, 0, C.teal);
+      }
+      case 'shard': {
+        // A crystal: two rotated blocks for facets, a bright core inside.
+        const big = part(g, 0.2, 0.36, 0.2, 0, 0.2, 0, C.teal,
+                         { emissive: 0x2f6fa8, emissiveI: 0.7 });
+        big.rotation.y = Math.PI / 4;
+        const tip = part(g, 0.13, 0.2, 0.13, 0, 0.44, 0, 0x7fe8ff,
+                         { emissive: 0x4fb3e0, emissiveI: 1 });
+        tip.rotation.y = Math.PI / 4;
+        part(g, 0.09, 0.2, 0.09, 0, 0.22, 0, C.white, { emissive: C.white, emissiveI: 0.9, opacity: 0.85 });
+        part(g, 0.16, 0.1, 0.16, 0, 0.06, 0, C.tealDark);
         break;
-      case 'key':
-        part(g, 0.05, 0.3, 0.03, 0, 0, 0, C.gold);
-        part(g, 0.16, 0.05, 0.04, 0.05, -0.1, 0, C.gold);
-        part(g, 0.14, 0.14, 0.04, 0, 0.18, 0, C.gold);
+      }
+      case 'key': {
+        disc(g, 0.15, 0.07, 0, 0.44, 0, C.gold, { emissive: 0xb8860b, emissiveI: 0.6 });
+        disc(g, 0.06, 0.08, 0, 0.44, 0.02, 0x1c1a24);
+        part(g, 0.07, 0.34, 0.05, 0, 0.22, 0, C.gold, { emissive: 0xb8860b, emissiveI: 0.5 });
+        part(g, 0.05, 0.05, 0.05, 0, 0.02, 0, C.gold);
+        part(g, 0.15, 0.06, 0.05, 0.07, 0.13, 0, C.gold, { emissive: 0xb8860b, emissiveI: 0.5 });
+        part(g, 0.1, 0.06, 0.05, 0.05, 0.04, 0, C.gold, { emissive: 0xb8860b, emissiveI: 0.5 });
         break;
-      default: {  // item drop: a little rarity-coloured gem
+      }
+      default: {  // item drop: a rarity gem with a halo and orbiting motes
         const col = tintFromCss(color) || C.gold;
-        part(g, 0.2, 0.2, 0.2, 0, 0, 0, col, { emissive: col, emissiveI: 0.5 });
-        part(g, 0.26, 0.05, 0.26, 0, 0.12, 0, C.white, { opacity: 0.6 });
+        const body = part(g, 0.26, 0.26, 0.26, 0, 0.24, 0, col,
+                          { emissive: col, emissiveI: 0.65 });
+        body.rotation.set(Math.PI / 4, Math.PI / 4, 0);
+        const core = part(g, 0.14, 0.14, 0.14, 0, 0.24, 0, C.white,
+                          { emissive: col, emissiveI: 1 });
+        core.rotation.set(Math.PI / 4, Math.PI / 4, 0);
+        // Halo ring, lying flat, like the chest beam in miniature.
+        const halo = part(g, 0.46, 0.03, 0.46, 0, 0.06, 0, col,
+                          { emissive: col, emissiveI: 0.7, opacity: 0.6 });
+        halo.rotation.y = Math.PI / 4;
+        part(g, 0.34, 0.02, 0.34, 0, 0.44, 0, C.white, { opacity: 0.45 });
       }
     }
     return g;

@@ -252,6 +252,7 @@ window.DS = window.DS || {};
 
     checkWater(g, p);
     move(g, p);
+    refreshAim(p);
     handleJump(g, p);
     handleDash(g, p);
     handleSkills(g, p);
@@ -530,6 +531,62 @@ window.DS = window.DS || {};
     }
   }
 
+  /* --- aiming ---------------------------------------------------------------
+
+     Bow and staff are pointed with the MOUSE. The pointer is already tracked in
+     logical screen pixels and R.toWorldX/toWorldY is the exact inverse of the
+     camera transform, so the aim point is simply the world tile under the
+     cursor.
+
+     Aiming changes the DIRECTION of a shot, never its physics: the muzzle speed
+     still comes from the weapon data, arrows still fall under shotCfg.gravity,
+     and the firing cone is clamped so a shot can never come out straight down
+     or backwards through the player. Charge still buys speed, so range is
+     still earned. */
+  const AIM_MAX_PITCH = 1.0;      // ~57 degrees above or below the horizon
+
+  function isRanged(base) {
+    return !!(base && (base.ranged || base.holdMode === 'release'));
+  }
+
+  /* Unit vector from the muzzle toward the cursor, or null when there is no
+     mouse to aim with (keyboard-only play keeps the old facing-based shot). */
+  function aimVector(p) {
+    const In = DS.Input, R = DS.R;
+    if (!In || !In.hasMouse || !In.hasMouse() || !R || !R.toWorldX) return null;
+    const m = In.mouse;
+    const dxw = R.toWorldX(m.x) - Ent.centerX(p);
+    const dyw = R.toWorldY(m.y) - (Ent.centerY(p) - 2);
+    const len = Math.sqrt(dxw * dxw + dyw * dyw);
+    if (len < 1.5) return null;                 // cursor sits on the muzzle
+
+    let dx = dxw / len, dy = dyw / len;
+    const sinMax = Math.sin(AIM_MAX_PITCH);
+    if (dy > sinMax || dy < -sinMax) {
+      dy = M.sign(dy) * sinMax;
+      dx = (M.sign(dx) || p.facing || 1) * Math.cos(AIM_MAX_PITCH);
+      const l2 = Math.sqrt(dx * dx + dy * dy) || 1;
+      dx /= l2; dy /= l2;
+    }
+    if (Math.abs(dx) < 0.05) dx = (p.facing || 1) * 0.05;
+    return { x: dx, y: dy };
+  }
+
+  /* Written once per frame so the HUD reticle and the 3D arm pitch both read
+     the same aim the shot will use. */
+  function refreshAim(p) {
+    const item = DS.Inv.weapon(p.inv);
+    const base = item ? W.WEAPONS[item.type] : null;
+    if (!isRanged(base)) { p.aim = null; return; }
+
+    const v = aimVector(p);
+    if (!v) { p.aim = null; return; }
+    p.aim = v;
+    // The body turns the way you are shooting, so the shot leaves the bow the
+    // way the model is holding it.
+    if (p.attackActive <= 0) p.facing = M.sign(v.x) || p.facing;
+  }
+
   // --- attacking ------------------------------------------------------------
 
   function handleAttack(g, p) {
@@ -714,7 +771,13 @@ window.DS = window.DS || {};
     const chargeMult = (1 + ratio * (base.chargeBonus - 1)) * damageMult(g, p);
     const crit = DS.rand.chance(critChance(p, stats.crit));
 
-    p.attackDir = p.facing;
+    // Aim at the cursor when there is one; the keyboard fallback shoots along
+    // the facing, exactly as before.
+    const aim = aimVector(p);
+    const dirX = aim ? aim.x : (p.facing || 1);
+    const dirY = aim ? aim.y : 0;
+
+    p.attackDir = M.sign(dirX) || p.facing;
     p.attackHeavy = ratio > 0.85;
     p.swingMax = 12;
     p.swingTimer = 12;
@@ -723,10 +786,10 @@ window.DS = window.DS || {};
     const speed = shotCfg.speed * (0.6 + ratio * 0.4);
 
     const proj = {
-      x: Ent.centerX(p) + p.facing * 7,
-      y: Ent.centerY(p) - 2,
-      vx: p.facing * speed,
-      vy: 0,
+      x: Ent.centerX(p) + dirX * 8,
+      y: Ent.centerY(p) - 2 + dirY * 8,
+      vx: dirX * speed,
+      vy: dirY * speed,
       damage: stats.damage * chargeMult * (crit ? stats.critDamage : 1),
       friendly: true,
       kind: shotCfg.kind,
@@ -738,7 +801,11 @@ window.DS = window.DS || {};
       knockback: stats.knockback,
       pierce: (ratio > 0.95 ? 1 : 0) + DS.Boons.flag(p.inv, 'pierce'),
       w: shotCfg.kind === 'arrow' ? 8 : 6,
-      h: shotCfg.kind === 'arrow' ? 3 : 6
+      h: shotCfg.kind === 'arrow' ? 3 : 6,
+      /* The shot is fired from where the cursor points, so a hovering reticle
+         is not needed on the projectile — but the arrow keeps its gravity and
+         the staff bolt keeps its own, so both still arc. */
+      aimed: !!aim
     };
 
     if (item.element) {
@@ -958,6 +1025,8 @@ window.DS = window.DS || {};
     hurt: hurt,
     touch: touch,
     meleeRect: meleeRect,
+    aimVector: aimVector,
+    isRanged: isRanged,
     damageMult: damageMult,
     MINI_CHARGES: MINI_CHARGES,
     MINI_RECHARGE: MINI_RECHARGE

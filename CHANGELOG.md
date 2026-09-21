@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v3.1.0] - 2026-09 - Grounding Pass, Cursor Aiming & True Fullscreen
+
+### Added
+- **Cursor Aiming for Ranged Weapons**: Bows and staves now fire along the cursor instead of the character's facing.
+  - `aimVector()` in `src/entities/player.js` converts the pointer to a world point through `R.toWorldX/Y` and returns a unit direction toward it.
+  - Fire cone clamped to ±57° (`AIM_MAX_PITCH`), so a shot can never leave straight down or backwards through the player; muzzle speed, charge bonus and `shot.gravity` are untouched, so arrows still arc and range is still earned.
+  - The 3D arm pitch follows the same aim vector (smoothed), and keyboard-only play keeps the original facing-based shot.
+- **Real Fullscreen Toggle**: `F2` requests fullscreen on the document root (`DS.R.toggleFullscreen()`), re-fitting the canvas on `fullscreenchange`.
+- **3D Inventory Armory**: The character doll in the bag screen is now a live WebGL viewport (scissored region of the same Three.js render) showing the equipped armor pieces **and** main/off-hand weapons, replacing the flat 2D paperdoll.
+- **Drop Readability Pass**: Loot and coins got larger voxel models, a floor glow pool, a rarity-coloured beam, a landing pop, and a floating rarity label for high tiers.
+- **Per-Tier Chest Models**: Wood, iron, cursed and vault chests each have their own voxel silhouette (banding, locks, gem) instead of one shared box.
+- **Trial Chamber 3D Hardware**: `THE GODS HATE YOU` now builds real 3D pressure plates and braziers, plus a dedicated trial theme in the 3D renderer.
+- **Plate Progress Readout**: `PLATES n / N` under the depth header, so it is clear how many plates must be held at once.
+
+### Changed
+- **Fit-To-Window Scaling** (`src/core/renderer.js`): the old rule floored the scale to a multiple of `RS` after subtracting a 24px pad, so a 1920×1080 window rendered at 1280×720 — two thirds of the screen, and players had to reach for browser zoom. The canvas now fills the window exactly (1920×1080 → 1920×1080) and only falls back to an even multiple when it wastes under 8% of the viewport.
+- **All Props Share One Floor Anchor**: chests, shrines, levers, pressure plates, pickups and braziers are placed from the tile's real floor line rather than per-object offsets, which is what let them sink into or hover above the ground.
+
+### Fixed
+- **Chests Clipping Into The Floor**: `createChestMesh` planted the model at `cy + 16` while the floor line is `cy + 11.5`, burying half of every chest.
+- **Bow / Staff Ignoring The Cursor**: shots always flew along the facing direction, so aiming the pointer did nothing.
+- **Trial Puzzle Invisible**: the 3D proxy layer only understood `kind: 'plate'`, while the trial hall is a `kind: 'plateset'` — its plates and braziers were never built at all, leaving a locked gate with no visible puzzle behind it.
+- **Plate Counter Never Drawn**: the readout sat after the wall inscription's off-screen early-return, so it vanished exactly where the player needed it (in the hall).
+- **Dropped Items Half-Buried**: pickups were anchored to the middle of their hitbox instead of their feet, so they sank into the tile they landed on.
+
+---
+
 ## [v3.0.0] - 2026-09 - Hybrid 3D Voxel Engine & Multi-AI Overhaul
 
 ### Added
