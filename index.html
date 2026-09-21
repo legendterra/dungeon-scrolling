@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dungeon Scrolling</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; background: #08070c; overflow: hidden;
+  }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font-family: ui-monospace, Consolas, monospace;
+    -webkit-user-select: none; user-select: none;
+  }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    display: block;
+    box-shadow: 0 0 0 2px #1c1a2b, 0 0 48px rgba(0,0,0,.9);
+  }
+  #game-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #game {
+    position: relative;
+    z-index: 2;
+  }
+  #game3d {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="game3d"></canvas>
+  <canvas id="game"></canvas>
+</div>
+
+<!-- Loaded as classic scripts (not ES modules) so the game runs straight from file:// -->
+<script src="./libs/three.min.js?v=2"></script>
+<script src="./src/core/rng.js?v=2"></script>
+<script src="./src/core/storage.js?v=2"></script>
+<script src="./src/core/input.js?v=2"></script>
+<script src="./src/core/audio.js?v=2"></script>
+<script src="./src/art/base.js?v=2"></script>
+<script src="./src/art/king.js?v=2"></script>
+<script src="./src/art/sprites.js?v=2"></script>
+<script src="./src/art/biomes.js?v=2"></script>
+<script src="./src/art/backdrop.js?v=2"></script>
+<script src="./src/core/renderer.js?v=2"></script>
+<!-- Voxel models feed the 3D renderer, so they load first. -->
+<script src="./src/core/voxel.js?v=2"></script>
+<script src="./src/core/renderer3d.js?v=2"></script>
+<script src="./src/systems/physics.js?v=2"></script>
+<script src="./src/systems/particles.js?v=2"></script>
+<script src="./src/systems/lighting.js?v=2"></script>
+<script src="./src/systems/elements.js?v=2"></script>
+<script src="./src/systems/modifiers.js?v=2"></script>
+<script src="./src/systems/boons.js?v=2"></script>
+<script src="./src/items/weapons.js?v=2"></script>
+<script src="./src/items/affixes.js?v=2"></script>
+<script src="./src/items/generator.js?v=2"></script>
+<script src="./src/items/armor.js?v=2"></script>
+<!-- Paperdoll reads DS.Armor at load, so it follows armor.js. -->
+<script src="./src/art/paperdoll.js?v=2"></script>
+<script src="./src/art/faces.js?v=2"></script>
+<script src="./src/art/fxart.js?v=2"></script>
+<!-- Interface art needs the sprite tables it decorates. -->
+<script src="./src/art/uiart.js?v=2"></script>
+<script src="./src/items/inventory.js?v=2"></script>
+<script src="./src/world/tilemap.js?v=2"></script>
+<script src="./src/world/parkour.js?v=2"></script>
+<script src="./src/world/generator.js?v=2"></script>
+<script src="./src/world/hazards.js?v=2"></script>
+<script src="./src/world/puzzle.js?v=2"></script>
+<script src="./src/world/mountain.js?v=2"></script>
+<script src="./src/world/trial.js?v=2"></script>
+<script src="./src/entities/base.js?v=2"></script>
+<script src="./src/entities/player.js?t=123"></script>
+<script src="./src/entities/enemies.js?v=2"></script>
+<script src="./src/entities/enemies2.js?v=2"></script>
+<script src="./src/world/bonus.js?v=2"></script>
+<!-- Water registers its own monster, so it follows the bestiary. -->
+<script src="./src/world/water.js?v=2"></script>
+<script src="./src/entities/boss.js?v=2"></script>
+<script src="./src/entities/bosses.js?v=2"></script>
+<!-- Skills capture DS.Ent / DS.Inv / DS.Weapons at load, so they come last. -->
+<script src="./src/systems/skills.js?v=2"></script>
+<script src="./src/ui/pointer.js?v=2"></script>
+<script src="./src/ui/ui.js?v=2"></script>
+<script src="./src/ui/profile.js?v=2"></script>
+<script src="./src/scenes/cutscene.js?v=2"></script>
+<script src="./src/scenes/menu.js?v=2"></script>
+<script src="./src/scenes/game.js?v=2"></script>
+<script src="./src/main.js?v=2"></script>
+</body>
+</html>

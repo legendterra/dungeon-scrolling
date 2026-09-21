@@ -1,0 +1,75 @@
+# -*- coding: utf-8 -*-
+from _gen import block, emit
+
+# id, slug, name, w, h, core, idle, move, atk, death, move_frames
+E=[
+("ENM-01","slime","Slime",16,12,"Green gelatinous blob monster with two black dot eyes and a wet white highlight, palette #1b4436 #2f7d4f #5cbf62 #a3e86b.",
+ "idle squash-and-stretch breathing: frame 1 resting dome, frame 2 slightly squashed and wider",
+ "hopping locomotion: compress, launch upward stretched tall, airborne, land splattered wide",
+ "wind-up before a lunge: frame 1 pulled back and compressed low, frame 2 reared up tall with the body leaning forward",
+ "death: frame 1 split with cracks, frame 2 collapsing, frame 3 flat spreading puddle with the eyes sinking",4),
+("ENM-02","zombie","Zombie",12,16,"Shambling rotten corpse with torn clothes, exposed ribs and one dangling arm, palette #2f7d4f #6e1b28 #514c72.",
+ "idle sway: frame 1 hunched, frame 2 leaning 2 pixels further with the head lolling",
+ "shambling walk cycle, dragging one leg, the dangling arm swinging out of sync",
+ "attack wind-up: frame 1 both arms drawn back, frame 2 both arms thrust forward with the jaw open",
+ "death: frame 1 head snapping back, frame 2 buckling at the knees, frame 3 crumpled pile of limbs and rags",4),
+("ENM-03","bat","Bat",12,10,"Small leathery cave bat with red pinprick eyes, palette #514c72 #6e1b28 #9b96b8.",
+ "idle hover: frame 1 wings level, frame 2 wings slightly raised",
+ "flap cycle: wings fully up, wings mid, wings fully down, wings mid",
+ "dive wind-up: frame 1 wings folded back and body tilted nose-down, frame 2 mouth open showing tiny fangs",
+ "death: frame 1 wings crumpling, frame 2 tumbling upside down, frame 3 collapsed with wings folded over the body",4),
+("ENM-04","skelarcher","Skeleton archer",12,16,"Bony skeleton archer with a short bow, glowing eye sockets and a tattered quiver, palette #d8d5e8 #9b96b8 #6f6a90.",
+ "idle: frame 1 bow held low, frame 2 skull tilting and eye sockets brightening",
+ "walk cycle, bones rattling, quiver bouncing on the back",
+ "draw and release: frame 1 bowstring pulled fully back with an arrow nocked, frame 2 string released and the bow snapping straight",
+ "death: frame 1 ribcage cracking, frame 2 bones separating mid-air, frame 3 scattered bone pile with the skull on top",4),
+("ENM-05","spitter","Spitter",12,12,"Squat armored maw creature with a big circular mouth and acid drool, palette #5cbf62 #a3e86b #1b4436.",
+ "idle: frame 1 mouth closed, frame 2 mouth slightly parted with a drool bead",
+ "slow crawl on stubby legs, body rocking side to side",
+ "spit wind-up: frame 1 head pulled back and throat swelling, frame 2 mouth wide open firing acid",
+ "death: frame 1 armor plates cracking, frame 2 body deflating, frame 3 flat shell with acid leaking out",4),
+("ENM-06","spider","Spider",12,12,"Chitinous cave spider with eight legs and two white eye clusters, palette #1c1a2b #3c2154 #d8d5e8.",
+ "idle: frame 1 legs planted, frame 2 legs flexing and the body dipping 2 pixels",
+ "scuttle cycle, legs alternating in two groups of four",
+ "pounce wind-up: frame 1 tucked into a compact ball, frame 2 legs sprung wide with fangs bared",
+ "death: frame 1 legs curling inward, frame 2 flipping onto its back, frame 3 legs fully curled over the underside",4),
+("ENM-07","bomber","Bomber",12,12,"Bloated exploding creature with a glowing cracked belly and a blinking red core, palette #8a3b2a #e8743b #f2c14e.",
+ "idle: frame 1 core dim, frame 2 core glowing bright through the belly cracks",
+ "waddling bounce cycle, belly wobbling",
+ "detonation wind-up: frame 1 body swelling with the cracks widening, frame 2 nearly spherical and the core blindingly bright",
+ "death: frame 1 rupturing, frame 2 bursting into fire chunks, frame 3 charred scraps and smoke",4),
+("ENM-08","shielder","Shielder",12,16,"Heavy armored guard holding a large tower shield covering its front, vulnerable back, palette #6f6a90 #9b96b8 #2a2740.",
+ "idle: frame 1 shield planted, frame 2 shield raised 2 pixels with the helm shifting",
+ "heavy march cycle, shield locked forward, slow deliberate steps",
+ "shield bash wind-up: frame 1 shield pulled back against the shoulder, frame 2 shield rammed forward past the body",
+ "death: frame 1 shield dropping, frame 2 falling to the knees, frame 3 armor collapsed with the shield flat on the ground",4),
+("ENM-09","wraith","Wraith",12,16,"Floating tattered spectre with no legs, trailing wisps and hollow glowing eyes, semi-transparent lower body rendered with checkerboard dithering, palette #3c2154 #7f45b8 #c86ee0 #a89bff.",
+ "idle float: frame 1 tatters low, frame 2 tatters rising and the eyes brightening",
+ "drifting glide cycle, the wisp tail undulating behind",
+ "claw wind-up: frame 1 arms drawn wide and the cloak flaring, frame 2 clawed hands lashing forward",
+ "death: frame 1 form destabilising, frame 2 dispersing into wisps, frame 3 a few fading motes only",4),
+("ENM-10","necromancer","Necromancer",12,16,"Robed skeletal caster holding a staff crowned with green flame, palette #1b4436 #2f7d4f #d8d5e8 #a3e86b.",
+ "idle: frame 1 staff held upright, frame 2 the green flame flickering taller",
+ "gliding walk cycle, robe hem swaying, staff bobbing",
+ "summon wind-up: frame 1 staff raised overhead with the flame swelling, frame 2 staff slammed down with a burst of green light at the base",
+ "death: frame 1 robe collapsing inward, frame 2 the staff falling free, frame 3 empty heap of robe with the skull rolled aside",4),
+("ENM-11","golem","Golem",16,20,"Bulky animated stone golem with cracked runic seams glowing amber and heavy fists, palette #2a2740 #514c72 #b98d5c #f2c14e.",
+ "idle: frame 1 fists at the sides, frame 2 the rune seams pulsing brighter and the shoulders rising 2 pixels",
+ "heavy stomp cycle, each step planted hard, the body barely bobbing",
+ "smash wind-up: frame 1 both fists raised high overhead with the runes blazing, frame 2 both fists driven into the ground",
+ "death: frame 1 the seams cracking wide, frame 2 the torso breaking apart, frame 3 a pile of rubble with the runes going dark",4),
+]
+
+items=[]
+for eid,slug,name,w,h,core,idl,mov,atk,dth,mf in E:
+    sets=[("idle",2,idl),("move",mf,mov),("attack",2,atk),("death",3,dth)]
+    for k,(tag,n,desc) in enumerate(sets,1):
+        items.append({"id":"%s%s %s %s"%(eid,chr(96+k),name,tag),
+            "file":"enm_%s_%s.png"%(slug,tag),
+            "size":"%dx%d — %d frame @%dx%d"%(w*n,h,n,w,h),
+            "prompt":block(w*n,h,"%s Animation: %s." % (core,desc),n=n,fw=w,fh=h,
+              extra="Facing RIGHT only (the engine mirrors for the left). Identical pivot and ground baseline in every frame — the creature must not drift, jump or change size between frames.")})
+
+emit("03_ENEMIES.md","Batch 3 — Musuh (11 tipe x 4 sheet = 44 file)",
+"Tiap musuh butuh 4 sheet: idle / move / attack-windup / death. Hadap KANAN saja — kode mirror otomatis.\nVarian Elite (tint oranye) dan Miniboss (tint darah, skala 2x) TIDAK perlu digambar, dihasilkan kode.",
+items)

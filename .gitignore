@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Local / Temporary Logs and Tooling
+.freebuff/
+*.log
+*.log.err
+__pycache__/
+*.pyc
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local configuration overrides
+.claude/
+
