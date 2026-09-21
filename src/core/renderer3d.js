@@ -44,6 +44,8 @@ window.DS = window.DS || {};
   let doorPortalObj = null;
   let chestMeshes = [];
   let plateMeshes = [];
+  /* Both are dead: the backdrop is geometry now. Kept as null guards for the
+     teardown path, which predates the recipe builder. */
   let backdropMesh = null;
   let hazardMeshes = [];
   let spikeMeshes = [];
@@ -102,7 +104,19 @@ window.DS = window.DS || {};
     nest:   { fog: 0x1a060a, ambient: 0x6e323c, hemiSky: 0x86404a, hemiGround: 0x24100f, dir: 0xf43f5e, dirI: 0.45 },
     /* The gods hate you: clamped, blood-lit stone, and no green in it at all. */
     trial:  { fog: 0x1c0709, ambient: 0x6e2f2c, hemiSky: 0x8a3a34, hemiGround: 0x26100f, dir: 0xff8a6a, dirI: 0.52 },
-    throne: { fog: 0x221806, ambient: 0x74613a, hemiSky: 0x8d7a48, hemiGround: 0x26200f, dir: 0xfde047, dirI: 0.55 }
+    throne: { fog: 0x221806, ambient: 0x74613a, hemiSky: 0x8d7a48, hemiGround: 0x26200f, dir: 0xfde047, dirI: 0.55 },
+
+    /* --- the biome ladder (see systems/difficulty.js) ---------------------
+       One theme per rung of the journey, so a run's geography reads in the
+       light as well as in the terrain: salt air on the shore, wet crystal in
+       the cave, methane green in the swamp, thin blue at altitude, cold
+       underwater grey in the sunk halls, and ash and ember at the end. */
+    shore:    { fog: 0x101c26, ambient: 0x64788a, hemiSky: 0x88a6c0, hemiGround: 0x2a3238, dir: 0xfff0cc, dirI: 0.62 },
+    cave:     { fog: 0x081614, ambient: 0x3c6a64, hemiSky: 0x4c8c86, hemiGround: 0x121e1c, dir: 0x6ee7d0, dirI: 0.40 },
+    swamp:    { fog: 0x0d1a0c, ambient: 0x4e6a3a, hemiSky: 0x6d8a4c, hemiGround: 0x141a10, dir: 0xb8e06a, dirI: 0.42 },
+    mountain: { fog: 0x141a26, ambient: 0x6a7288, hemiSky: 0x9fb0d0, hemiGround: 0x2a2e38, dir: 0xdceaff, dirI: 0.66 },
+    flooded:  { fog: 0x08161f, ambient: 0x3a6a86, hemiSky: 0x4c8cb0, hemiGround: 0x102028, dir: 0x8fd8ff, dirI: 0.44 },
+    volcanic: { fog: 0x1a0a06, ambient: 0x7a3a28, hemiSky: 0x9a4a2c, hemiGround: 0x241008, dir: 0xff7a3c, dirI: 0.58 }
   };
   const AMBIENT_I = 1.35;
   const HEMI_I = 0.55;
@@ -192,50 +206,498 @@ window.DS = window.DS || {};
     return createTexture(cv);
   }
 
-  /* Sky + mid parallax art composited into one looping backdrop canvas.
-     The mid layer is 640 logical px wide and the sky 320, so the sky is
-     blitted twice — exactly how the 2D renderer stacks them. A darkening
-     wash is baked over the mid art so the far scene sits BEHIND the mood
-     instead of floating over it. */
-  function makeBackdropTexture(biome) {
-    if (!DS.Backdrop || !DS.Backdrop.layersFor) return null;
-    const L = DS.Backdrop.layersFor(biome);
-    if (!L || !L.sky) return null;
+  /* --- the biome backdrop, built out of geometry -----------------------------
 
-    const D = DS.C.RS || 1;
-    const cv = document.createElement('canvas');
-    cv.width = SKY_W * D;
-    cv.height = SKY_H * D;
-    const ctx = cv.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
+     This used to be two flat textured planes: the 2D backdrop art baked into a
+     canvas and hung at z=-8 and z=-2.6. It read as wallpaper - a painting of a
+     room pinned behind a room, with no parallax of its own and no relationship
+     to the level's lights.
 
-    ctx.drawImage(L.sky, 0, 0, cv.width / 2, cv.height);
-    ctx.drawImage(L.sky, cv.width / 2, 0, cv.width / 2, cv.height);
-    if (L.mid) {
-      ctx.drawImage(L.mid, 0, 0, cv.width, cv.height);
-      ctx.fillStyle = 'rgba(8,6,14,0.20)';
-      ctx.fillRect(0, 0, cv.width, cv.height);
+     Every biome now has a RECIPE describing what its horizon is made of, and
+     one builder turns that recipe into real, lit, fogged geometry staged in
+     depth bands. Parallax comes from perspective (the camera only pans, so the
+     bands slide against each other by themselves), fog separates them, and the
+     same torch that lights the walkway now lights the near rock - which is what
+     makes a dark room with a lit background readable at all.
+
+     Everything a layer emits is a BOX (a rock tooth, a pillar, a tree, a plank)
+     or a CONE (a stalactite) or an OCTAHEDRON (a crystal), so a whole band
+     collapses into one or two InstancedMeshes: four draw calls for a backdrop
+     that used to be two, for twenty times the geometry. */
+  /*
+     `sp` is SPACING, not a count: how many world units apart two objects of
+     this band sit. A floor is 100-200 units long and the camera only ever sees
+     about 14 of them, so a fixed count is a trap — eight trees spread over 200
+     units is one tree every few screens. Asking for spacing instead means every
+     floor, long or short, gets the same density on screen.
+  */
+  /*
+     Heights are in world units and they are tuned to the CAMERA WINDOW, not to
+     the map. The camera sits ~6 units above the floor line and sees ±9 units at
+     z=0, ±11 at z=-6 and ±12 at z=-9, so a backdrop band only fills the frame if
+     it rises about 16-24 units off the floor. The first pass anchored everything
+     at floor level with 4-13 unit heights and produced a horizon that only
+     existed in the bottom third of the screen.
+  */
+  const BACKDROP_RECIPE = {
+    forest: {
+      stars: { sp: 1.6, size: 0.10, alpha: 0.45 },
+      layers: [
+        { kind: 'spires', sp: 8,   z: -8.2, col: 0x07130d, h0: 14, h1: 26 },
+        { kind: 'trees',  sp: 4.0, z: -6.6, col: 0x0b1c12 },
+        { kind: 'trees',  sp: 3.4, z: -4.4, col: 0x132618 },
+        { kind: 'rubble', sp: 2.4, z: -3.2, col: 0x182f1e }
+      ]
+    },
+    caves: {
+      ceiling: { z: -5.2, col: 0x050f0e, y: 20 },
+      layers: [
+        { kind: 'bricks',      sp: 5.0, z: -7.4, col: 0x081716 },
+        { kind: 'spires',      sp: 4.0, z: -5.8, col: 0x0c211f, h0: 10, h1: 20 },
+        { kind: 'stalactites', sp: 2.2, z: -4.4, col: 0x11302c, top: 20 },
+        { kind: 'rubble',      sp: 2.4, z: -3.2, col: 0x14302b }
+      ]
+    },
+    cave: {
+      ceiling: { z: -5.2, col: 0x04100f, y: 20 },
+      layers: [
+        { kind: 'spires',      sp: 4.5, z: -7.2, col: 0x071a19, h0: 12, h1: 22 },
+        { kind: 'stalactites', sp: 1.9, z: -5.6, col: 0x0e2c2a, top: 20 },
+        { kind: 'crystals',    sp: 4.0, z: -4.6, col: 0x1d5f58, glow: true, s0: 0.9, s1: 2.6 },
+        { kind: 'rubble',      sp: 2.2, z: -3.2, col: 0x123430 }
+      ]
+    },
+    prison: {
+      ceiling: { z: -5.4, col: 0x150e04, y: 20 },
+      layers: [
+        { kind: 'bricks',  sp: 3.2, z: -7.6, col: 0x140c03, rows: 15 },
+        { kind: 'arches',  sp: 7.0, z: -5.9, col: 0x1d1206 },
+        { kind: 'columns', sp: 4.6, z: -4.4, col: 0x291a09 },
+        { kind: 'rubble',  sp: 2.4, z: -3.2, col: 0x2e1f0c }
+      ]
+    },
+    vault: {
+      ceiling: { z: -5.2, col: 0x120722, y: 20 },
+      layers: [
+        { kind: 'columns',  sp: 5.5, z: -7.4, col: 0x140a2a },
+        { kind: 'crystals', sp: 3.2, z: -5.8, col: 0x3b2a72, s0: 1.4, s1: 4.2 },
+        { kind: 'crystals', sp: 4.4, z: -4.2, col: 0x6a4fc0, glow: true, s0: 0.9, s1: 2.4 },
+        { kind: 'rubble',   sp: 2.4, z: -3.2, col: 0x241645 }
+      ]
+    },
+    nest: {
+      ceiling: { z: -5.2, col: 0x170508, y: 20 },
+      layers: [
+        { kind: 'bricks',      sp: 4.0, z: -7.4, col: 0x160508, rows: 14 },
+        { kind: 'trees',       sp: 4.6, z: -5.8, col: 0x1c070b, bare: true },
+        { kind: 'stalactites', sp: 2.4, z: -4.4, col: 0x2a0d12, top: 20 },
+        { kind: 'bones',       sp: 3.2, z: -3.2, col: 0x3a2028 }
+      ]
+    },
+    trial: {
+      ceiling: { z: -5.2, col: 0x180607, y: 20 },
+      layers: [
+        { kind: 'bricks',  sp: 3.6, z: -7.4, col: 0x170607, rows: 15 },
+        { kind: 'arches',  sp: 6.5, z: -5.8, col: 0x220a0a },
+        { kind: 'columns', sp: 4.4, z: -4.3, col: 0x30100f },
+        { kind: 'rubble',  sp: 2.2, z: -3.2, col: 0x361412 }
+      ]
+    },
+    throne: {
+      ceiling: { z: -5.2, col: 0x1a1205, y: 20 },
+      layers: [
+        { kind: 'arches',  sp: 6.5, z: -7.6, col: 0x1d1406 },
+        { kind: 'columns', sp: 4.4, z: -5.9, col: 0x2a1d08 },
+        { kind: 'spires',  sp: 5.5, z: -4.4, col: 0x38270c, h0: 10, h1: 18 },
+        { kind: 'rubble',  sp: 2.4, z: -3.2, col: 0x3d2a0e }
+      ]
+    },
+    /* --- the ladder rungs -------------------------------------------------- */
+    shore: {
+      stars: { sp: 1.3, size: 0.11, alpha: 0.55 },
+      moon: { col: 0xfff0cc },
+      layers: [
+        { kind: 'ridge',  sp: 13,  z: -9.0, col: 0x101a26, h0: 13, h1: 24 },
+        { kind: 'spires', sp: 6,   z: -7.2, col: 0x16222e, h0: 8, h1: 16 },
+        { kind: 'falls',  sp: 26,  z: -6.0, col: 0x9fd8ff, glow: true, h0: 12, h1: 20 },
+        { kind: 'rubble', sp: 2.2, z: -3.4, col: 0x27333d }
+      ]
+    },
+    swamp: {
+      layers: [
+        { kind: 'spires', sp: 7,   z: -8.2, col: 0x0a1206, h0: 12, h1: 22 },
+        { kind: 'trees',  sp: 3.6, z: -6.4, col: 0x0e1a09, bare: true },
+        { kind: 'trees',  sp: 4.4, z: -4.4, col: 0x16260d, bare: true },
+        { kind: 'rubble', sp: 2.2, z: -3.2, col: 0x1b2c10 }
+      ],
+      mist: { sp: 3.2, size: 0.34, alpha: 0.22, col: 0x9fd06a }
+    },
+    mountain: {
+      stars: { sp: 1.4, size: 0.12, alpha: 0.6 },
+      moon: { col: 0xdceaff },
+      layers: [
+        { kind: 'ridge',  sp: 12,  z: -9.6, col: 0x141c2a, h0: 17, h1: 30, snow: true },
+        { kind: 'ridge',  sp: 9,   z: -7.4, col: 0x1b2434, h0: 11, h1: 22, snow: true },
+        { kind: 'spires', sp: 5,   z: -5.4, col: 0x27313f, h0: 8, h1: 17 },
+        { kind: 'rubble', sp: 2.2, z: -3.2, col: 0x333d4a }
+      ]
+    },
+    flooded: {
+      ceiling: { z: -5.2, col: 0x05121c, y: 20 },
+      layers: [
+        { kind: 'arches',  sp: 7,   z: -7.6, col: 0x081a26 },
+        { kind: 'columns', sp: 4.4, z: -5.9, col: 0x0d2432 },
+        { kind: 'falls',   sp: 20,  z: -4.6, col: 0x8fd8ff, glow: true, h0: 10, h1: 18 },
+        { kind: 'ice',     sp: 6,   z: -3.4, col: 0x2d5a70 },
+        { kind: 'rubble',  sp: 2.4, z: -3.0, col: 0x1d4256 }
+      ]
+    },
+    volcanic: {
+      ceiling: { z: -5.4, col: 0x150604, y: 20 },
+      layers: [
+        { kind: 'ridge',  sp: 11,  z: -9.0, col: 0x1b0a05, h0: 15, h1: 27 },
+        { kind: 'spires', sp: 5,   z: -6.6, col: 0x2a0f07, h0: 10, h1: 20 },
+        { kind: 'falls',  sp: 16,  z: -5.2, col: 0xff7a3c, glow: true, h0: 12, h1: 22 },
+        { kind: 'rubble', sp: 2.2, z: -3.2, col: 0x361508 }
+      ],
+      ember: { sp: 2.8, size: 0.10, alpha: 0.5, col: 0xff8a3c }
     }
+  };
 
-    return createTexture(cv);
+  /* How many of a band to place across a floor of this width. */
+  function bandCount(spec, WU) {
+    const n = Math.round(WU / Math.max(0.5, spec.sp || 6));
+    return Math.max(1, Math.min(400, n));
   }
 
-  /* The near silhouette layer drifts at 0.7x camera speed in 2D. In 3D it
-     becomes a foreground plane just behind the walkway — actual parallax
-     between two planes, which the flat single backdrop never had. */
-  function makeNearTexture(biome) {
-    if (!DS.Backdrop || !DS.Backdrop.layersFor) return null;
-    const L = DS.Backdrop.layersFor(biome);
-    if (!L || !L.near) return null;
-    const D = DS.C.RS || 1;
+  /* One box: [x, y, z, sx, sy, sz, rotZ, rotY]. */
+  function box(list, x, y, z, sx, sy, sz, rz, ry) {
+    list.push([x, y, z, sx, sy, sz, rz || 0, ry || 0]);
+  }
+
+  /* The vocabulary a recipe is written in. Each builder is handed the layer's
+     box list, an x along the map's width, the map's floor line, a seeded rng,
+     and its own layer entry. */
+  const BACKDROP_KINDS = {
+    /* Rock teeth: a tapered block with a smaller one leaning on it. */
+    spires: function (o, x, rng, L) {
+      const h = rng.float(L.h0, L.h1);
+      const wd = rng.float(0.8, 2.4);
+      box(o.boxes, x, o.floorY + h * 0.5, 0, wd, h, wd, rng.float(-0.05, 0.05), rng.float(-0.4, 0.4));
+      if (rng.chance(0.55)) {
+        const h2 = h * rng.float(0.35, 0.7);
+        box(o.boxes, x + rng.float(-1.6, 1.6), o.floorY + h2 * 0.5, rng.float(-0.6, 0.6),
+            wd * 0.6, h2, wd * 0.6, rng.float(-0.12, 0.12), rng.float(-0.5, 0.5));
+      }
+    },
+    /* A mountain ridge: wide blocks with optional snow caps. */
+    ridge: function (o, x, rng, L) {
+      const h = rng.float(L.h0, L.h1);
+      const wd = rng.float(3.2, 7.5);
+      box(o.boxes, x, o.floorY + h * 0.5, 0, wd, h, rng.float(2, 4), rng.float(-0.03, 0.03), rng.float(-0.25, 0.25));
+      if (L.snow) box(o.boxes, x, o.floorY + h * 0.94, 0, wd * 0.42, h * 0.14, 2.4, 0, rng.float(-0.2, 0.2));
+    },
+    /* A colonnade: pillar, base, capital. */
+    columns: function (o, x, rng, L) {
+      const h = rng.float(13, 20);
+      const wd = rng.float(0.9, 1.5);
+      box(o.boxes, x, o.floorY + h * 0.5, 0, wd, h, wd);
+      box(o.boxes, x, o.floorY + 0.25, 0, wd * 1.6, 0.5, wd * 1.6);
+      box(o.boxes, x, o.floorY + h - 0.2, 0, wd * 1.5, 0.55, wd * 1.5);
+    },
+    /* Pillars with a lintel across them — halls, vaults, prisons. */
+    arches: function (o, x, rng, L) {
+      const h = rng.float(12, 19);
+      const span = rng.float(4, 7);
+      const wd = rng.float(0.7, 1.2);
+      box(o.boxes, x - span * 0.5, o.floorY + h * 0.5, 0, wd, h, 1.4);
+      box(o.boxes, x + span * 0.5, o.floorY + h * 0.5, 0, wd, h, 1.4);
+      box(o.boxes, x, o.floorY + h + 0.35, 0, span + wd * 1.6, 0.7, 1.8);
+      if (rng.chance(0.5)) box(o.boxes, x, o.floorY + h + 1.1, 0, span * 0.5, 0.8, 1.6);
+    },
+    /* A ruined wall face: slabs with gaps where the mortar fell out. */
+    bricks: function (o, x, rng, L) {
+      const rows = L.rows || 13;
+      for (let r = 0; r < rows; r++) {
+        if (rng.chance(0.22)) continue;
+        const y = o.floorY + 1.1 + r * 1.15;
+        const wd = rng.float(2.6, 5.2);
+        box(o.boxes, x + rng.float(-0.5, 0.5), y, 0, wd, 1.0, 1.1, 0, 0);
+      }
+    },
+    /* Trees. `bare` drops the canopy and keeps dead branches instead. */
+    trees: function (o, x, rng, L) {
+      const h = rng.float(12, 22);
+      const trunkW = rng.float(0.5, 1.0);
+      box(o.boxes, x, o.floorY + h * 0.5, 0, trunkW, h, trunkW, rng.float(-0.03, 0.03));
+      if (L.bare) {
+        for (let b = 0; b < 3; b++) {
+          box(o.boxes, x + rng.float(-1.2, 1.2), o.floorY + h * rng.float(0.45, 0.9), rng.float(-0.4, 0.4),
+              rng.float(1.4, 2.6), 0.22, 0.22, rng.float(-0.5, 0.5));
+        }
+        return;
+      }
+      const cw = rng.float(2.6, 4.6);
+      box(o.boxes, x, o.floorY + h + 0.6, 0, cw, 1.7, cw * 0.8);
+      box(o.boxes, x + rng.float(-0.8, 0.8), o.floorY + h + 2.0, 0, cw * 0.7, 1.5, cw * 0.6);
+    },
+    /* Stalactites hanging off a ceiling line. */
+    stalactites: function (o, x, rng, L) {
+      const top = o.floorY + (L.top || 24);
+      const h = rng.float(3.0, 9.0);
+      o.shards.push([x, top - h * 0.5, rng.float(-0.6, 0.6), rng.float(0.9, 2.6), h, 0.0]);
+    },
+    /* Crystal clusters — octahedra, the only non-box primitive with a glow. */
+    crystals: function (o, x, rng, L) {
+      const n = rng.int(2, 4);
+      for (let i = 0; i < n; i++) {
+        const s = rng.float(L.s0 || 0.5, L.s1 || 1.6);
+        o.shards.push([x + rng.float(-1.1, 1.1), o.floorY + s * rng.float(0.5, 1.3), rng.float(-0.5, 0.5), s, s, rng.float(0, 3.14)]);
+      }
+    },
+    /* Ice: flat angular slabs standing and lying in the water light. */
+    ice: function (o, x, rng, L) {
+      const h = rng.float(3, 9);
+      box(o.boxes, x, o.floorY + h * 0.5, 0, rng.float(2, 4), h, rng.float(0.5, 1.2), rng.float(-0.3, 0.3), rng.float(-0.5, 0.5));
+      box(o.boxes, x + rng.float(-2, 2), o.floorY + 0.3, 0, rng.float(2, 4), 0.6, rng.float(1.5, 3), 0, rng.float(-0.6, 0.6));
+    },
+    /* A falling sheet of water (or lava) against the far wall. */
+    falls: function (o, x, rng, L) {
+      const h = rng.float(L.h0 || 6, L.h1 || 14);
+      box(o.boxes, x, o.floorY + h * 0.5, 0, rng.float(1.2, 2.6), h, 0.25);
+      box(o.boxes, x, o.floorY + 0.5, 0, rng.float(2.4, 4), 1.0, rng.float(1.6, 3));
+    },
+    /* Loose stone at the foot of the wall. */
+    rubble: function (o, x, rng, L) {
+      for (let i = 0; i < 3; i++) {
+        const s = rng.float(0.7, 2.6);
+        box(o.boxes, x + rng.float(-1.2, 1.2), o.floorY + s * 0.45, rng.float(-0.3, 0.8), s, s * 0.9, s, rng.float(-0.4, 0.4), rng.float(0, 1.5));
+      }
+    },
+    /* Bone piles: crossed long bones and a skull-sized block. */
+    bones: function (o, x, rng, L) {
+      for (let i = 0; i < 3; i++) {
+        box(o.boxes, x + rng.float(-1.4, 1.4), o.floorY + rng.float(0.15, 0.5), rng.float(-0.2, 0.6),
+            rng.float(1.2, 2.4), 0.22, 0.22, rng.float(-1.2, 1.2), rng.float(0, 1.5));
+      }
+      box(o.boxes, x + rng.float(-0.6, 0.6), o.floorY + 0.35, 0, rng.float(0.5, 0.8), 0.7, 0.7);
+    }
+  };
+
+  function instancedBoxes(list, mat) {
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    const d = new THREE.Object3D();
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      d.position.set(b[0], b[1], b[2]);
+      /* Defaulted, not read raw: a caller that omits the rotation slots (the
+         water batches do) would otherwise write NaN into every instance matrix
+         and three would silently draw nothing at all. */
+      d.rotation.set(0, b[7] || 0, b[6] || 0);
+      d.scale.set(b[3], b[4], b[5]);
+      d.updateMatrix();
+      mesh.setMatrixAt(i, d.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    /* Culling is switched OFF on every backdrop batch. three r128 bounds an
+       InstancedMesh by its GEOMETRY (a unit box at the group origin), not by
+       the instances, so a band spanning 200 world units disappears the moment
+       the camera pans away from x=0 — which read as "the background is missing
+       past the first room". */
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+
+  function instancedShards(list, mat, geo, flip) {
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    const d = new THREE.Object3D();
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      d.position.set(s[0], s[1], s[2]);
+      // A cone points +y by default; a stalactite has to point at the floor.
+      d.rotation.set(flip ? Math.PI : 0, s[5], 0);
+      d.scale.set(s[3], s[4], s[3]);
+      d.updateMatrix();
+      mesh.setMatrixAt(i, d.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    return mesh;
+  }
+
+  /* Slow, sparse motes in the backdrop air — mist over a swamp, embers in an
+     ash field. Separate from ScreenParticleManager, which drifts with the
+     camera: this belongs to the horizon. */
+  function backdropMotes(spec, WU, floorY, rng) {
+    const n = bandCount(spec, WU);
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      pos[i * 3 + 0] = rng.float(-0.05, 1.05) * WU;
+      pos[i * 3 + 1] = floorY + rng.float(1, 26);
+      pos[i * 3 + 2] = rng.float(-8, -3);
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+      color: spec.col || 0xffffff, size: spec.size, transparent: true,
+      opacity: spec.alpha, blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    return new THREE.Points(geo, mat);
+  }
+
+  /* A sky is not a backdrop painting: it is the far shell of the world. A
+     vertical gradient on one plane behind everything else, a huge floor slab at
+     the horizon so the rock bands never end in mid-air, and then the bands.
+     Without the two shells the geometry read as "floating boxes in the void". */
+  function makeSkyTexture(topHex, botHex) {
     const cv = document.createElement('canvas');
-    cv.width = 640 * D; cv.height = SKY_H * D;
+    cv.width = 2; cv.height = 128;
     const ctx = cv.getContext('2d');
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(L.near, 0, 0, cv.width, cv.height);
-    ctx.fillStyle = 'rgba(6,5,12,0.18)';
-    ctx.fillRect(0, 0, cv.width, cv.height);
-    return createTexture(cv);
+    const grd = ctx.createLinearGradient(0, 0, 0, 128);
+    grd.addColorStop(0, topHex);
+    grd.addColorStop(0.62, mixHex(topHex, botHex, 0.65));
+    grd.addColorStop(1, botHex);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 2, 128);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    return tex;
+  }
+
+  function hexToRgb(hex) {
+    return { r: (hex >> 16) & 255, g: (hex >> 8) & 255, b: hex & 255 };
+  }
+
+  function mixHex(a, b, t) {
+    const A = hexToRgb(a), B = hexToRgb(b);
+    const r = Math.round(A.r + (B.r - A.r) * t);
+    const g = Math.round(A.g + (B.g - A.g) * t);
+    const bl = Math.round(A.b + (B.b - A.b) * t);
+    return 'rgb(' + r + ',' + g + ',' + bl + ')';
+  }
+
+  function buildBackdrop(themeName, w, h) {
+    const rec = BACKDROP_RECIPE[themeName] || BACKDROP_RECIPE.forest;
+    const theme = THEMES[themeName] || THEMES.forest;
+    const WU = w * 16 * P2U;
+    const floorY = -(h * 16) * P2U;
+    const rng = DS.makeRng((0x5EEDBA5E ^ (themeName.length * 7919) ^ (w * 131)) >>> 0);
+    const group = new THREE.Group();
+
+    /* The far shell: sky, and the ground it all stands on. */
+    /* Dark overhead, lighter at the horizon — the way a real haze sits. */
+    const skyTop = mixHex(theme.fog, theme.hemiSky, 0.03);
+    const skyBot = mixHex(theme.fog, theme.hemiSky, 0.34);
+    const themeSky = new THREE.Color();
+    themeSky.setStyle(mixHex(theme.fog, 0x000000, 0.45));
+    scene.background = themeSky;
+
+    const skyMat = new THREE.MeshBasicMaterial({
+      map: makeSkyTexture(skyTop, skyBot), fog: false, depthWrite: false
+    });
+    const sky = new THREE.Mesh(new THREE.PlaneGeometry(WU * 1.4, 78), skyMat);
+    sky.position.set(WU * 0.5, floorY + 22, -16);
+    sky.frustumCulled = false;
+    group.add(sky);
+
+    const shellMat = new THREE.MeshLambertMaterial({ color: mixHex(theme.fog, 0x000000, 0.35) });
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(WU * 1.4, 1.4, 6), shellMat);
+    shell.position.set(WU * 0.5, floorY - 0.7, -8);
+    shell.frustumCulled = false;
+    group.add(shell);
+
+    /* Stars first: they belong behind everything, including the rock. */
+    if (rec.stars) {
+      const starN = bandCount(rec.stars, WU);
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(starN * 3);
+      for (let i = 0; i < starN; i++) {
+        pos[i * 3 + 0] = rng.float(-0.05, 1.05) * WU;
+        pos[i * 3 + 1] = floorY + rng.float(12, 40);
+        pos[i * 3 + 2] = -12;
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({
+        color: 0xcfe0ff, size: rec.stars.size, transparent: true,
+        opacity: rec.stars.alpha, sizeAttenuation: true, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const stars = new THREE.Points(geo, mat);
+      stars.frustumCulled = false;
+      group.add(stars);
+    }
+
+    if (rec.moon) {
+      const moonMat = new THREE.MeshBasicMaterial({ color: rec.moon.col, fog: false });
+      const moon = new THREE.Mesh(new THREE.CircleGeometry(2.6, 16), moonMat);
+      moon.position.set(WU * 0.24, floorY + 13, -13);
+      moon.frustumCulled = false;
+      group.add(moon);
+    }
+
+    const layers = rec.layers || [];
+    for (let li = 0; li < layers.length; li++) {
+      const L = layers[li];
+      const o = { boxes: [], shards: [], floorY: floorY };
+      const kind = BACKDROP_KINDS[L.kind];
+      if (!kind) continue;
+      const n = bandCount(L, WU);
+      for (let k = 0; k < n; k++) {
+        kind(o, rng.float(-0.06, 1.06) * WU, rng, L);
+      }
+
+      /* Unlit for anything that is its own light source (lava, water, a lit
+         crystal): a Lambert material would need a torch to be told it glows. */
+      const mat = L.glow
+        ? new THREE.MeshBasicMaterial({ color: L.col, transparent: true, opacity: 0.85 })
+        : new THREE.MeshLambertMaterial({ color: L.col });
+      /* Nearer bands are lit brighter: a horizon reads as depth because the
+         close rock catches the torch and the far rock does not. Doing it here
+         means a recipe can be written in one flat colour and still separate. */
+      if (!L.glow) mat.color.multiplyScalar(1 + li * 0.42);
+
+      const layerGroup = new THREE.Group();
+      layerGroup.position.z = L.z;
+      if (o.boxes.length) layerGroup.add(instancedBoxes(o.boxes, mat));
+      if (o.shards.length) {
+        const isCrystal = L.kind === 'crystals';
+        const geo = isCrystal
+          ? new THREE.OctahedronGeometry(0.5)
+          : new THREE.ConeGeometry(0.6, 1, 5);
+        layerGroup.add(instancedShards(o.shards, mat, geo, !isCrystal));
+      }
+      group.add(layerGroup);
+    }
+
+    /* An underground theme gets a ceiling: one long slab with teeth under it,
+       which is what tells the eye "this room has a roof" instead of "this room
+       has a painting on the back wall". */
+    if (rec.ceiling) {
+      const c = rec.ceiling;
+      const cg = new THREE.Group();
+      cg.position.z = c.z;
+      const cmat = new THREE.MeshLambertMaterial({ color: c.col });
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(WU * 1.2, 2.2, 3.2), cmat);
+      slab.position.set(WU * 0.5, floorY + (c.y || 25) + 1.1, 0);
+      slab.frustumCulled = false;
+      cg.add(slab);
+      const teeth = [];
+      const toothCount = bandCount({ sp: 4.5 }, WU);
+      for (let i = 0; i < toothCount; i++) {
+        const th = rng.float(1.2, 3.6);
+        box(teeth, rng.float(-0.04, 1.04) * WU, floorY + (c.y || 25) - th * 0.5, rng.float(-0.6, 0.6),
+            rng.float(0.7, 1.6), th, rng.float(0.7, 1.6));
+      }
+      cg.add(instancedBoxes(teeth, cmat));
+      group.add(cg);
+    }
+
+    if (rec.mist) { const m = backdropMotes(rec.mist, WU, floorY, rng); m.frustumCulled = false; group.add(m); }
+    if (rec.ember) { const m = backdropMotes(rec.ember, WU, floorY, rng); m.frustumCulled = false; group.add(m); }
+
+    return group;
   }
 
   function makeFlameTexture() {
@@ -439,6 +901,9 @@ window.DS = window.DS || {};
   }
 
   let screenParticleManager = null;
+  let waterSurfaceMesh = null;      // the lit surface of every pool, animated
+  let riftLight = null;             // the black room's back light
+  let waterCrestMesh = null;        // the bright line where water meets air
 
   function init() {
     if (typeof THREE === 'undefined') return false;
@@ -604,11 +1069,18 @@ window.DS = window.DS || {};
     }
   }
 
+  /* Frees a subtree. It has to recurse: the backdrop is a group of groups, and
+     disposing only the top level left every backdrop's geometry and materials
+     alive for the rest of the session, once per level. */
   function disposeGroup(group) {
     if (!group) return;
     while (group.children.length > 0) {
       const obj = group.children[0];
       group.remove(obj);
+      if (obj.children && obj.children.length) {
+        disposeGroup(obj);
+        continue;
+      }
       if (obj.geometry) obj.geometry.dispose();
       if (obj.material) {
         // Textures are rebuilt per level, so they go with the meshes.
@@ -622,6 +1094,16 @@ window.DS = window.DS || {};
   }
 
   function resolveTheme(depth, biome, flavor) {
+    /* The trial chamber has to look like a place that wants you dead, not like
+       whichever depth it was reached from. */
+    if (flavor === 'trial') return 'trial';
+    /* The biome ladder comes FIRST. resolveTheme used to key off the art biome,
+       which is a separate depth table, so the mood of a floor and the shape of
+       a floor were chosen by two different systems that could disagree. */
+    if (DS.Difficulty) {
+      const rung = DS.Difficulty.biomeForDepth(depth);
+      if (rung && rung.theme && THEMES[rung.theme]) return rung.theme;
+    }
     if (biome && biome.key) {
       if (biome.key === 'halls') return 'forest';
       if (biome.key === 'caves') return 'caves';
@@ -631,9 +1113,6 @@ window.DS = window.DS || {};
       if (biome.key === 'throne') return 'throne';
     }
     if (flavor === 'flooded') return 'caves';
-    /* The trial chamber has to look like a place that wants you dead, not like
-       whichever depth it was reached from. */
-    if (flavor === 'trial') return 'trial';
     if (depth === 1) return 'forest';
     if (depth === 2) return 'caves';
     if (depth === 3) return 'prison';
@@ -660,48 +1139,12 @@ window.DS = window.DS || {};
 
     disposeGroup(themeGroup);
     backdropMesh = null;
-    nearBackdrop = null;      const tex = makeBackdropTexture(biome);
-    if (tex) {
-      const fullW = (w * 16) * P2U;
-      // Wide enough to cover the whole map plus the camera's view margin.
-      const planeW = Math.max(fullW + 50, 100);
-      // Native art scale: 1 art pixel = BACKDROP_PX_U world units, so the
-      // pixel chunkiness matches the 2D renderer instead of smearing.
-      const planeH = SKY_H * BACKDROP_PX_U;
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.repeat.set(Math.max(2, Math.round(planeW / (SKY_W * BACKDROP_PX_U))), 1);
+    nearBackdrop = null;
 
-      const geo = new THREE.PlaneGeometry(planeW, planeH);
-      const mat = new THREE.MeshBasicMaterial({ map: tex, fog: false, depthWrite: false });
-      backdropMesh = new THREE.Mesh(geo, mat);
-
-      const floorY = -(h * 16) * P2U;
-      // Bottom of the art sits at the floor line; the plane is tall enough to
-      // fill the whole vertical FOV of the camera and then some.
-      backdropMesh.position.set((w * 16 * 0.5) * P2U, floorY + planeH * 0.5 + 1.5, BACKDROP_Z);
-      themeGroup.add(backdropMesh);
-    }
-
-    const nearTex = makeNearTexture(biome);
-    if (nearTex) {
-      const nearW = Math.max((w * 16) * P2U + 40, 90);
-      nearTex.wrapS = THREE.RepeatWrapping;
-      nearTex.wrapT = THREE.ClampToEdgeWrapping;
-      const planeW2 = nearW;
-      const planeH2 = SKY_H * BACKDROP_PX_U * 0.86;
-      nearTex.repeat.set(Math.max(2, Math.round(planeW2 / (640 * BACKDROP_PX_U))), 1);
-
-      const geo2 = new THREE.PlaneGeometry(planeW2, planeH2);
-      const mat2 = new THREE.MeshBasicMaterial({
-        map: nearTex, fog: false, depthWrite: false,
-        transparent: true, opacity: 0.62
-      });
-      nearBackdrop = new THREE.Mesh(geo2, mat2);
-      const floorY2 = -(h * 16) * P2U;
-      nearBackdrop.position.set((w * 16 * 0.5) * P2U, floorY2 + planeH2 * 0.5 + 0.8, -2.6);
-      themeGroup.add(nearBackdrop);
-    }
+    /* The horizon is geometry now (see BACKDROP_RECIPE). It goes into the same
+       group the old planes lived in, so teardown is unchanged. */
+    const backdrop = buildBackdrop(themeName, w, h);
+    if (backdrop) themeGroup.add(backdrop);
 
     if (screenParticleManager) {
       screenParticleManager.setTheme(themeName);
@@ -867,8 +1310,7 @@ window.DS = window.DS || {};
 
     // b.y marks the top of an 18px-tall brazier, so its floor line is y + 18.
     const bottom = (b.y || 0) + 18;
-    const floor = groundAnchor(map, b.x, bottom);
-    group.position.set(b.x * P2U, -floor * P2U, 0.2);
+    const floor = groundAnchor(map, b.x, bottom);    group.position.set(b.x * P2U, -floor * P2U, 0.2);
     propsGroup.add(group);
     return { group, flame, light, coalMat, ref: b, smooth: 0 };
   }
@@ -912,7 +1354,7 @@ window.DS = window.DS || {};
     return { group, gate, kind: 'gate' };
   }
 
-  function createLeverMesh(lever) {
+  function createLeverMesh(lever, map) {
     const group = new THREE.Group();
     const baseMat = new THREE.MeshLambertMaterial({ color: 0x3a3654 });
     const stickMat = new THREE.MeshLambertMaterial({ color: 0x8a6340 });
@@ -927,9 +1369,13 @@ window.DS = window.DS || {};
     const knob = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.16), knobMat);
     knob.position.y = 0.66;
     pivot.add(knob);
-    // Anchor on the lever's floor (y+16 like every prop footprint) instead of
-    // a magic 1.6-unit offset that left the base buried and the stick floating.
-    group.position.set(lever.x * P2U + 0.4, -(lever.y + 16) * P2U, 0.2);
+    // Anchor on the lever's floor through the shared helper: the marker row is
+    // not a surface, and guessing at it left the base buried and the stick
+    // floating whenever the lever's column had a ledge or a pit in it.
+    const lFloor = map && map.floorBelow
+      ? snapToFloor(map, lever.x + 8, lever.y)
+      : lever.y + 16;
+    group.position.set(lever.x * P2U + 0.4, -lFloor * P2U, 0.2);
     propsGroup.add(group);
     return { group, pivot, knob, knobMat, lever, kind: 'lever' };
   }
@@ -1004,22 +1450,44 @@ window.DS = window.DS || {};
     };
   }
 
-  /* Where a prop's bottom edge lands on the map.
+  /* --- prop anchoring: ONE source of truth ----------------------------------
 
      Two marker conventions live in the game data: entities whose own box
-     carries a bottom edge (crate, chest — y + h), and map markers whose y is
-     only a TILE ROW (decor, shrine, torch). Both have to be planted on the
-     same thing — the real surface — and every clip-through-the-floor bug so
-     far came from one call site guessing instead of asking. Ask here. */
-  function groundAnchor(map, px, bottomPx) {
-    if (!map || !map.floorBelow) return bottomPx;
+     carries a bottom edge (crate, chest, pickup - y + h), and map markers whose
+     y is only a TILE ROW (decor, shrine, lever, torch, brazier). Every
+     clip-through-the-floor bug AND every floating prop so far came from one
+     call site guessing instead of asking, so there are exactly three questions
+     a prop may ask, and nothing else in this file may compute a floor itself:
+
+       floorAt(map, px, py)         -> the surface under a point, or null
+       snapToFloor(map, px, marker) -> where a MARKER prop's footprint belongs
+       groundAnchor(map, px, bottom)-> where a BOX prop's own bottom belongs
+
+     Marker props have no box to trust, so they snap to the floor under them
+     unconditionally. Box props keep their own bottom unless the floor is right
+     there - a crate may be standing on another crate. */
+  function floorAt(map, px, py) {
+    if (!map || !map.floorBelow) return null;
     const tx = Math.floor(px / 16);
-    const ty = Math.floor((bottomPx - 1) / 16);
+    const ty = Math.floor((py - 1) / 16);
     const fb = map.floorBelow(tx, ty);
-    if (fb == null || fb >= map.pixelH) return bottomPx;
+    if (fb == null || fb >= map.pixelH) return null;
+    return fb;
+  }
+
+  function groundAnchor(map, px, bottomPx) {
+    const fb = floorAt(map, px, bottomPx);
+    if (fb == null) return bottomPx;
     /* Snap only when the surface is right there: a prop placed on a ledge or a
        crate must not be dragged down through what it is standing on. */
     return Math.abs(fb - bottomPx) <= 20 ? fb : bottomPx;
+  }
+
+  /* Marker props: the marker's y is a tile row, never a surface, so the only
+     correct answer is the floor under the marker column. */
+  function snapToFloor(map, px, markerPx) {
+    const fb = floorAt(map, px, markerPx + 8);
+    return fb == null ? markerPx : fb;
   }
 
   /* Chests: one voxel model per tier (see voxel.js buildChest), planted on the
@@ -1221,6 +1689,9 @@ window.DS = window.DS || {};
   }
 
   function loadLevel(map, biome, g) {
+    waterSurfaceMesh = null;
+    waterCrestMesh = null;
+    if (riftLight) { scene.remove(riftLight); riftLight = null; }
     if (!enabled || !dungeonGroup) return;
 
     disposeGroup(dungeonGroup);
@@ -1234,10 +1705,7 @@ window.DS = window.DS || {};
     brazierMeshes = [];
     crateMeshes = [];
     ropeMeshes = [];
-    elemPuddles.forEach(function (ep) { if (ep.mesh.parent) ep.mesh.parent.remove(ep.mesh); });
-    elemPuddles = [];
-    elemFields.forEach(function (ef) { if (ef.mesh.parent) ef.mesh.parent.remove(ef.mesh); });
-    elemFields = [];
+    clearElemRigs();
     elemBolts.forEach(function (eb) { if (eb.mesh.parent) eb.mesh.parent.remove(eb.mesh); });
     elemBolts = [];
     groundBursts.forEach(function (gb) { if (gb.group.parent) gb.group.parent.remove(gb.group); });
@@ -1388,12 +1856,10 @@ window.DS = window.DS || {};
         const d = map.decor[i];
         if (d.kind === 'torch' || d.kind === 'candle') {
           const lx = (d.x + 8) * P2U;
-          // Plant the pole on the floor below its decor marker: markers carry
-          // their sprite-height offset, which used to leave bases floating.
-          const tcol = Math.floor((d.x + 8) / 16);
-          const floorPx = map.floorBelow
-            ? map.floorBelow(tcol, Math.floor((d.y + 8) / 16))
-            : d.y + 16;
+          // Plant the pole on the floor below its decor marker through the
+          // shared helper: markers carry their sprite-height offset, and both
+          // of the old guesses (floorBelow here, groundBelow there) disagreed.
+          const floorPx = snapToFloor(map, d.x + 8, d.y);
           const torchObj = createTorchMesh(lx, -floorPx * P2U);
           torchLights.push(torchObj);
           flameSprites.push(torchObj);
@@ -1403,10 +1869,7 @@ window.DS = window.DS || {};
           // the model on the floor instead so nothing hovers.
           const model = DS.Voxel.build(d.kind, {});
           if (model) {
-            const mcol = Math.floor((d.x + 8) / 16);
-            const mFloor = map.groundBelow
-              ? map.groundBelow(mcol)
-              : (map.floorBelow ? map.floorBelow(mcol, 0) : d.y + 16);
+            const mFloor = snapToFloor(map, d.x + 8, d.y);
             model.root.position.set((d.x + 8) * P2U, -mFloor * P2U, 0.3);
             actorGroup.add(model.root);
             if (d.kind === 'merchant') d.vox3d = model;
@@ -1444,7 +1907,7 @@ window.DS = window.DS || {};
           }
         }
         if (pz.gate) gateMeshes.push(createGateMesh(pz.gate));
-        if (pz.lever) leverMeshes.push(createLeverMesh(pz.lever));
+        if (pz.lever) leverMeshes.push(createLeverMesh(pz.lever, map));
       }
     }
 
@@ -1458,10 +1921,7 @@ window.DS = window.DS || {};
       shrineMesh = DS.Voxel.build('shrine', {});
       // Sit on the real floor under the shrine marker (marker y is a tile row,
       // not a surface) so the plinth never floats or drowns.
-      const scol = Math.floor((g.shrine.x + 8) / 16);
-      const sFloor = g.map.floorBelow
-        ? g.map.floorBelow(scol, Math.floor((g.shrine.y + 8) / 16))
-        : g.shrine.y + 16;
+      const sFloor = snapToFloor(g.map, g.shrine.x + 8, g.shrine.y);
       shrineMesh.root.position.set((g.shrine.x + 8) * P2U, -sFloor * P2U, 0.12);
       actorGroup.add(shrineMesh.root);
     }
@@ -1471,6 +1931,105 @@ window.DS = window.DS || {};
         const c = g.chests[i];
         const chestObj = createChestMesh(c.x, c.y, c, map);
         chestMeshes.push(chestObj);
+      }
+    }
+
+    /* THE RIFT: the black room's one light source, and it stands BEHIND the
+       actors. That placement is the whole effect — a light in front makes flat
+       lit shapes, a light behind makes rims and silhouettes, which is what
+       makes the black room read as a place rather than as a dark level. */
+    if (g && g.lair) {
+      const lx = g.lair.riftX * P2U;
+      const ly = -(g.lair.riftY) * P2U;
+
+      const riftMat = new THREE.MeshBasicMaterial({
+        color: 0xfff2cc, transparent: true, opacity: 0.92, fog: false
+      });
+      const rift = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.4), riftMat);
+      rift.position.set(lx, ly + 1.4, -3.4);
+      themeGroup.add(rift);
+
+      const halo = makeGlowSprite(0xffd9a0, 12);
+      halo.position.set(lx, ly + 1.4, -3.3);
+      halo.material.opacity = 0.55;
+      themeGroup.add(halo);
+
+      /* Shafts: three slabs of light leaning down to the floor, so the rift
+         reads as depth rather than as a bright rectangle pasted on the wall. */
+      const shaftMat = new THREE.MeshBasicMaterial({
+        color: 0xffe8b0, transparent: true, opacity: 0.10,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false
+      });
+      for (let i = -1; i <= 1; i++) {
+        const shaft = new THREE.Mesh(new THREE.PlaneGeometry(1.5 + i * 0.1, 11), shaftMat);
+        shaft.position.set(lx + i * 1.9, ly - 3.0, -2.9);
+        shaft.rotation.z = i * 0.16;
+        themeGroup.add(shaft);
+      }
+
+      /* The light itself. distance keeps it a room light instead of a floor
+         light, and it sits behind the actors on purpose. */
+      riftLight = new THREE.PointLight(0xffd8a8, 2.4, 34, 1.6);
+      riftLight.position.set(lx, ly + 2.0, -2.4);
+      scene.add(riftLight);
+    }
+
+    /* WATER, as a volume instead of a decal.
+
+       It used to be a flat per-tile rect painted on the 2D overlay — and since
+       the 2D canvas sits ON TOP of the WebGL one, that tint was drawn over
+       whatever was living in the water. A piranha was not obscured by water, it
+       was hidden by it. Real translucent boxes in the depth-sorted scene tint
+       what is inside them and nothing else, so the fish reads through the water
+       the way it should. */
+    if (map.isWater && map.hasWater) {
+      /* Water has to LIGHT ITSELF here. The dungeon is deliberately dark, and a
+         Lambert body at a third opacity over a black backdrop is
+         indistinguishable from no water at all — the pool has to be visible the
+         way the torches are, so it gets its own emissive lift and an unlit
+         surface. */
+      const bodyMat = new THREE.MeshLambertMaterial({
+        color: 0x3f8fc8, emissive: 0x0d2a44, emissiveIntensity: 0.9,
+        transparent: true, opacity: 0.42, depthWrite: false
+      });
+      const surfMat = new THREE.MeshBasicMaterial({
+        color: 0x9fdcff, transparent: true, opacity: 0.55, depthWrite: false
+      });
+      const crestMat = new THREE.MeshBasicMaterial({
+        color: 0xe8f6ff, transparent: true, opacity: 0.85, depthWrite: false
+      });
+      const bodies = [], surfaces = [], crests = [];
+      for (let tx = 0; tx < w; tx++) {
+        let ty = 0;
+        while (ty < h) {
+          if (!map.isWater(tx, ty)) { ty++; continue; }
+          const top = ty;
+          while (ty < h && map.isWater(tx, ty)) ty++;
+          const bot = ty - 1;
+          const cx = (tx * 16 + 8) * P2U;
+          const depth = (bot - top + 1) * TILE_SIZE;
+          bodies.push([cx, -((top + bot + 1) * 0.5 * 16) * P2U, -0.2,
+                       TILE_SIZE, depth, 1.6]);
+          surfaces.push([cx, -(top * 16) * P2U - 0.02, 0.25, TILE_SIZE, 0.12, 1.9]);
+          crests.push([cx, -(top * 16) * P2U + 0.06, 0.3, TILE_SIZE, 0.05, 1.95]);
+        }
+      }
+      if (bodies.length) {
+        const m = instancedBoxes(bodies, bodyMat);
+        m.renderOrder = 2;
+        dungeonGroup.add(m);
+      }
+      if (surfaces.length) {
+        const m = instancedBoxes(surfaces, surfMat);
+        m.renderOrder = 3;
+        waterSurfaceMesh = m;
+        dungeonGroup.add(m);
+      }
+      if (crests.length) {
+        const m = instancedBoxes(crests, crestMat);
+        m.renderOrder = 4;
+        waterCrestMesh = m;
+        dungeonGroup.add(m);
       }
     }
 
@@ -1516,6 +2075,74 @@ window.DS = window.DS || {};
         ty++;
       }
     }
+  }
+
+  /* Every prop this renderer built, tagged with what it is. The audit below
+     walks it, so a new prop is covered the moment it registers itself here. */
+  function propRegistry() {
+    const list = [];
+    function add(arr, name, boxed) {
+      for (let i = 0; i < arr.length; i++) {
+        const obj = arr[i];
+        const group = obj && (obj.group || obj.root || obj.mesh || obj);
+        if (group && group.position) list.push({ name: name, group: group, boxed: !!boxed });
+      }
+    }
+    add(chestMeshes, 'chest', true);
+    add(pickupMeshes, 'pickup', true);
+    add(plateMeshes, 'plate', false);
+    add(brazierMeshes, 'brazier', false);
+    add(leverMeshes, 'lever', false);
+    add(torchLights, 'torch', false);
+    /* Crates and gates are DYNAMIC: their transform is written every frame from
+       the 2D body (a crate is pushed, a gate lifts), so they are not anchored
+       to terrain at all and auditing them would only report their live state. */
+    if (shrineMesh && shrineMesh.root) list.push({ name: 'shrine', group: shrineMesh.root, boxed: false });
+    if (doorPortalObj && doorPortalObj.group) {
+      list.push({ name: 'doorway', group: doorPortalObj.group, boxed: false });
+    }
+    return list;
+  }
+
+  /* Prop audit: for every prop, how far is its footprint from the surface it
+     claims to stand on? A gap means it hovers; a negative gap means it is
+     buried. Neither is allowed to ship - this is the gate for the whole
+     "nothing floats" rule, and it names the prop so the fix is never a guess.
+
+     Exposed on DS.R3D so a headless QA pass can assert it is empty for every
+     depth and seed without taking a single screenshot. */
+  function auditAnchors(g, tolerance) {
+    const tol = tolerance == null ? 3 : tolerance;
+    const map = g && g.map;
+    const out = [];
+    if (!map || !map.floorBelow) return out;
+
+    const list = propRegistry();
+    const box = new THREE.Box3();
+    for (let i = 0; i < list.length; i++) {
+      const item = list[i];
+      const group = item.group;
+      const worldX = group.position.x / P2U;
+      /* The model's REAL bottom, not its origin: several builders centre their
+         group (the doorway is a 32px door about a centre origin), so measuring
+         the origin would report a perfectly planted prop as floating a tile. */
+      box.setFromObject(group);
+      const bottom = isFinite(box.min.y) ? -box.min.y / P2U : -group.position.y / P2U;
+      const surface = floorAt(map, worldX, bottom + 2);
+      let gap = null;
+      if (surface != null) gap = surface - bottom;
+      /* A boxed prop standing on another box (crate on crate, pickup on crate)
+         legitimately has no floor under it - that is not a float. */
+      if (gap == null && item.boxed) continue;
+      if (gap == null || Math.abs(gap) > tol) {
+        out.push({
+          prop: item.name,
+          x: Math.round(worldX),
+          gap: gap == null ? null : Math.round(gap)
+        });
+      }
+    }
+    return out;
   }
 
   // --- voxel actor sync ------------------------------------------------------
@@ -1742,6 +2369,61 @@ window.DS = window.DS || {};
     return (e.sizeScale || 1) * 0.95;
   }
 
+  /* The charge aura lives on the hero model, built once and re-tinted rather
+     than rebuilt per frame. It is the 3D half of the charge read: the smoke
+     trail is the other half. */
+  function ensureChargeAura(model) {
+    if (!model || model.chargeAura) return model && model.chargeAura;
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xfff0a8, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    });
+    const group = new THREE.Group();
+    // A core glow in the chest, plus two motes that orbit the grip.
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 1), mat);
+    core.position.y = 0.55;
+    group.add(core);
+    const motes = [];
+    for (let i = 0; i < 3; i++) {
+      const mote = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), mat.clone());
+      group.add(mote);
+      motes.push(mote);
+    }
+    group.visible = false;
+    model.root.add(group);
+    model.chargeAura = { group: group, core: core, mat: mat, motes: motes };
+    return model.chargeAura;
+  }
+
+  function updateChargeAura(model, p, time) {
+    const aura = ensureChargeAura(model);
+    if (!aura) return;
+    const base = p.inv ? DS.Inv.weapon(p.inv) : null;
+    if (!p.charging || !base) { aura.group.visible = false; return; }
+
+    const cfg = DS.Weapons.WEAPONS[base.type];
+    const max = cfg ? cfg.chargeMax : 40;
+    const ratio = M.clamp((p.holdFrames || 0) / max, 0, 1);
+    const full = ratio >= 0.999;
+
+    const E = base.element ? DS.Weapons.ELEMENTS[base.element] : null;
+    const tint = new THREE.Color(full ? '#fff0a8' : (E ? E.color : '#a8e4ff'));
+    aura.mat.color.copy(tint);
+    for (let i = 0; i < aura.motes.length; i++) aura.motes[i].material.color.copy(tint);
+
+    aura.group.visible = true;
+    const pulse = full ? 1 + Math.sin(time * 9) * 0.12 : 1;
+    aura.core.scale.setScalar((0.35 + ratio * 0.75) * pulse);
+    aura.mat.opacity = 0.1 + ratio * 0.35 + (full ? 0.12 : 0);
+
+    for (let i = 0; i < aura.motes.length; i++) {
+      const a = time * (2.2 + ratio * 3) + (i / aura.motes.length) * Math.PI * 2;
+      const r = 0.34 + ratio * 0.3;
+      aura.motes[i].position.set(Math.cos(a) * r, 0.55 + Math.sin(a * 1.7) * 0.16, Math.sin(a) * r * 0.5);
+      aura.motes[i].material.opacity = 0.25 + ratio * 0.6;
+    }
+  }
+
   function poseHero(g, p, time) {
     if (!p) return;
     ensureHero(g);
@@ -1757,11 +2439,20 @@ window.DS = window.DS || {};
     // Origin sits at the FEET, not the hitbox top: the model stands on the
     // floor line and death topples it around its heels, not mid-air.
     m.root.position.set((p.x + p.w * 0.5) * P2U, (-p.y - p.h) * P2U, 0.3);
-    /* Facing: the body actually TURNS toward the run direction (three-quarter
-       view, ±66°). Rotating +y turns the model's front (+z) toward screen-right
-       (checked: (0,0,1) → (sin θ, 0, cos θ)), so facing=1 must be POSITIVE.
-       The old sign had the hero presenting his back to the camera. */
-    let targetRy = p.facing < 0 ? -1.15 : 1.15;
+    /* Facing, the way a side-scroller reads it: the model is MIRRORED left or
+       right (like the 2D sprites this game was built on) and only leans a
+       little toward the direction of travel. It used to be turned ±66° instead,
+       which presented the character three-quarter to the camera — the face was
+       half-lost and at a glance it looked like it was facing away. Mirroring
+       keeps the face on the camera while still making left and right different
+       (the sword hand swaps, the shoulder leads). */
+    const lean = p.facing < 0 ? -0.22 : 0.22;
+    let targetRy = lean;
+    // The mirror itself. Nothing else writes root.scale on the hero, so a
+    // straight assignment per frame is safe (the enemy path has to multiply,
+    // because it still sets its own scalar for rank size).
+    m.root.scale.x = p.facing < 0 ? -1 : 1;
+
     const airborne = !p.onGround && !p.onRope;
     const rising = airborne && p.vy < 0;
 
@@ -1785,6 +2476,13 @@ window.DS = window.DS || {};
       if (!p.swingTimer) m.armR.rotation.x = swing * 0.6;
       if (!p.swingTimer) m.torso.rotation.y = swing * 0.08;
     }
+
+    /* Charge aura. Held attacks charge in the hand, so the model has to show
+       it: a glow that swells with the wind-up and snaps to full-bright when
+       the charge tops out, tinted by whatever element the weapon carries. The
+       smoke wake itself is emitted from the 2D side (FX.smoke) so both layers
+       read the same charge value. */
+    updateChargeAura(m, p, time);
 
     // Attack: arm sweeps through the 2D game's pose curve.
     if (p.swingTimer > 0 && p.pending) {
@@ -1861,9 +2559,10 @@ window.DS = window.DS || {};
     const baseY = -(e.flying ? e.y + e.h : groundY);
 
     model.root.position.set(cx * P2U, baseY * P2U, 0.3);
-    // Same three-quarter facing as the hero: the monster turns toward where
-    // it walks, face still readable from the camera.
-    const targetRy = e.facing < 0 ? -1.15 : 1.15;
+    // Same treatment as the hero: mirror the model left/right, lean into the
+    // walk. A monster faces the camera and aims sideways, which is the read a
+    // side-scroller needs — and it keeps the face, the eyes and the tells.
+    const targetRy = e.facing < 0 ? -0.22 : 0.22;
     let dRy = targetRy - model.root.rotation.y;
     while (dRy > Math.PI) dRy -= Math.PI * 2;
     while (dRy < -Math.PI) dRy += Math.PI * 2;
@@ -1882,6 +2581,9 @@ window.DS = window.DS || {};
     if (e.tier === 'colossal') model.root.scale.setScalar(1.0 * (e.sizeScale || 3) * 0.95);
     else model.root.scale.setScalar(actorScale(e));
 
+    /* Mirror after the scale is set, because setScalar would undo it. */
+    if (e.facing < 0) model.root.scale.x *= -1;
+
     if (isSlimey) {
       // Slimes have no legs; the whole body squashes on landing.
       const squash = e.onGround ? 1 : 1.12;
@@ -1893,12 +2595,49 @@ window.DS = window.DS || {};
 
   /* Projectile meshes live in a small pool keyed by insertion order; the 2D
      sim stays authoritative, this only mirrors position/angle. */
+  /* A soft radial dot, used for the halo every projectile carries and for the
+     muzzle flash. One texture, made once. */
+  let glowTexture = null;
+  function makeGlowTexture() {
+    if (glowTexture) return glowTexture;
+    const cv = document.createElement('canvas');
+    cv.width = 64; cv.height = 64;
+    const ctx = cv.getContext('2d');
+    const grd = ctx.createRadialGradient(32, 32, 1, 32, 32, 30);
+    grd.addColorStop(0, 'rgba(255,255,255,0.95)');
+    grd.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 64, 64);
+    glowTexture = createTexture(cv);
+    return glowTexture;
+  }
+
+  function makeGlowSprite(color, scale) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: makeGlowTexture(), color: color, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.9
+    }));
+    sp.scale.set(scale, scale, 1);
+    return sp;
+  }
+
   function ensureProjMesh(p, i) {
     let pm = projMeshes[i];
-    if (!pm || pm.kind !== p.kind || pm.element !== (p.element || null)) {
+    const friendly = !!p.friendly;
+    if (!pm || pm.kind !== p.kind || pm.element !== (p.element || null) || pm.friendly !== friendly) {
       if (pm && pm.mesh.parent) pm.mesh.parent.remove(pm.mesh);
-      const mesh = DS.Voxel.buildProjectile(p.kind, p.element);
-      pm = { mesh, kind: p.kind, element: p.element || null };
+      const mesh = DS.Voxel.buildProjectile(p.kind, p.element, friendly);
+      /* Halo + flash ride along as sprite children, so they always face the
+         camera and cost nothing to place. */
+      const col = friendly ? 0x9fd8ff : 0xff6a4a;
+      const halo = makeGlowSprite(col, 1.5);
+      mesh.add(halo);
+      const flash = makeGlowSprite(0xffd8a0, 3.2);
+      flash.visible = false;
+      mesh.add(flash);
+      pm = { mesh: mesh, halo: halo, flash: flash, kind: p.kind,
+             element: p.element || null, friendly: friendly };
       projMeshes[i] = pm;
       fxGroup.add(mesh);
     }
@@ -1912,113 +2651,274 @@ window.DS = window.DS || {};
       const pm = ensureProjMesh(p, i);
       pm.mesh.visible = true;
       pm.mesh.position.set((p.x + p.w * 0.5) * P2U, -(p.y + p.h * 0.5) * P2U, 0.35);
+      const angle = Math.atan2(p.vy, p.vx);
       if (p.kind === 'arrow') {
-        pm.mesh.rotation.z = -Math.atan2(p.vy, p.vx);
+        pm.mesh.rotation.z = -angle;
       } else {
-        pm.mesh.rotation.y = time * 3;
+        /* Orbs are pointed down their own flight path instead of spinning: an
+           orb that always faces where it is going tells you where it is going. */
+        pm.mesh.rotation.z = -angle;
+        pm.mesh.rotation.y = Math.sin(time * 4 + i) * 0.3;
+      }
+      if (pm.halo) {
+        const pulse = 0.85 + Math.sin(time * 9 + i) * 0.15;
+        const size = (p.friendly ? 1.4 : 1.9) * pulse;
+        pm.halo.scale.set(size, size, 1);
+        pm.halo.material.opacity = p.friendly ? 0.45 : 0.75;
+      }
+      /* Muzzle flash: the first frames of a hostile shot, so the player reads
+         WHERE it came from before the projectile arrives. */
+      if (pm.flash) {
+        const age = p.frame || 0;
+        const shown = !p.friendly && age < 9;
+        pm.flash.visible = shown;
+        if (shown) {
+          const k = 1 - age / 9;
+          const s = 3.4 - k * 2.2;
+          pm.flash.scale.set(s, s, 1);
+          pm.flash.material.opacity = 0.35 + k * 0.6;
+        }
       }
     }
     for (let i = count; i < projMeshes.length; i++) projMeshes[i].mesh.visible = false;
   }
 
-  /* --- elemental ground FX in real 3D --------------------------------------
+  /* --- elemental ground FX, built out of real geometry ----------------------
 
-     Fields (fire patches, poison mist, ...) and per-enemy status puddles
-     become glowing plates lying on the floor; lightning becomes a jagged
-     3D strip between two points. Keyed pools recycle meshes so a churning
-     fight never reallocates geometry. */
-  const ELEM_COLORS = {
-    fire: 0xe8743b, ice: 0x4fb3e0, lightning: 0xf2c14e,
-    poison: 0x5cbf62, water: 0x2f6fa8, earth: 0xb98d5c,
-    leaf: 0xa3e86b, steam: 0xd8d5e8
+     A flat glowing slab on the floor was never going to sell "the ground is on
+     fire": it read as a sticker (and as a puddle for every element, including
+     the ones that are not wet). Every element now has a RECIPE saying what
+     grows OUT of the floor, in which colours, and how it moves - flame jets,
+     ice shards, arcing cracks, bubbling vents, ripples, rubble, vines, a dust
+     swirl. One builder turns a recipe into a rig, so an enemy's burning feet
+     and a 40px fire patch are the same hardware at different scales, and adding
+     an element is a table entry rather than another special case. */
+  const ELEM_RECIPE = {
+    fire:      { core: 0xe8743b, accent: 0xfff0a8, shape: 'jets',    n: 5, h: 0.66, light: 0xff7a2a, rise: 1.6 },
+    ice:       { core: 0x4fb3e0, accent: 0xcdefff, shape: 'shards',  n: 7, h: 0.86, light: 0x4fb3e0, rise: 0 },
+    lightning: { core: 0xf2c14e, accent: 0xfff0a8, shape: 'arcs',    n: 5, h: 0.58, light: 0xf2c14e, rise: 0 },
+    poison:    { core: 0x5cbf62, accent: 0xa3e86b, shape: 'vents',   n: 5, h: 0.34, light: 0x5cbf62, rise: 1.2 },
+    water:     { core: 0x2f6fa8, accent: 0x4fb3e0, shape: 'ripples', n: 3, h: 0.05, light: 0,        rise: 0 },
+    earth:     { core: 0xb98d5c, accent: 0x8a6340, shape: 'rubble',  n: 8, h: 0.44, light: 0,        rise: 0 },
+    leaf:      { core: 0xa3e86b, accent: 0x5cbf62, shape: 'vines',   n: 6, h: 0.50, light: 0,        rise: 0 },
+    wind:      { core: 0xcfe8e0, accent: 0xffffff, shape: 'swirl',   n: 7, h: 0.55, light: 0,        rise: 0 },
+    steam:     { core: 0xd8d5e8, accent: 0xffffff, shape: 'vents',   n: 4, h: 0.30, light: 0,        rise: 1.0 }
   };
 
-  function acquirePlate(pool, key, el, w, d) {
-    for (let i = 0; i < pool.length; i++) {
-      if (pool[i].key === null) {
-        pool[i].key = key;
-        pool[i].mesh.visible = true;
-        setPlateColor(pool[i].mesh, el);
-        pool[i].mesh.scale.set(w / 1.2, 1, d / 1.2);
-        return pool[i].mesh;
-      }
-    }
-    const col = ELEM_COLORS[el] || 0xffffff;
-    const group = new THREE.Group();
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: col, transparent: true, opacity: 0.42,
+  /* Rigs are pooled PER ELEMENT, because the geometry differs per element -
+     recycling a fire rig as an ice rig would just be a rebuilt rig. */
+  let elemPool = {};
+  let liveRigs = [];
+  let elemLights = [];
+  const MAX_ELEM_LIGHTS = 5;
+
+  function glowMat(color, opacity) {
+    return new THREE.MeshBasicMaterial({
+      color: color, transparent: true, opacity: opacity,
       blending: THREE.AdditiveBlending, depthWrite: false
     });
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.02, 1.2), glowMat);
-    group.add(plate);
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.024, 0.1),
-      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85,
-        blending: THREE.AdditiveBlending, depthWrite: false }));
-    edge.position.z = 0.56;
-    group.add(edge);
-    const edge2 = edge.clone();
-    edge2.position.z = -0.56;
-    group.add(edge2);
-    const edge3 = edge.clone();
-    edge3.rotation.y = Math.PI / 2;
-    edge3.position.set(0.56, 0, 0);
-    group.add(edge3);
-    const edge4 = edge.clone();
-    edge4.rotation.y = Math.PI / 2;
-    edge4.position.set(-0.56, 0, 0);
-    group.add(edge4);
-    group.position.y = 0.03;
+  }
+
+  function buildElemRig(el) {
+    const rec = ELEM_RECIPE[el] || ELEM_RECIPE.fire;
+    const group = new THREE.Group();
+    const parts = [];
+    function rnd(a, b) { return a + Math.random() * (b - a); }
+
+    /* Every element starts with a scar on the floor: something for the effect
+       to come OUT of, so the ground visibly reacts instead of being decorated. */
+    const scar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.58, 0.58, 0.03, 12),
+      new THREE.MeshLambertMaterial({ color: 0x17131f, transparent: true, opacity: 0.5 })
+    );
+    scar.position.y = 0.015;
+    group.add(scar);
+    parts.push({ mesh: scar, kind: 'scar', base: 0.5 });
+
+    for (let i = 0; i < rec.n; i++) {
+      const a = (i / rec.n) * Math.PI * 2 + rnd(-0.3, 0.3);
+      const r = rnd(0.06, 0.44);
+      const col = (i % 2) ? rec.accent : rec.core;
+      let mesh = null;
+      let kind = rec.shape;
+
+      if (rec.shape === 'jets') {
+        mesh = new THREE.Mesh(new THREE.ConeGeometry(0.11, rec.h, 5), glowMat(col, 0.8));
+        mesh.position.set(Math.cos(a) * r, rec.h * 0.5, Math.sin(a) * r);
+      } else if (rec.shape === 'shards') {
+        mesh = new THREE.Mesh(new THREE.ConeGeometry(0.085, rec.h, 4), glowMat(col, 0.72));
+        mesh.position.set(Math.cos(a) * r, rec.h * 0.5, Math.sin(a) * r);
+        mesh.rotation.set(rnd(-0.3, 0.3), a, rnd(-0.3, 0.3));
+      } else if (rec.shape === 'arcs') {
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, rec.h, 0.05), glowMat(col, 0.9));
+        mesh.position.set(Math.cos(a) * r, rec.h * 0.5, Math.sin(a) * r);
+        mesh.rotation.set(rnd(-0.6, 0.6), a, rnd(-0.6, 0.6));
+      } else if (rec.shape === 'vents') {
+        // A bubble that climbs the vent and fades out at the top.
+        mesh = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), glowMat(col, 0.75));
+        mesh.position.set(Math.cos(a) * r, rnd(0, rec.h), Math.sin(a) * r);
+      } else if (rec.shape === 'ripples') {
+        mesh = new THREE.Mesh(
+          new THREE.RingGeometry(0.3, 0.5, 16),
+          new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5,
+            side: THREE.DoubleSide, depthWrite: false })
+        );
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(0, 0.03 + i * 0.012, 0);
+        kind = 'ripple';
+      } else if (rec.shape === 'rubble') {
+        const s = rnd(0.07, 0.16);
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(s, s * 1.3, s),
+          new THREE.MeshLambertMaterial({ color: col }));
+        mesh.position.set(Math.cos(a) * r, s * 0.65, Math.sin(a) * r);
+        mesh.rotation.set(rnd(-0.4, 0.4), a, rnd(-0.4, 0.4));
+      } else if (rec.shape === 'vines') {
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(0.05, rec.h, 0.05), glowMat(col, 0.85));
+        mesh.position.set(Math.cos(a) * r, rec.h * 0.5, Math.sin(a) * r);
+        mesh.rotation.z = rnd(-0.45, 0.45);
+      } else { // swirl
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.09), glowMat(col, 0.5));
+        mesh.position.set(Math.cos(a) * r, rnd(0.1, rec.h), Math.sin(a) * r);
+      }
+
+      group.add(mesh);
+      parts.push({
+        mesh: mesh, kind: kind, base: mesh.position.y,
+        phase: rnd(0, Math.PI * 2), r: r, a: a, speed: rnd(0.6, 1.4)
+      });
+    }
+
+    const rig = { group: group, parts: parts, element: el, rec: rec, light: null, fade: 1, key: null };
+
+    /* Fire, ice, lightning and poison glow their own patch of floor. The count
+       is capped so a churning fight cannot drown the scene in point lights. */
+    if (rec.light && elemLights.length < MAX_ELEM_LIGHTS) {
+      const l = new THREE.PointLight(rec.light, 0.5, 5.5, 2.0);
+      l.position.set(0, 0.6, 0.3);
+      group.add(l);
+      rig.light = l;
+      elemLights.push(l);
+    }
+
     fxGroup.add(group);
-    const entry = { mesh: group, key: key };
-    pool.push(entry);
-    return group;
+    return rig;
   }
 
-  function setPlateColor(group, el) {
-    const col = new THREE.Color(ELEM_COLORS[el] || 0xffffff);
-    for (let i = 0; i < group.children.length; i++) {
-      if (group.children[i].material) group.children[i].material.color.copy(col);
-    }
-  }
-
-  function releasePlate(pool, mesh) {
+  function acquireRig(el) {
+    const pool = elemPool[el] || (elemPool[el] = []);
     for (let i = 0; i < pool.length; i++) {
-      if (pool[i].mesh === mesh) { pool[i].key = null; pool[i].mesh.visible = false; return; }
+      if (pool[i].key === null) {
+        pool[i].group.visible = true;
+        liveRigs.push(pool[i]);
+        return pool[i];
+      }
     }
+    const rig = buildElemRig(el);
+    pool.push(rig);
+    liveRigs.push(rig);
+    return rig;
   }
 
-  function placePlate(mesh, x, y, radius) {
-    mesh.position.x = x * P2U;
-    mesh.position.z = 0.06;
-    mesh.position.y = -Math.max(0.5, (y - 1) * P2U) + 0.03;
-    const r = Math.max(0.8, radius * P2U);
-    mesh.scale.set(r / 0.6, 1, r / 0.6);
+  function releaseRig(rig) {
+    if (!rig) return;
+    rig.key = null;
+    rig.group.visible = false;
+    const i = liveRigs.indexOf(rig);
+    if (i >= 0) liveRigs.splice(i, 1);
+  }
+
+  /* Sit a rig on the floor at a world position, scaled to a radius in pixels.
+     The rig's own scar is a 0.58-unit disc, so the scale is r / 0.58. */
+  function placeRig(rig, x, y, radius) {
+    const g2 = rig.group;
+    g2.position.x = x * P2U;
+    g2.position.z = 0.06;
+    g2.position.y = -Math.max(0.5, (y - 1) * P2U) + 0.02;
+    const s = Math.max(0.35, (radius * P2U) / 0.58);
+    g2.scale.set(s, 1, s);
+  }
+
+  /* Per-shape animation. Everything is driven from the rig's own parts, so the
+     look of each element is data, not a branch per call site. */
+  function animateRig(rig, t) {
+    const fade = rig.fade;
+    const rec = rig.rec;
+    for (let i = 0; i < rig.parts.length; i++) {
+      const p = rig.parts[i];
+      const mesh = p.mesh;
+      if (!mesh.material) continue;
+      const wob = Math.sin(t * p.speed * 2 + p.phase);
+
+      if (p.kind === 'scar') {
+        mesh.material.opacity = 0.5 * fade;
+      } else if (p.kind === 'jets') {
+        mesh.scale.y = 0.75 + 0.35 * (wob * 0.5 + 0.5);
+        mesh.material.opacity = (0.55 + 0.3 * (wob * 0.5 + 0.5)) * fade;
+      } else if (p.kind === 'shards') {
+        mesh.material.opacity = (0.55 + 0.22 * (wob * 0.5 + 0.5)) * fade;
+      } else if (p.kind === 'arcs') {
+        // Arcs snap on and off rather than glowing steadily.
+        const blip = (Math.sin(t * 9 + p.phase * 3) > 0.25) ? 1 : 0;
+        mesh.material.opacity = (blip ? 0.95 : 0.15) * fade;
+      } else if (p.kind === 'vents') {
+        const climb = ((t * p.speed * 0.55 + p.phase) % 1);
+        mesh.position.y = 0.05 + climb * rec.h;
+        mesh.material.opacity = (1 - climb) * 0.8 * fade;
+      } else if (p.kind === 'ripple') {
+        const cyc = ((t * 0.4 + p.phase / 6.28) % 1);
+        const s = 0.35 + cyc * 0.85;
+        mesh.scale.set(s, s, 1);
+        mesh.material.opacity = (1 - cyc) * 0.55 * fade;
+      } else if (p.kind === 'rubble') {
+        mesh.material.opacity = 1;   // solid rock, nothing to fade
+      } else if (p.kind === 'vines') {
+        mesh.rotation.z = p.base * 0 + Math.sin(t * 0.9 + p.phase) * 0.12;
+        mesh.material.opacity = (0.7 + 0.2 * (wob * 0.5 + 0.5)) * fade;
+      } else if (p.kind === 'swirl') {
+        const a = p.a + t * p.speed * 0.9;
+        mesh.position.x = Math.cos(a) * p.r;
+        mesh.position.z = Math.sin(a) * p.r;
+        mesh.rotation.y = a;
+        mesh.material.opacity = 0.5 * fade;
+      }
+    }
+    if (rig.light) rig.light.intensity = (0.35 + 0.2 * (Math.sin(t * 3 + rig.parts[0].phase) * 0.5 + 0.5)) * fade;
+  }
+
+  function animateLiveRigs(t) {
+    for (let i = 0; i < liveRigs.length; i++) animateRig(liveRigs[i], t);
   }
 
   // Ground field: the burning patch / poison cloud the player stood in.
-  function syncElemFields(g) {
+  function syncElemFields(g, time) {
     if (!g.fields) g.fields = [];
     const fields = g.fields;
+
+    // Retire rigs whose field is gone (fields are compacted, so match by index
+    // through the record we stored on the field itself).
+    for (let i = 0; i < elemFields.length; i++) {
+      const entry = elemFields[i];
+      if (entry && entry.field && fields.indexOf(entry.field) < 0) {
+        releaseRig(entry.rig);
+        elemFields[i] = null;
+      }
+    }
+
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
-      const key = 'f' + i;
-      let entry = elemFields[i];
+      let entry = f.__rig;
       if (!entry) {
-        entry = { mesh: acquirePlate(elemFields, key, f.element, 1, 1), key: key };
-        elemFields[i] = entry;
-      } else {
-        entry.mesh.visible = true;
-        setPlateColor(entry.mesh, f.element);
+        const rig = acquireRig(f.element);
+        rig.key = 'f' + i;
+        entry = { rig: rig, field: f };
+        f.__rig = entry;
+        elemFields.push(entry);
       }
-      const fade = Math.min(1, f.life / 60);
-      entry.mesh.traverse(function (o) {
-        if (o.material && o.material.opacity != null) o.material.opacity = 0.42 * fade + 0.1;
-      });
-      placePlate(entry.mesh, f.x, f.y, f.r);
+      entry.rig.fade = Math.min(1, f.life / 40);
+      placeRig(entry.rig, f.x, f.y, f.r);
     }
-    for (let i = fields.length; i < elemFields.length; i++) {
-      if (elemFields[i].mesh.visible) elemFields[i].mesh.visible = false;
-    }
+
+    animateLiveRigs(time || 0);
   }
 
   /* Skill FX on the floor, in 3D: a short-lived ring of glowing voxel shards
@@ -2072,17 +2972,81 @@ window.DS = window.DS || {};
     }
   }
 
+  /* Smoke, in 3D: a puff of drifts that rises and slows. Emitted by the charge
+     wind-up (FX.smoke) so holding an attack leaves a real wake in the world
+     instead of only 2D dots on top of it. Pooled boxes, no allocation per hit. */
+  let smokePuffs = [];
+  const MAX_SMOKE = 90;
+
+  function spawnSmokePuff(px, py, vx, vy, opts) {
+    if (!fxGroup || smokePuffs.length >= MAX_SMOKE) return;
+    opts = opts || {};
+    const s = (opts.size || 2) * 0.055;
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(s, s, s),
+      new THREE.MeshBasicMaterial({
+        color: new THREE.Color(opts.color || '#9b96b8'),
+        transparent: true, opacity: 0.5, depthWrite: false
+      })
+    );
+    mesh.position.set(px * P2U, -py * P2U, 0.28);
+    fxGroup.add(mesh);
+    smokePuffs.push({
+      mesh: mesh,
+      // Screen px per frame -> world units, and a slow rise.
+      vx: (vx || 0) * P2U * 0.05,
+      vy: -(vy || 0) * P2U * 0.05 + 0.012,
+      life: opts.life || 22,
+      maxLife: opts.life || 22,
+      grow: 1 + Math.random() * 0.6
+    });
+  }
+
+  function updateSmokePuffs() {
+    for (let i = smokePuffs.length - 1; i >= 0; i--) {
+      const p = smokePuffs[i];
+      p.life--;
+      const t = Math.max(0, p.life / p.maxLife);
+      p.mesh.position.x += p.vx * (1.6 - t);
+      p.mesh.position.y += p.vy * (1.6 - t);
+      p.mesh.rotation.y += 0.03;
+      p.mesh.scale.setScalar(1 + (1 - t) * p.grow);
+      p.mesh.material.opacity = 0.5 * t * t;
+      if (p.life <= 0) {
+        if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        smokePuffs.splice(i, 1);
+      }
+    }
+  }
+
   // Per-enemy status puddle API used by Elements.tick.
+  /* Per-enemy status aura: the same rig at foot scale, so a burning monster
+     stands IN flames instead of on a coloured sticker. */
   function spawnElemPuddle(el, x, y) {
-    const mesh = acquirePlate(elemPuddles, 'p' + Math.random(), el, 1, 1);
-    placePlate(mesh, x, y, 9);
-    return mesh;
+    const rig = acquireRig(el);
+    rig.fade = 1;
+    placeRig(rig, x, y, 9);
+    return rig;
   }
-  function updateElemPuddle(mesh, x, y) {
-    if (mesh) placePlate(mesh, x, y, 9);
+  function updateElemPuddle(rig, x, y) {
+    if (rig) placeRig(rig, x, y, 9);
   }
-  function removeElemPuddle(mesh) {
-    if (mesh) releasePlate(elemPuddles, mesh);
+  function removeElemPuddle(rig) {
+    releaseRig(rig);
+  }
+
+  /* A level swap builds a new world under the same rigs; anything still live
+     belongs to the floor it was planted on, so it all goes back to the pool. */
+  function clearElemRigs() {
+    for (let i = liveRigs.length - 1; i >= 0; i--) releaseRig(liveRigs[i]);
+    elemFields = [];
+    elemPuddles = [];
+    for (let i = elemLights.length - 1; i >= 0; i--) {
+      if (elemLights[i].parent) elemLights[i].parent.remove(elemLights[i]);
+    }
+    elemLights = [];
   }
 
   // Lightning: a jagged additive strip from a to b, rebuilt while alive.
@@ -2380,12 +3344,25 @@ window.DS = window.DS || {};
       });
 
       syncProjectiles(g, time);
+
+      /* The water breathes: the whole surface sheet lifts and settles, and its
+         sheen pulses. Cheap, and it is the difference between a pool and a
+         blue glass slab. */
+      if (waterSurfaceMesh) {
+        waterSurfaceMesh.position.y = Math.sin(time * 2.2) * 0.035;
+        waterSurfaceMesh.material.opacity = 0.48 + Math.sin(time * 1.7) * 0.10;
+      }
+      if (waterCrestMesh) {
+        waterCrestMesh.position.y = Math.sin(time * 2.2) * 0.035;
+        waterCrestMesh.material.opacity = 0.72 + Math.sin(time * 3.1) * 0.16;
+      }
       syncPickups(g, time);
       syncPuzzles(g);
       syncShrine(g, time);
-      syncElemFields(g);
+      syncElemFields(g, time);
       syncElemBolts(g);
       updateGroundBursts();
+      updateSmokePuffs();
       updateSwingFx();
     }
 
@@ -2542,10 +3519,8 @@ window.DS = window.DS || {};
       screenParticleManager.update(camX, camY, 0.016);
     }
 
-    // Near-parallax plane drifts at 0.72x camera speed, like the 2D renderer.
-    if (nearBackdrop) {
-      nearBackdrop.position.x = (w0(g) * 0.5) * P2U + camX * 0.28;
-    }
+    /* No parallax scroll to drive any more: the backdrop bands are solid
+       geometry at fixed depth, so the camera's own pan produces the parallax. */
 
     let sIdx = 0;
     if (g.player) {
@@ -2623,9 +3598,17 @@ window.DS = window.DS || {};
     render: render,
     spawnElemPuddle: spawnElemPuddle,
     spawnGroundBurst: spawnGroundBurst,
+    spawnSmokePuff: spawnSmokePuff,
     updateElemPuddle: updateElemPuddle,
     removeElemPuddle: removeElemPuddle,
     spawnSwingArc: spawnSwingArc,
+    /* Anchoring + the audit that enforces it. floorAt is the ONLY way a prop
+       may learn where the ground is; auditAnchors is the gate that proves none
+       of them guessed. */
+    floorAt: floorAt,
+    snapToFloor: snapToFloor,
+    groundAnchor: groundAnchor,
+    auditAnchors: auditAnchors,
     get isEnabled() { return enabled; },
     /* True when gameplay characters are 3D models — every sprite-drawing
        call site keys off this so the 2D canvas draws only FX/UI. */

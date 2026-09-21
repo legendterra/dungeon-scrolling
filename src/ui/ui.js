@@ -354,7 +354,9 @@ window.DS = window.DS || {};
   // --- item card ------------------------------------------------------------
 
   function cardHeight(item) {
-    return 30 + item.affixes.length * 7;
+    // A weapon card carries one extra line for its element (see itemCard).
+    const extra = (item.element && !DS.Armor.isArmor(item)) ? 7 : 0;
+    return 30 + extra + item.affixes.length * 7;
   }
 
   function itemCard(item, x, y, w, compareTo) {
@@ -383,9 +385,22 @@ window.DS = window.DS || {};
     R.text(spd + '/S', x + 58, y + 20, INK);
     R.text(Math.round(item.stats.crit * 100) + '% CRIT', x + 92, y + 20, INK);
 
+    /* The element line: which element, how much of the hit lands as it, and how
+       hard its reactions hit. Without this the share and the Elemental Power
+       affixes were invisible numbers doing real work behind the scenes. */
+    if (item.element) {
+      const E = W.ELEMENTS[item.element];
+      const share = Math.round((item.stats.elementShare || 0) * 100);
+      const power = Math.round(((item.stats.elemPower || 1) - 1) * 100);
+      const line = E.label.toUpperCase() + ' ' + share + '%' +
+                   (power > 0 ? '  +' + power + '% REACT' : '');
+      R.text(line, x + 4, y + 28, E.color);
+    }
+
+    const affixY = y + 28 + (item.element ? 7 : 0);
     for (let i = 0; i < item.affixes.length; i++) {
       const a = item.affixes[i];
-      R.text(a.desc, x + 4, y + 28 + i * 7, a.color);
+      R.text(a.desc, x + 4, affixY + i * 7, a.color);
     }
 
     return h;

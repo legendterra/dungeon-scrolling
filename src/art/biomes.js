@@ -54,8 +54,69 @@ window.DS = window.DS || {};
       sky: ['#3a2d14', '#171106'],
       light: '#f2c14e', darkness: 0.62, lightRadius: 78,
       dust: '#8a7440'
+    },
+
+    /* --- the biome ladder ---------------------------------------------------
+
+       Six more palettes, one per rung of the journey in difficulty.js. Before
+       these existed forDepth() indexed BIOMES by depth-1 and clamped at six, so
+       THE CLIMB, THE SUNK HALLS and THE ASH REACHES were all lit blue, grey and
+       ember on top of slime-throne GOLD stone - the floor and the light
+       disagreed about which place you were in.
+
+       The key IS the ladder key, so the terrain, the tiles and the 3D theme are
+       now picked by one table instead of two. */
+    {
+      key: 'shore', doorStyle: 'arch', name: 'THE SHORE',
+      pal: { D: '#7a6a52', d: '#5a4e3c', g: '#c8b48e', G: '#e8dcc0' },
+      sky: ['#1c2b3a', '#0b141c'],
+      light: '#ffe6a8', darkness: 0.50, lightRadius: 84,
+      dust: '#c8b48e'
+    },
+    {
+      key: 'cave', doorStyle: 'cave', name: 'THE CAVE MOUTH',
+      pal: { D: '#3f5a58', d: '#2b403e', g: '#6a9490', G: '#a8ccc6' },
+      sky: ['#0a1a1c', '#050c0e'],
+      light: '#7fe8d8', darkness: 0.72, lightRadius: 70,
+      dust: '#4a7d78'
+    },
+    {
+      key: 'swamp', doorStyle: 'cave', name: 'THE ROT SWAMP',
+      pal: { D: '#4a5638', d: '#333d26', g: '#7a8f4e', G: '#b8c97a' },
+      sky: ['#0f1a0c', '#070d06'],
+      light: '#b8e06a', darkness: 0.70, lightRadius: 68,
+      dust: '#6a7d46'
+    },
+    {
+      key: 'mountain', doorStyle: 'arch', name: 'THE CLIMB',
+      pal: { D: '#5a6070', d: '#3e4450', g: '#8a95a8', G: '#ccd6e4' },
+      sky: ['#131a26', '#080b12'],
+      light: '#dceaff', darkness: 0.60, lightRadius: 76,
+      dust: '#8a95a8'
+    },
+    {
+      key: 'flooded', doorStyle: 'arch', name: 'THE SUNK HALLS',
+      pal: { D: '#3a5566', d: '#263a48', g: '#6a8fa8', G: '#a8cde0' },
+      sky: ['#081824', '#030c14'],
+      light: '#8fd8ff', darkness: 0.72, lightRadius: 70,
+      dust: '#5a86a0'
+    },
+    {
+      key: 'volcanic', doorStyle: 'gate', name: 'THE ASH REACHES',
+      pal: { D: '#5a3228', d: '#3a2018', g: '#8f5040', G: '#d08a6a' },
+      sky: ['#1c0a06', '#0d0403'],
+      light: '#ff8a4a', darkness: 0.66, lightRadius: 74,
+      dust: '#a05038'
     }
   ];
+
+  const BY_KEY = {};
+  BIOMES.forEach(function (b) { BY_KEY[b.key] = b; });
+
+  /* Ladder rungs that reuse an older palette: the puzzle hall was carved from
+     the prison's masonry, the waystation is vault-cut like the rest of the
+     safe rooms, and the throne room is the throne room. */
+  const RUNG_PALETTE = { puzzle: 'prison', safe: 'vault', boss: 'throne' };
 
   // Bake each biome's tile set once at load, at the same detail sprites.js used.
   const D = DS.SPR.tileDetail || 1;
@@ -76,7 +137,15 @@ window.DS = window.DS || {};
     };
   });
 
+  /* One depth -> one palette, asked of the biome ladder so the tiles and the 3D
+     theme can never disagree again. Falls back to the old depth-1 index if the
+     ladder is missing (a trimmed build), which is what used to be the only path. */
   function forDepth(depth) {
+    if (DS.Difficulty && DS.Difficulty.biomeForDepth) {
+      const rung = DS.Difficulty.biomeForDepth(depth);
+      const key = (rung && BY_KEY[rung.key]) ? rung.key : RUNG_PALETTE[rung && rung.key];
+      if (key && BY_KEY[key]) return BY_KEY[key];
+    }
     return BIOMES[DS.M.clamp(depth - 1, 0, BIOMES.length - 1)];
   }
 

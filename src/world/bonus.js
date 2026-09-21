@@ -92,7 +92,7 @@ window.DS = window.DS || {};
 
     const spot = g.rng.pick(spawns.enemies);
     const tx = Math.floor(spot.x / T);
-    if (g.map.floorBelow(tx, 0) >= g.map.pixelH) return;
+    if (g.map.groundBelow(tx) >= g.map.pixelH) return;
 
     const e = DS.Enemies.create(g, spot.x, spot.y, 'goldslime', 'normal');
     e.golden = true;
@@ -130,7 +130,7 @@ window.DS = window.DS || {};
       const baseTx = order[i] * DS.LevelGen.ROOM_W + 6;
       if (!clearAbove(map, baseTx, 7)) continue;
 
-      const floorRow = Math.floor(map.floorBelow(baseTx, 0) / T);
+      const floorRow = Math.floor(map.groundBelow(baseTx) / T);
       if (floorRow >= map.h) continue;
 
       // Vault shell: three tiles of floor with walls at either end.

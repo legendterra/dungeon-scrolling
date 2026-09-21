@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v4.0.0] - 2026-09 - Everything Is Three-Dimensional
+
+### Added
+- **A Central Difficulty Curve** (`src/systems/difficulty.js`): enemy counts and ranks, hazards, terrain span, puzzle size, torch spacing, chest odds, loot bias and shake budget all read one module, so the whole game moves together when a number moves. Depths 1-2 are pinned as the teaching floors — few enemies, no hazards, no elites, short floors — and growth is front-loaded then flattens, with the ramping challenge carried by enemy *rank* and terrain rather than by body count.
+- **The Biome Ladder**: which shape a floor has is decided by depth, not by a dice roll — shore, cave, cave, Torch Hall, Waystation, swamp, mountain, flooded halls, ash reaches, throne. A run now reads as a journey with a geography instead of rolling a lava floor at depth 2 and a beach at depth 9.
+- **An Eighth Element And Every Reaction**: `wind` joins fire, ice, lightning, poison, water, earth and leaf, with the **full 28-pair reaction matrix** filled in (13 pairs were missing and silently did nothing). Elemental conversion is now a stat on every weapon, rolled on rarity, and shown in the item tooltip.
+- **Per-Weapon Charge FX**: sword, axe, spear, bow and staff each telegraph a heavy attack differently, with a smoke trail behind the charged hero and a charge aura on the model.
+- **Elemental Ground Rigs In 3D**: each element grows real geometry out of the floor - flame jets, ice shards, arcing cracks, bubbling vents, ripples, rubble, vines, a dust swirl - replacing the flat glowing plate that read as a puddle for every element, including the dry ones.
+- **Terrain Support Pass** (`supportPlatforms` in `src/world/generator.js`): every unsupported ledge is made honest — reached sideways to a wall (balcony), hung from bedrock above, or given a stone leg — and a ledge with no ground anywhere below it is removed rather than left floating.
+- **Six New Biome Palettes** (`src/art/biomes.js`): `shore`, `cave`, `swamp`, `mountain`, `flooded`, `volcanic`, one per rung of the biome ladder, each with its own tile palette, sky, torch colour, darkness and dust. `Biomes.forDepth()` now asks `Difficulty.biomeForDepth()` for the palette instead of indexing the list by `depth - 1`, which is why depths 6-10 were previously all lit as the slime throne's gold.
+- **A Procedural 3D Backdrop Per Biome** (`BACKDROP_RECIPE` in `src/core/renderer3d.js`): every theme declares what its horizon is made of — rock teeth, mountain ridges with snow caps, cave ceilings and stalactites, crystal clusters, colonnades and arches, ruined wall faces, trees, ice floes, waterfalls, lava falls, bone piles — and one builder turns the recipe into staged, lit, fogged geometry in depth bands.
+- **A Real Sky Shell**: a gradient sky plane, a horizon ground slab and a star field, so the terrain never ends in mid-air over a black void. Two outdoor biomes also get a moon.
+- **Depth-Staged Parallax From Perspective**: the camera only pans, so the backdrop bands slide against each other by themselves; the old `nearBackdrop.position.x = camX * 0.28` fake is gone.
+- **Piranha & Gold Slime Models**: both enemy kinds existed in gameplay and had **no 3D builder**, so `build()` returned `null` and the renderer drew nothing — a fish that bit you invisibly and the one enemy that *is* a reward, also invisible.
+- **Enemy Attack Tells Rebuilt In 3D**: the spider's silk thread, the bomber's lit fuse and swell, the shielder's braced rim, the necromancer's rotating rune ring and the golem's opening cracks were `drawExtra` calls inside the 2D enemy draw, which the voxel path skips — they are now model parts driven by the same entity state.
+- **Real 3D Water**: pools are translucent volumes with a lit surface sheet and a bright crest, animated. Depth-sorted, so a submerged fish is *tinted* by the water instead of hidden by a flat tint painted over the whole scene.
+- **The Black Room** (`src/world/lair.js`): one chamber on a floor where the torches are dead, the veil is pushed to 0.94, and the only light in the room is a rift burning in the far wall — placed **behind** the actors so everything reads as a rimmed silhouette. Announced with a `THE LIGHT DIES HERE` banner on entry, capped at one room per floor and never on a tutorial, safe, trial or boss floor.
+- **Hostile Projectile Read** (`buildProjectile(kind, element, friendly)`): enemy shots get a hot white core, a saturated rim, an additive halo sprite and a muzzle flash on the first frames of flight.
+
+### Changed
+- **Monster And Hero Facing Is Mirroring, Not Turning**: characters used to be yawed ±66° toward the camera's side, which read as “facing the background” and cost the face. They now keep the face on the camera and **mirror** left/right (`scale.x = ±1`) like the 2D sprites always did, leaning only ±0.22 rad into the walk. Asymmetric details — the weapon hand, the shield arm, the zombie's long arm — swap sides, so left and right are actually different.
+- **Character Materials Are Double-Sided** (`src/core/voxel.js`): a mirrored model has a negative determinant, and with front-face culling that renders a solid voxel monster inside out.
+- **Plate Density Is Spacing, Not Count**: backdrop recipes specify how many world units apart two objects sit, so a 200-unit floor gets the same horizon on screen as a 40-unit one.
+- **Flavour Follows The Biome Ladder** (`src/world/generator.js`): the carved-parkour roll used to fire on every plain floor at ~50%, so the shore (depth 1) was a climb half the time. A `carved` rung is a climb almost always; the tutorial floors are exactly what the ladder says.
+- **`disposeGroup` Recurses**: it only freed direct children, so every rebuilt level leaked the whole backdrop subtree.
+
+### Fixed
+- **Backdrop Bands Culled Away** (three r128): an `InstancedMesh` is bounded by its *geometry* (a unit box at the group origin), so a band spanning 200 world units vanished as soon as the camera left `x = 0`. All backdrop and water batches set `frustumCulled = false`.
+- **Water Batches Silently Invisible**: instance tuples that omitted the rotation slots wrote `NaN` into every instance matrix, and three.js drew nothing at all without a word. Rotation slots are defaulted now.
+- **Unknown Enemy Kinds Now Warn Instead Of Vanishing**: `build()` falls back to a placeholder silhouette and logs once, so a missing builder is a nudge rather than an invisible monster.
+- **The Piranha Never Rendered**: `BUILDERS.piranha` did not exist.
+- **Gold Slime Never Rendered**: `BUILDERS.goldslime` did not exist.
+- **The Water Veil Hid What Was In It**: the water body and its surface were painted on the 2D overlay, which sits *above* the WebGL canvas, so anything swimming was covered by it. Water is 3D geometry now and the 2D overlay no longer draws water in voxel mode.
+
+---
+
 ## [v3.1.0] - 2026-09 - Grounding Pass, Cursor Aiming & True Fullscreen
 
 ### Added

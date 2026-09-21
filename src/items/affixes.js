@@ -49,6 +49,11 @@ window.DS = window.DS || {};
       proc: { element: 'leaf' }
     },
     {
+      key: 'gale', name: 'Gale', color: '#cfe8e0',
+      desc: 'WIND - swirls status onto neighbours',
+      proc: { element: 'wind' }
+    },
+    {
       key: 'vampiric', name: 'Vampiric', color: '#c0303c',
       desc: 'Heals 8% of damage dealt',
       proc: { lifesteal: 0.08 }
@@ -135,6 +140,19 @@ window.DS = window.DS || {};
       key: 'hunter', name: 'of the Hunter', color: '#a3e86b',
       desc: '+1 arrow on pickup, +10% crit damage',
       bonus: { arrowBonus: 1, critDamage: 0.1 }
+    },
+    /* Elemental Power moves REACTIONS only, never raw damage, so it is the one
+       stat that rewards building around a reaction pair instead of around a
+       bigger number. */
+    {
+      key: 'attuned', name: 'of Attunement', color: '#c8b8ff',
+      desc: '+35% elemental reaction power',
+      bonus: { elemPower: 0.35 }
+    },
+    {
+      key: 'resonant', name: 'of Resonance', color: '#e0c8ff',
+      desc: '+70% reaction power, -8% damage',
+      bonus: { elemPower: 0.7 }, mods: { damage: 0.92 }
     }
   ];
 

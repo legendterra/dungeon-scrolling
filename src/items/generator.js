@@ -71,6 +71,15 @@ window.DS = window.DS || {};
     stats.crit = DS.M.clamp(stats.crit, 0, 0.85);
     stats.critDamage += bonus.critDamage;
 
+    /* How much of this weapon's damage arrives as its element, and how hard
+       its reactions hit. Rarity decides the split - a common blade is mostly
+       steel with an elemental edge, a legendary is mostly element - so the
+       same archetype keeps improving after the base damage curve flattens.
+       Elemental Power (bonus.elemPower, an affix/boon stat) scales reactions
+       only, which is what makes a build feel different rather than bigger. */
+    stats.elementShare = item.element ? W.ELEMENT_SHARE[item.rarity] : 0;
+    stats.elemPower = 1 + (bonus.elemPower || 0);
+
     item.stats = stats;
     item.bonus = bonus;
     item.procs = procs;
@@ -136,7 +145,12 @@ window.DS = window.DS || {};
       rerolls: 0
     };
 
-    if (W.WEAPONS[type].elemental) {
+    /* EVERY weapon carries an element now. Only the archetype that is all
+       element all the time (the staff) used to roll one, which meant a sword,
+       axe, spear, dagger or bow could not take part in the reaction system at
+       all unless it happened to roll an elemental prefix. The run's first
+       weapon stays deliberately plain (see startingWeapon). */
+    if (!opts.noElement) {
       item.element = opts.element || rng.pick(W.ELEMENT_KEYS);
     }
 
@@ -149,7 +163,7 @@ window.DS = window.DS || {};
   function startingWeapon(type) {
     const rng = DS.makeRng(1);
     const key = W.WEAPONS[type] ? type : 'sword';
-    return makeItem(rng, 1, { type: key, rarity: 0 });
+    return makeItem(rng, 1, { type: key, rarity: 0, noElement: true });
   }
 
   // --- loot tables ----------------------------------------------------------

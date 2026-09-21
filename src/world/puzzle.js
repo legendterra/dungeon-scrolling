@@ -413,9 +413,11 @@ window.DS = window.DS || {};
     return gate;
   }
 
-  function generateBarrier(g, level) {
+  /* force: the biome ladder can REQUIRE a puzzle on a floor (the Torch Hall),
+     instead of leaving the only guaranteed obstacle in the game to a 45% roll. */
+  function generateBarrier(g, level, force) {
     if (level.kind !== 'normal') return;
-    if (!g.rng.chance(0.45)) return;
+    if (!force && !g.rng.chance(0.45)) return;
 
     const map = g.map;
     const rooms = level.roomCount;
@@ -436,8 +438,9 @@ window.DS = window.DS || {};
          and expects to find whoever is holding the key. */
       const kind = 'keygate';
 
-      const puzzle = { gate: gate, kind: kind, barrier: true, failsafe: FAILSAFE };
-      const floorY = floorRow * T;
+    const puzzle = { gate: gate, kind: kind, barrier: true, failsafe: FAILSAFE };
+    const floorY = floorRow * T;
+    if (force) puzzle.hall = true;
 
       if (kind === 'keygate') {
         // Two tiles in front of the bars, never further, so it is always the

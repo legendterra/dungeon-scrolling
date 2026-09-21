@@ -779,7 +779,7 @@ window.DS = window.DS || {};
     const target = e.x + away * 56;
     const tx = Math.floor(target / DS.C.TILE);
     if (tx < 1 || tx >= g.map.w - 1) return;
-    if (g.map.floorBelow(tx, 0) >= g.map.pixelH) return;   // never blink into a pit
+    if (g.map.groundBelow(tx) >= g.map.pixelH) return;     // never blink into a pit
 
     DS.FX.burst(Ent.centerX(e), Ent.centerY(e), 12, ['#3c2154', '#c86ee0'],
                 { speed: 2, life: 16, grav: 0 });

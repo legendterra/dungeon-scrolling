@@ -82,10 +82,16 @@ window.DS = window.DS || {};
     DS.Audio.play(opts.crit ? 'crit' : 'hit');
     if (opts.crit) DS.R.shake(2.5);
 
-    // An elemental hit lands its status here, which is also where reactions fire.
+    /* An elemental hit lands its status here, which is also where reactions
+       fire. The power handed over is the hit's own damage scaled two ways: by
+       the share of that damage which arrived as element (rarity-driven, see
+       ELEMENT_SHARE) and by the wielder's Elemental Power, which only moves
+       reactions. That is what turns "+damage" into a build decision. */
     const element = opts.element || (opts.procs && opts.procs.element);
     if (element && !opts.isChain) {
-      DS.Elements.apply(g, enemy, element, dealt);
+      const prow = (opts.elementShare != null ? opts.elementShare : 1)
+                 * (opts.elemPower || 1);
+      DS.Elements.apply(g, enemy, element, Math.max(1, dealt * prow));
     }
     // Remember what element is flowing through this kill — the loot roll
     // reads it so an elemental death drops elemental gifts.
@@ -293,7 +299,8 @@ window.DS = window.DS || {};
           if (e.dead || !M.overlap(p, e)) continue;
           damageEnemy(g, e, p.damage, {
             crit: p.crit, knockback: p.knockback,
-            dir: M.sign(p.vx) || 1, procs: p.procs, element: p.element
+            dir: M.sign(p.vx) || 1, procs: p.procs, element: p.element,
+            elementShare: p.elementShare, elemPower: p.elemPower
           });
           if (p.pierce > 0) { p.pierce--; }
           else { consumed = true; }
@@ -358,11 +365,14 @@ window.DS = window.DS || {};
        column has no floor the drop is nudged to the nearest ground. */
     if ((kind === 'key' || kind === 'item') && g.map) {
       const T2 = DS.C.TILE;
-      if (g.map.floorBelow(Math.floor(x / T2), 0) >= g.map.pixelH) {
+      /* groundBelow, not floorBelow(tx, 0): in a cave the first solid from the
+         sky is the ROOF, so the "is there a floor here" test passed for every
+         column and drops were left to fall into the dark. */
+      if (g.map.groundBelow(Math.floor(x / T2)) >= g.map.pixelH) {
         for (let step = 1; step < 24; step++) {
           for (let side = -1; side <= 1; side += 2) {
             const tx = Math.floor(x / T2) + step * side;
-            const floor = g.map.floorBelow(tx, 0);
+            const floor = g.map.groundBelow(tx);
             if (floor < g.map.pixelH) { x = tx * T2 + 8; y = floor - 12; step = 99; break; }
           }
         }

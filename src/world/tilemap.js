@@ -265,16 +265,10 @@ window.DS = window.DS || {};
             R.spr(map.get(tx, ty - 1) === TILE.EMPTY ? S.floor : S.wall, px, py);
           }
         } else if (is3D) {
-          // 3D mode: the wall/platform/spike/door geometry is Three.js's job;
-          // only water and ropes ride on the 2D overlay.
-          if (t === TILE.WATER) {
-            R.rect(px, py, T, T, 'rgba(22,50,79,0.72)');
-            if (!map.isWater(tx, ty + 1) && !map.isBlocked(tx, ty + 1)) {
-              R.rect(px, py + T - 2, T, 2, 'rgba(11,26,42,0.7)');
-            }
-          } else if (t === TILE.ROPE) {
-            drawRope(R, map, tx, ty, frame);
-          }
+          /* 3D mode: every tile is Three.js's job now — including water, which
+             is a translucent volume in the scene (see loadLevel). What is left
+             here is only the smallest thing the 3D pass cannot do: nothing.
+             Ropes are 3D geometry too, so this branch draws no tiles at all. */
         } else if (t === TILE.PLATFORM) {
           R.spr(S.platform, px, py);
         } else if (t === TILE.SPIKE) {

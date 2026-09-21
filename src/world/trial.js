@@ -111,8 +111,12 @@ window.DS = window.DS || {};
       fillColumn(map, tx, FLOOR);
     }
 
-    // Five is the ceiling; shallow floors get a gentler version of the same.
-    const count = M.clamp(3 + Math.floor(depth / 2), 3, 5);
+    /* Plate count is the whole difficulty knob of this room, so it comes from
+       the curve rather than from a second, local formula. Five is the ceiling:
+       more than five plates plus five crates is a chore, not a puzzle. */
+    const diff = DS.Difficulty ? DS.Difficulty.forDepth(depth) : null;
+    const count = diff ? M.clamp(diff.plates, 2, 5)
+                       : M.clamp(3 + Math.floor(depth / 2), 3, 5);
     const plateAt = layout(rng, count, GAUNTLET_END + 4, HALL_END - 4, 3);
     const crateAt = layout(rng, count, GAUNTLET_END + 3, HALL_END - 3, 3);
 

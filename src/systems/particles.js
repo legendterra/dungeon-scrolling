@@ -383,6 +383,29 @@ window.DS = window.DS || {};
     }
   }
 
+  /* Smoke. A charge attack drags a wake behind it, and the voxel layer gets a
+     real puff from the same call so the 2D dots and the 3D boxes stay in step. */
+  function smoke(x, y, vx, vy, opts) {
+    opts = opts || {};
+    const size = opts.size || 2;
+    emit({
+      x: x, y: y, vx: vx || 0, vy: vy || 0,
+      life: opts.life || 22,
+      size: size,
+      color: opts.color || '#9b96b8',
+      grav: opts.grav == null ? -0.01 : opts.grav,
+      drag: opts.drag == null ? 0.94 : opts.drag,
+      shrink: false
+    });
+    if (DS.R3D && DS.R3D.isEnabled && DS.R3D.spawnSmokePuff) {
+      DS.R3D.spawnSmokePuff(x, y, vx, vy, {
+        color: opts.color || '#9b96b8',
+        life: opts.life || 22,
+        size: size
+      });
+    }
+  }
+
   /* Emit an elemental effect. Falls back to the old coloured dots for any
      element without a bespoke emitter, so callers never have to check. */
   function element(kind, x, y, opts) {
@@ -412,6 +435,7 @@ window.DS = window.DS || {};
     blood: blood,
     dust: dust,
     trail: trail,
+    smoke: smoke,
     spark: spark,
     star: star,
     heart: heart,

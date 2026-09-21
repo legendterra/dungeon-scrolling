@@ -27,7 +27,7 @@ window.DS = window.DS || {};
     },
     lightning: {
       key: 'lightning', label: 'Lightning', color: '#f2c14e', spark: ['#fff0a8', '#f2c14e', '#ffffff'],
-      sfx: 'lightning', field: null
+      sfx: 'lightning', field: 'lightning'
     },
     poison: {
       key: 'poison', label: 'Poison', color: '#5cbf62', spark: ['#5cbf62', '#a3e86b', '#2f7d4f'],
@@ -39,11 +39,18 @@ window.DS = window.DS || {};
     },
     earth: {
       key: 'earth', label: 'Earth', color: '#b98d5c', spark: ['#b98d5c', '#8a6340', '#5c3f2a'],
-      sfx: 'slam', field: null
+      sfx: 'slam', field: 'earth'
     },
     leaf: {
       key: 'leaf', label: 'Leaf', color: '#a3e86b', spark: ['#a3e86b', '#5cbf62', '#2f7d4f'],
       sfx: 'swing', field: 'leaf'
+    },
+    /* Wind is the eighth: it burns nothing and freezes nothing on its own. It
+       AGITATES - it picks up whatever aura a target already carries and throws
+       it at the neighbours, which is what makes it worth a weapon slot. */
+    wind: {
+      key: 'wind', label: 'Wind', color: '#cfe8e0', spark: ['#ffffff', '#cfe8e0', '#9fb8b0'],
+      sfx: 'swing', field: 'wind'
     }
   };
 
@@ -124,11 +131,58 @@ window.DS = window.DS || {};
     } else if (element === 'leaf') {
       s.root = 90;
       DS.FX.element('leaf', DS.Ent.centerX(e), e.y + e.h, { count: 8 });
+
+    } else if (element === 'wind') {
+      /* Swirl: wind does no damage of its own, it carries. Whatever else is on
+         the target is blown onto everything close by at reduced power, so a
+         wind weapon is a delivery system for the element you already applied. */
+      s.root = Math.max(s.root, 30);
+      e.vx = (M.sign(e.vx) || -1) * Math.min(3.2, Math.abs(e.vx) + 1.4);
+      swirl(g, e, power);
+      DS.FX.element('wind', DS.Ent.centerX(e), DS.Ent.centerY(e), { count: 10, power: 1.1 });
     }
 
     /* Shaped, per element: flames lick upward, shards hang, bubbles weave,
        rocks fall. The old call put the same square dots on all seven. */
     DS.FX.element(element, DS.Ent.centerX(e), DS.Ent.centerY(e), { count: 6 });
+  }
+
+  /* Wind's signature. Finds what the target is carrying - the aura, or the
+     loudest status on it - and blows a weaker dose of that element onto every
+     enemy nearby. Wind on a burning crowd makes the fire jump. */
+  const SWIRL_STATUS = [
+    ['burn', 'fire'], ['chill', 'ice'], ['frozen', 'ice'], ['shock', 'lightning'],
+    ['poison', 'poison'], ['wet', 'water'], ['brittle', 'earth'], ['root', 'leaf']
+  ];
+
+  function auraOf(e) {
+    if (e.aura && e.aura.frames > 0 && e.aura.element !== 'wind') return e.aura.element;
+    if (!e.status) return null;
+    for (let i = 0; i < SWIRL_STATUS.length; i++) {
+      if (e.status[SWIRL_STATUS[i][0]] > 0) return SWIRL_STATUS[i][1];
+    }
+    return null;
+  }
+
+  function swirl(g, source, power) {
+    const el = auraOf(source);
+    if (!el) return null;
+    let shared = 0;
+    for (let i = 0; i < g.enemies.length; i++) {
+      const o = g.enemies[i];
+      if (o === source || o.dead) continue;
+      if (M.dist(DS.Ent.centerX(source), DS.Ent.centerY(source),
+                 DS.Ent.centerX(o), DS.Ent.centerY(o)) > 72) continue;
+      // Reduced power and no ground field: a swirl spreads the effect, it does
+      // not reproduce the original hit.
+      apply(g, o, el, power * 0.55, { noField: true });
+      shared++;
+    }
+    if (shared) {
+      DS.FX.number(DS.Ent.centerX(source), source.y - 12, 'SWIRL', '#cfe8e0');
+      DS.FX.ring(DS.Ent.centerX(source), DS.Ent.centerY(source), 16, '#cfe8e0', 2.4);
+    }
+    return shared;
   }
 
   function freeze(g, e, frames) {
@@ -362,6 +416,220 @@ window.DS = window.DS || {};
         e.status.shock = 45;
         DS.Ent.damageEnemy(g, e, power, { dir: 1, knockback: 1 });
       }
+    },
+
+    /* --- the rest of the matrix -------------------------------------------
+       Eight elements are 28 pairs, and a pair with no entry silently fell back
+       to a plain hit - so half the combinations a player could discover did
+       nothing. Every pair is now named and does something. */
+
+    'fire|lightning': {
+      name: 'OVERLOAD', color: '#ffb060',
+      run: function (g, e, power) {
+        // Fire and lightning detonate: an untyped blast centred on the target.
+        radial(g, DS.Ent.centerX(e), DS.Ent.centerY(e), 46, power * 2.0);
+        DS.Ent.damageEnemy(g, e, power * 0.6, { dir: 1, knockback: 4.5 });
+        DS.FX.burst(DS.Ent.centerX(e), DS.Ent.centerY(e), 22,
+                    ['#fff0a8', '#e8743b', '#ffffff'], { speed: 3.4, life: 22 });
+        DS.R.shake(7);
+        DS.Audio.play('boom');
+      }
+    },
+
+    'fire|wind': {
+      name: 'FIRESTORM', color: '#ff9a4e',
+      run: function (g, e, power) {
+        // Wind feeds the flame: a wider, hotter patch, and the fire spreads.
+        const f = spawnField(g, DS.Ent.centerX(e), e.y + e.h, 'fire', power * 1.7);
+        if (f) { f.spread = 0.55; f.maxR = 84; f.life = f.maxLife = 420; }
+        g.enemies.forEach(function (o) {
+          if (o.dead || o === e) return;
+          if (M.dist(DS.Ent.centerX(e), DS.Ent.centerY(e),
+                     DS.Ent.centerX(o), DS.Ent.centerY(o)) > 80) return;
+          o.status = o.status || {};
+          o.status.burn = 120;
+          o.status.burnTick = 24;
+          o.status.burnDamage = Math.max(1, Math.round(power * 0.12));
+        });
+      }
+    },
+
+    'ice|leaf': {
+      name: 'WITHER', color: '#8fd6c8',
+      run: function (g, e, power) {
+        // Frozen sap splits the wood: heavy damage and the growth dies.
+        e.status.root = 0;
+        e.status.brittle = 360;
+        e.status.chill = 180;
+        DS.Ent.damageEnemy(g, e, power * 1.7, { dir: 1, knockback: 1.5 });
+      }
+    },
+
+    'ice|poison': {
+      name: 'TOXIC FROST', color: '#7fd6a0',
+      run: function (g, e, power) {
+        // The poison crystallises: brittle, chilled, and it keeps eating.
+        e.status.brittle = 300;
+        e.status.poison = 300;
+        e.status.poisonTick = 20;
+        e.status.poisonDamage = Math.max(1, Math.round(power * 0.18));
+        freeze(g, e, 90);
+      }
+    },
+
+    'ice|wind': {
+      name: 'BLIZZARD', color: '#cdefff',
+      run: function (g, e, power) {
+        // Wind carries the cold: everything nearby chills.
+        g.enemies.forEach(function (o) {
+          if (o.dead) return;
+          if (M.dist(DS.Ent.centerX(e), DS.Ent.centerY(e),
+                     DS.Ent.centerX(o), DS.Ent.centerY(o)) > 78) return;
+          o.status = o.status || {};
+          o.status.chill = 160;
+          o.status.chillSlow = 0.5;
+          DS.Ent.damageEnemy(g, o, power * 0.5, { dir: 1, knockback: 0.6 });
+        });
+        DS.FX.ring(DS.Ent.centerX(e), DS.Ent.centerY(e), 24, '#cdefff', 3);
+      }
+    },
+
+    'leaf|wind': {
+      name: 'GALE SEED', color: '#a3e86b',
+      run: function (g, e, power) {
+        // Seeds ride the gust: rooted where they land.
+        g.enemies.forEach(function (o) {
+          if (o.dead) return;
+          if (M.dist(DS.Ent.centerX(e), DS.Ent.centerY(e),
+                     DS.Ent.centerX(o), DS.Ent.centerY(o)) > 84) return;
+          o.status = o.status || {};
+          o.status.root = 170;
+        });
+        spawnField(g, DS.Ent.centerX(e), e.y + e.h, 'leaf', power);
+        DS.FX.ring(DS.Ent.centerX(e), e.y + e.h, 26, '#a3e86b', 2.4);
+      }
+    },
+
+    'lightning|poison': {
+      name: 'VENOM ARC', color: '#b8e86b',
+      run: function (g, e, power) {
+        // The bolt travels through the poison, so it reaches the poisoned.
+        const targets = g.enemies.filter(function (o) {
+          return !o.dead && (o === e || (o.status && o.status.poison > 0));
+        });
+        targets.forEach(function (o) {
+          addBolt(g, e, o);
+          o.status = o.status || {};
+          o.status.shock = 55;
+          o.status.poison = Math.max(o.status.poison || 0, 240);
+          o.status.poisonTick = 24;
+          o.status.poisonDamage = Math.max(1, Math.round(power * 0.15));
+          DS.Ent.damageEnemy(g, o, power * 1.2, { dir: 1, knockback: 1.2 });
+        });
+        DS.Audio.play('lightning');
+      }
+    },
+
+    'lightning|wind': {
+      name: 'THUNDERSTORM', color: '#fff0a8',
+      run: function (g, e, power) {
+        // A charged gust: bolts jump to everything in a wide radius.
+        strikeDown(g, DS.Ent.centerX(e), DS.Ent.centerY(e), '#fff0a8');
+        const near = g.enemies.filter(function (o) {
+          return !o.dead && M.dist(DS.Ent.centerX(e), DS.Ent.centerY(e),
+                                   DS.Ent.centerX(o), DS.Ent.centerY(o)) <= 96;
+        });
+        near.forEach(function (o) {
+          if (o !== e) addBolt(g, e, o);
+          o.status = o.status || {};
+          o.status.shock = 65;
+          DS.Ent.damageEnemy(g, o, power * 1.1, { dir: 1, knockback: 1.6 });
+        });
+        DS.R.flash('#fff0a8', 7);
+      }
+    },
+
+    // pairKey() SORTS a pair, so the key has to be written sorted too - the
+    // unsorted spelling is a dead branch that silently falls back to a plain hit.
+    'earth|poison': {
+      name: 'MIASMA', color: '#7f9e4e',
+      run: function (g, e, power) {
+        // Poison in the soil: a long-lived vent under everyone's feet.
+        const f = spawnField(g, DS.Ent.centerX(e), e.y + e.h, 'poison', power * 1.8);
+        if (f) { f.life = f.maxLife = 700; f.r = Math.max(f.r, 40); f.mult = 1.5; }
+        DS.FX.ring(DS.Ent.centerX(e), e.y + e.h, 30, '#7f9e4e', 2.6);
+        DS.R.shake(3);
+      }
+    },
+
+    'poison|wind': {
+      name: 'PLAGUE WIND', color: '#5cbf62',
+      run: function (g, e, power) {
+        g.enemies.forEach(function (o) {
+          if (o.dead) return;
+          if (M.dist(DS.Ent.centerX(e), DS.Ent.centerY(e),
+                     DS.Ent.centerX(o), DS.Ent.centerY(o)) > 96) return;
+          o.status = o.status || {};
+          o.status.poison = Math.max(o.status.poison || 0, 340);
+          o.status.poisonTick = 20;
+          o.status.poisonDamage = Math.max(1, Math.round(power * 0.14));
+        });
+        spawnField(g, DS.Ent.centerX(e), DS.Ent.centerY(e), 'poison', power * 1.5);
+      }
+    },
+
+    'earth|water': {
+      name: 'MUDSLIDE', color: '#8a6340',
+      run: function (g, e, power) {
+        // Mud: everyone standing in it is slowed to a crawl.
+        g.enemies.forEach(function (o) {
+          if (o.dead || !o.onGround) return;
+          if (Math.abs(DS.Ent.centerX(o) - DS.Ent.centerX(e)) > 90) return;
+          o.status = o.status || {};
+          o.status.chill = 200;
+          o.status.chillSlow = 0.62;
+          o.status.wet = 200;
+          DS.Ent.damageEnemy(g, o, power * 0.5, { dir: 1, knockback: 0.5 });
+        });
+        const f = spawnField(g, DS.Ent.centerX(e), e.y + e.h, 'water', power);
+        if (f) f.r = Math.max(f.r, 38);
+        DS.R.shake(3);
+      }
+    },
+
+    'water|wind': {
+      name: 'MISTRAL', color: '#a8e4ff',
+      run: function (g, e, power) {
+        // A wet gust: pushed back and soaked.
+        g.enemies.forEach(function (o) {
+          if (o.dead) return;
+          const dx = DS.Ent.centerX(o) - DS.Ent.centerX(e);
+          if (Math.abs(dx) > 88) return;
+          o.status = o.status || {};
+          o.status.wet = 300;
+          o.vx = (M.sign(dx) || 1) * 4.6;
+          o.vy = Math.min(o.vy, -1.6);
+        });
+        spawnField(g, DS.Ent.centerX(e), e.y + e.h, 'water', power * 1.2);
+      }
+    },
+
+    'earth|wind': {
+      name: 'SANDSTORM', color: '#d8c8a8',
+      run: function (g, e, power) {
+        // Grit in the eyes: blinded, cracked open, and shoved.
+        g.enemies.forEach(function (o) {
+          if (o.dead) return;
+          if (M.dist(DS.Ent.centerX(e), DS.Ent.centerY(e),
+                     DS.Ent.centerX(o), DS.Ent.centerY(o)) > 92) return;
+          o.status = o.status || {};
+          o.status.blind = 150;
+          o.status.brittle = 240;
+          DS.Ent.damageEnemy(g, o, power * 0.7, { dir: 1, knockback: 2.2 });
+        });
+        DS.FX.burst(DS.Ent.centerX(e), DS.Ent.centerY(e), 18,
+                    ['#d8c8a8', '#b98d5c', '#ffffff'], { speed: 2.4, life: 26 });
+      }
     }
   };
 
@@ -393,13 +661,21 @@ window.DS = window.DS || {};
 
   // --- ground fields --------------------------------------------------------
 
+  /* Every element has a ground field, all eight of them. Lightning, earth and
+     wind used to be null, so a lightning weapon could not leave a scorch, a
+     hammer could not leave rubble and wind had no footprint at all - three of
+     the eight elements simply had no presence on the floor. The 3D rigs built
+     from these live in renderer3d.js (ELEM_RECIPE). */
   const FIELD_DEFS = {
-    fire:   { color: 'rgba(232,116,59,0.20)', edge: '#e8743b', life: 300, r: 22, tick: 20, dmg: 0.14, spread: 0.10, maxR: 40, lights: true },
-    poison: { color: 'rgba(92,191,98,0.20)',  edge: '#5cbf62', life: 420, r: 30, tick: 30, dmg: 0.10, spread: 0.06, maxR: 52, mist: true },
-    water:  { color: 'rgba(47,111,168,0.22)', edge: '#4fb3e0', life: 480, r: 26, tick: 0,  dmg: 0,    spread: 0,    maxR: 26 },
-    ice:    { color: 'rgba(79,179,224,0.18)', edge: '#a8e4ff', life: 360, r: 26, tick: 0,  dmg: 0,    spread: 0,    maxR: 34 },
-    leaf:   { color: 'rgba(163,232,107,0.18)',edge: '#a3e86b', life: 300, r: 22, tick: 0,  dmg: 0,    spread: 0,    maxR: 30 },
-    steam:  { color: 'rgba(216,213,232,0.24)',edge: '#d8d5e8', life: 240, r: 34, tick: 40, dmg: 0.06, spread: 0.04, maxR: 48, mist: true, blinds: true }
+    fire:      { color: 'rgba(232,116,59,0.20)',  edge: '#e8743b', life: 300, r: 22, tick: 20, dmg: 0.14, spread: 0.10, maxR: 40, lights: true },
+    poison:    { color: 'rgba(92,191,98,0.20)',   edge: '#5cbf62', life: 420, r: 30, tick: 30, dmg: 0.10, spread: 0.06, maxR: 52, mist: true },
+    water:     { color: 'rgba(47,111,168,0.22)',  edge: '#4fb3e0', life: 480, r: 26, tick: 0,  dmg: 0,    spread: 0,    maxR: 26 },
+    ice:       { color: 'rgba(79,179,224,0.18)',  edge: '#a8e4ff', life: 360, r: 26, tick: 0,  dmg: 0,    spread: 0,    maxR: 34 },
+    leaf:      { color: 'rgba(163,232,107,0.18)', edge: '#a3e86b', life: 300, r: 22, tick: 0,  dmg: 0,    spread: 0,    maxR: 30 },
+    lightning: { color: 'rgba(242,193,78,0.20)',  edge: '#f2c14e', life: 170, r: 20, tick: 20, dmg: 0.10, spread: 0,    maxR: 30, lights: true },
+    earth:     { color: 'rgba(185,141,92,0.22)',  edge: '#b98d5c', life: 340, r: 24, tick: 40, dmg: 0.08, spread: 0.05, maxR: 40 },
+    wind:      { color: 'rgba(207,232,224,0.14)', edge: '#cfe8e0', life: 200, r: 26, tick: 0,  dmg: 0,    spread: 0.09, maxR: 46 },
+    steam:     { color: 'rgba(216,213,232,0.24)', edge: '#d8d5e8', life: 240, r: 34, tick: 40, dmg: 0.06, spread: 0.04, maxR: 48, mist: true, blinds: true }
   };
 
   function spawnField(g, x, y, element, power) {

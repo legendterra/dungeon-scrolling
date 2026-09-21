@@ -38,9 +38,16 @@ window.DS = window.DS || {};
 
   const SHAPE_KEYS = Object.keys(SHAPES);
 
+  /* How far this floor's climb reaches, as a fraction of the full height.
+     Set once per carve from the difficulty curve, so a depth 2 cave is a gentle
+     undulation and a depth 9 ash reach is a real ascent - the shape says WHICH
+     hill, the curve says HOW TALL. */
+  let spanScale = 1;
+
   function rowFor(shape, t) {
     const h = M.clamp(SHAPES[shape](t), 0, 1);
-    return Math.round(BASE_ROW - h * (BASE_ROW - TOP_ROW));
+    const span = (BASE_ROW - TOP_ROW) * M.clamp(spanScale, 0.5, 1.35);
+    return Math.round(BASE_ROW - h * span);
   }
 
   /* Fill a column with bedrock from its floor row down. The tile renderer
@@ -119,6 +126,11 @@ window.DS = window.DS || {};
      Returns the segment list so callers can place things on flat ground. */
   function carve(map, rng, depth, out) {
     const shape = rng.pick(SHAPE_KEYS);
+    /* climbSpan runs 8 at depth 1 to 22 at depth 10; 7.6 is its depth-1 value,
+       so this is "how much taller than a first floor" expressed as a ratio. */
+    if (DS.Difficulty) {
+      spanScale = DS.Difficulty.forDepth(depth).climbSpan / 7.6;
+    }
     const cols = map.w;
     const segments = [];
 

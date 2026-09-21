@@ -641,16 +641,49 @@ window.DS = window.DS || {};
     }
   }
 
+  /* Charge FX. Every weapon winds up differently, and the wind-up is drawn
+     BEHIND the player: the harder you hold, the more the attack drags the air
+     after it. A sword gathers dust, a greataxe trails thick smoke, a bow pulls
+     the string with light, a staff orbits runes. The 3D half (smoke puffs, the
+     aura on the model) is driven from the same numbers through DS.FX, so the
+     2D and 3D layers never disagree about how charged a swing is. */
+  const CHARGE_STYLE = {
+    sword:     { smoke: '#c8c3d8', hot: '#fff0a8', rate: 9,  back: 12, kind: 'dust' },
+    dagger:    { smoke: '#d8d5e8', hot: '#ffffff', rate: 6,  back: 9,  kind: 'after' },
+    greataxe:  { smoke: '#6f6a90', hot: '#ffb060', rate: 5,  back: 16, kind: 'smoke' },
+    spear:     { smoke: '#a8e4ff', hot: '#ffffff', rate: 7,  back: 14, kind: 'line' },
+    bow:       { smoke: '#e8e4ff', hot: '#fff0a8', rate: 7,  back: 10, kind: 'draw' },
+    staff:     { smoke: '#c86ee0', hot: '#a8e4ff', rate: 6,  back: 10, kind: 'rune' }
+  };
+
   function chargeFx(p, base) {
     const ratio = p.holdFrames / base.chargeMax;
-    if (p.holdFrames % 7 === 0) {
-      DS.FX.trail(Ent.centerX(p) + p.facing * 9, Ent.centerY(p) - 2,
-                  ratio >= 1 ? '#fff0a8' : '#a8e4ff');
+    const style = CHARGE_STYLE[base.key] || CHARGE_STYLE.sword;
+    const cx = Ent.centerX(p), cy = Ent.centerY(p) - 2;
+    // Backwards is opposite the facing: the smoke is the wake of the wind-up.
+    const back = -p.facing;
+
+    // Rate scales with charge, so the last frames of a heavy charge are loud.
+    const every = Math.max(2, Math.round(style.rate * (1.35 - ratio * 0.75)));
+    if (p.holdFrames % every === 0) {
+      const col = ratio >= 0.85 ? style.hot : style.smoke;
+      DS.FX.smoke(cx + back * style.back, cy + DS.rand.float(-3, 3),
+                  back * DS.rand.float(0.25, 0.75), -DS.rand.float(0.04, 0.22),
+                  { color: col, life: 16 + Math.round(ratio * 16),
+                    size: 2 + ratio * 2 + (style.kind === 'smoke' ? 1 : 0) });
+      DS.FX.trail(cx + p.facing * 9, cy, col);
     }
-    // A single ping the moment the charge tops out.
+
+    // A pull line from the weapon to the shoulder for the drawn weapons.
+    if (style.kind === 'draw' && p.holdFrames % 4 === 0) {
+      DS.FX.trail(cx - p.facing * 6, cy - 1, '#fff0a8');
+    }
+
+    // Top-out: one loud ping plus a ring that says the next release is heavy.
     if (p.holdFrames === base.chargeMax) {
       DS.Audio.play('menuPick');
-      DS.FX.ring(Ent.centerX(p), Ent.centerY(p), 8, '#fff0a8', 1.4);
+      DS.FX.ring(cx, cy, 8, '#fff0a8', 1.4);
+      DS.FX.burst(cx, cy, 10, [style.hot, '#ffffff'], { speed: 1.6, life: 18 });
     }
   }
 
@@ -700,6 +733,9 @@ window.DS = window.DS || {};
       crit: crit,
       knockback: stats.knockback * (heavy ? 1.8 : 1),
       procs: item.procs,
+      element: item.element,
+      elementShare: stats.elementShare,
+      elemPower: stats.elemPower,
       reach: base.hit.w * stats.reach * (heavy ? base.heavyReach : 1),
       height: base.hit.h * (heavy ? 1.25 : 1),
       oy: base.hit.oy,
@@ -739,6 +775,9 @@ window.DS = window.DS || {};
         knockback: p.pending.knockback,
         dir: p.attackDir,
         procs: p.pending.procs,
+        element: p.pending.element,
+        elementShare: p.pending.elementShare,
+        elemPower: p.pending.elemPower,
         heavy: p.pending.heavy,
         source: 'melee'
       });
@@ -795,6 +834,8 @@ window.DS = window.DS || {};
       kind: shotCfg.kind,
       element: item.element,
       procs: item.procs,
+      elementShare: stats.elementShare,
+      elemPower: stats.elemPower,
       crit: crit,
       gravity: shotCfg.gravity,
       life: shotCfg.life,

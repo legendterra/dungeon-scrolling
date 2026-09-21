@@ -58,6 +58,8 @@ window.DS = window.DS || {};
      not still mostly slimes. Anything with a minDepth joins automatically. */
   function spawnTable(depth) {
     const table = [
+      // The starting four stay the spine of the table at every depth; everything
+      // else ramps in over them (see the minDepth gate below).
       { weight: Math.max(4, 40 - depth * 6), value: 'slime' },
       { weight: depth >= 2 ? Math.max(8, 26 - depth * 2) : 12, value: 'zombie' },
       { weight: depth >= 2 ? Math.max(8, 22 - depth) : 14, value: 'bat' },
@@ -108,12 +110,19 @@ window.DS = window.DS || {};
     e.flying = !!cfg.flying;
     e.armor = cfg.armor + mult.armor;
 
-    const scale = 1 + (g.depth - 1) * 0.38;
+    /* Depth scaling comes from the difficulty curve, which is one place that
+       can be tuned and asserted - the old inline `1 + (depth - 1) * 0.38` lived
+       here while the hazard curve lived in hazards.js and the loot curve in the
+       generator, and none of the three could be read side by side. */
+    const diff = DS.Difficulty ? DS.Difficulty.forDepth(g.depth) : null;
+    const scale = diff ? diff.hpMult : 1 + (g.depth - 1) * 0.38;
     e.maxHp = Math.round(cfg.hp * scale * mult.hp * DS.Modifiers.mult(g, 'enemyHp'));
     e.hp = e.maxHp;
     e.touchDamage = cfg.touch ? cfg.touch + mult.touch : 0;
-    e.attackDamage = cfg.damage + mult.damage;
-    e.speed = cfg.speed * mult.speed * DS.Modifiers.mult(g, 'enemySpeed');
+    e.attackDamage = cfg.damage + mult.damage
+      + (diff ? Math.round(cfg.damage * (diff.damageMult - 1)) : 0);
+    e.speed = cfg.speed * mult.speed * (diff ? diff.speedMult : 1)
+      * DS.Modifiers.mult(g, 'enemySpeed');
     e.windScale = mult.wind * DS.Modifiers.mult(g, 'enemyWind');
 
     e.state = 'PATROL';
@@ -405,7 +414,9 @@ window.DS = window.DS || {};
       for (let side = -1; side <= 1; side += 2) {
         const tx = from + step * side;
         if (tx < 1 || tx >= map.w - 1) continue;
-        const floor = map.floorBelow(tx, 0);
+        /* groundBelow: a cave answers floorBelow(tx, 0) with its ceiling, which
+           is how a monster could be settled into solid rock. */
+        const floor = map.groundBelow(tx);
         if (floor >= map.pixelH) continue;
         return { x: tx * T, y: floor - e.h - 1 };
       }

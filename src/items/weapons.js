@@ -76,9 +76,10 @@ window.DS = window.DS || {};
 
   const MAX_RARITY = RARITY.length - 1;
 
-  /* Seven elements. Each one has a distinct on-hit status and its own ground
-     field; pairs of them react. The full behaviour lives in
-     src/systems/elements.js — this table is only what the item layer needs. */
+  /* Eight elements. Each one has a distinct on-hit status and its own ground
+     field; every pair of them reacts (28 pairs, all defined). The full
+     behaviour lives in src/systems/elements.js - this table is only what the
+     item layer needs. */
   const ELEMENTS = {
     fire:      { key: 'fire',      label: 'Fire',      color: '#e8743b', orb: 'fire',      sfx: 'fire' },
     ice:       { key: 'ice',       label: 'Ice',       color: '#4fb3e0', orb: 'ice',       sfx: 'ice' },
@@ -86,10 +87,17 @@ window.DS = window.DS || {};
     poison:    { key: 'poison',    label: 'Poison',    color: '#5cbf62', orb: 'poison',    sfx: 'cast' },
     water:     { key: 'water',     label: 'Water',     color: '#2f6fa8', orb: 'water',     sfx: 'ice' },
     earth:     { key: 'earth',     label: 'Earth',     color: '#b98d5c', orb: 'earth',     sfx: 'slam' },
-    leaf:      { key: 'leaf',      label: 'Leaf',      color: '#a3e86b', orb: 'leaf',      sfx: 'swing' }
+    leaf:      { key: 'leaf',      label: 'Leaf',      color: '#a3e86b', orb: 'leaf',      sfx: 'swing' },
+    wind:      { key: 'wind',      label: 'Wind',      color: '#cfe8e0', orb: 'wind',      sfx: 'swing' }
   };
 
   const ELEMENT_KEYS = Object.keys(ELEMENTS);
+
+  /* What fraction of a weapon's damage lands as its element, per rarity. The
+     play this creates: a common weapon is a physical weapon with a flavour,
+     a legendary is a spell that happens to have a handle, and the reactions
+     in between are what a build is actually built out of. */
+  const ELEMENT_SHARE = [0.15, 0.26, 0.38, 0.50, 0.62];
 
   // Damage scales with depth so a depth-1 sword is not still relevant at depth 6.
   function depthScale(depth) {
@@ -103,6 +111,7 @@ window.DS = window.DS || {};
     MAX_RARITY: MAX_RARITY,
     ELEMENTS: ELEMENTS,
     ELEMENT_KEYS: ELEMENT_KEYS,
+    ELEMENT_SHARE: ELEMENT_SHARE,
     CHARGE_MIN: CHARGE_MIN,
     depthScale: depthScale,
     rarityColor: function (index) {

@@ -178,6 +178,17 @@ window.DS = window.DS || {};
         g.map.decor = g.map.decor.filter(function (d) { return d.kind !== 'torch'; });
       }
     }
+    /* The Black Room: one chamber per floor where the torches are dead and the
+       only light is a rift in the far wall (see world/lair.js). Decided here so
+       the lighting, the 3D back light and the banner all read the same zone. */
+    g.lair = DS.Lair ? DS.Lair.maybe(g, kind) : null;
+    if (g.lair) {
+      g.map.decor = g.map.decor.filter(function (d) {
+        const tx = Math.floor(d.x / C.TILE);
+        return !(d.kind === 'torch' && tx >= g.lair.x0 && tx <= g.lair.x1);
+      });
+    }
+
     const spawns = level.spawns;
     g.doorPos = spawns.door;
     g.tablePos = spawns.table;
@@ -240,8 +251,16 @@ window.DS = window.DS || {};
          prop they need, and the generic placers would only fight them for
          floor space. */
       if (!level.noProps) {
+        /* The Torch Hall: one floor in the ladder is guaranteed to hold a
+           proper locked puzzle instead of depending on a dice roll, and it
+           hands over the tool for it. A grey bow is the cheapest ranged weapon
+           in the game, so the hall teaches "shoot the switch" with the weapon
+           every later bow is an upgrade of - and it is granted ONCE per run. */
+        const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(g.depth) : null;
+        const hall = !!(rung && rung.puzzle);
         DS.Puzzle.generate(g, level);
-        DS.Puzzle.generateBarrier(g, level);
+        DS.Puzzle.generateBarrier(g, level, hall);
+        if (hall) grantHallBow(g);
         ensureKeyholder(g, spawns);
         placeShrine(g, level);
         DS.Bonus.generate(g, level);
@@ -277,8 +296,27 @@ window.DS = window.DS || {};
     corridor: null
   };
 
+  /* The black room's door cue. It fires once, the first time the player is
+     actually inside the zone rather than on the banner they read before. */
+  function updateLair(g) {
+    if (!g.lair || !DS.Lair) return;
+    const inside = DS.Lair.inside(g, g.lair);
+    if (inside && !g.lairSeen) {
+      g.lairSeen = true;
+      g.showBanner('THE LIGHT DIES HERE', 'SOMETHING BURNS BEHIND YOU', '#ffe8b0');
+      DS.Audio.play('locked');
+    }
+  }
+
   function announce(g, level) {
     if (level.kind === 'trial') return;    // the trial announces itself
+
+    /* The black room is announced on entry instead (see updateLair). It would be
+       spent on the arrival banner, which the player reads before walking in. */
+    if (g.lair && !level.flavor) {
+      g.showBanner('DEPTH ' + g.depth, g.biome.name, '#d8d5e8');
+      return;
+    }
 
     const flavor = FLAVOR_TEXT[level.flavor];
     if (flavor) {
@@ -324,23 +362,52 @@ window.DS = window.DS || {};
     g.showBanner('THE VAULT WAKES', 'NOTHING OPENS UNTIL IT FALLS', '#e8a05a');
   }
 
+  /* The free starter bow. Granted only if the player is not already carrying a
+     bow, so it never clobbers a good one, and only once per run. */
+  function grantHallBow(g) {
+    if (g.bowGift) return;
+    g.bowGift = true;
+    const held = DS.Inv.weapon(g.inv);
+    if (held && held.type === 'bow') return;
+    const bow = DS.Loot.makeItem(g.rng, 1, { type: 'bow', rarity: 0 });
+    if (!bow) return;
+    DS.Inv.addItem(g.inv, bow);
+    g.inv.arrows = Math.max(g.inv.arrows || 0, 12);
+    g.showBanner('A PLAIN BOW', 'SHOOT THE SWITCH - HOLD TO DRAW', '#a8e4ff');
+  }
+
   function populate(g, spawns) {
     const table = DS.Enemies.spawnTable(g.depth);
-    const eliteChance = 0.08 + g.depth * 0.025;
+    /* Ranks are rolled by the difficulty curve, which owns the answer to "how
+       bad is this floor" in one place: no elites at all on the teaching floors,
+       a rising elite share after that, minibosses and colossi gated behind
+       depth. The old per-point elite roll could hand depth 1 two elites. */
+    const diff = DS.Difficulty ? DS.Difficulty.forDepth(g.depth) : null;
+    const rankWeights = DS.Difficulty
+      ? DS.Difficulty.rankWeights(g.depth)
+      : [{ weight: 1 - (0.08 + g.depth * 0.025), value: 'normal' },
+         { weight: 0.08 + g.depth * 0.025, value: 'elite' }];
     let elites = 0;
     /* Decided once for the whole floor, not rolled per spawn point — rolling
        per point with a dozen points on the map meant a colossus nearly every
        time, which stopped it feeling like an event. */
-    let colossus = !(g.depth >= 3 && g.rng.chance(0.35));
+    let colossus = !(g.depth >= 8 && g.rng.chance(0.35));
 
     const extra = DS.Modifiers.mult(g, 'spawnMult');
+    /* How many of the level's spawn points are actually used. The generator
+       scatters markers generously and the curve decides the population, so a
+       tutorial floor is genuinely quiet however busy the room template is. */
+    const budget = diff ? diff.enemyCount : spawns.enemies.length;
+    let placed = 0;
     for (let i = 0; i < spawns.enemies.length; i++) {
+      if (placed >= budget) break;
       const spot = spawns.enemies[i];
       // Never stand a monster over a hole. It would spend its first second
       // falling, and the pit guard would only have to drag it back out.
       if (g.map.groundBelow(Math.floor(spot.x / C.TILE)) >= g.map.pixelH) continue;
-      const copies = 1 + (g.rng.chance(extra - 1) ? 1 : 0);
-      for (let c = 0; c < copies; c++) {
+      const copies = (placed >= budget) ? 0 : 1 + (g.rng.chance(extra - 1) ? 1 : 0);
+      for (let c = 0; c < copies && placed < budget; c++) {
+        placed++;
         const kind = g.rng.weighted(table);
         /* One colossus per floor at most, from depth 3, and never a flier —
            a 3x bat filling the ceiling is unreadable rather than exciting. */
@@ -349,13 +416,15 @@ window.DS = window.DS || {};
           colossus = true;
           continue;
         }
-        const elite = g.rng.chance(eliteChance);
-        if (elite) elites++;
-        DS.Enemies.create(g, spot.x + c * 10, spot.y, kind, elite);
+        // Rolled, not "chance or not": the curve decides the mix, and a
+        // miniboss or colossal is one of the outcomes.
+        const tier = g.rng.weighted(rankWeights);
+        if (tier === 'elite' || tier === 'miniboss') elites++;
+        DS.Enemies.create(g, spot.x + c * 10, spot.y, kind, tier);
       }
     }
 
-    if (elites === 0 && g.enemies.length) {
+    if (elites === 0 && g.enemies.length && diff && !diff.tutorial) {
       const victim = g.rng.pick(g.enemies);
       const spot = { x: victim.x, y: victim.y };
       victim.dead = true;
@@ -702,6 +771,7 @@ window.DS = window.DS || {};
     DS.Player.update(g, g.player);
     DS.Water.update(g);
     DS.Trial.update(g);
+    updateLair(g);
     checkBossTrigger(g);
 
     for (let i = 0; i < g.enemies.length; i++) {
@@ -828,9 +898,10 @@ window.DS = window.DS || {};
     DS.Elements.drawFields(g);
     if (!vox) Ent.drawProjectiles(g);
     if (g.player && !vox) DS.Player.draw(g, g.player);
-    // The lit surface of the water goes over whatever is swimming in it —
-    // in 3D mode too, since the water body itself is drawn by Map.draw.
-    DS.Water.drawOverlay(g);
+    /* The 2D water overlay is for the sprite path only. In 3D the water is a
+       translucent volume inside the scene, so a second tint here would be
+       painted over the fish — which is exactly the bug it used to be. */
+    if (!vox) DS.Water.drawOverlay(g);
     DS.Trial.draw(g);
     DS.FX.draw();
 

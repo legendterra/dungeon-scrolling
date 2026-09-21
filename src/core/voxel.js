@@ -50,7 +50,11 @@ window.DS = window.DS || {};
   function mat(color, opts) {
     const key = color + '|' + (opts && opts.emissive) + '|' + (opts && opts.opacity);
     if (matCache[key]) return matCache[key];
-    const m = new THREE.MeshLambertMaterial({ color: color });
+    /* DoubleSide on every character material: a mirrored model (scale.x = -1,
+       which is how left/right facing reads without turning the creature away
+       from the camera) has a negative determinant, and with front-face culling
+       that renders a solid voxel monster inside out. */
+    const m = new THREE.MeshLambertMaterial({ color: color, side: THREE.DoubleSide });
     if (opts && opts.emissive) {
       m.emissive = new THREE.Color(opts.emissive);
       m.emissiveIntensity = (opts.emissiveI != null) ? opts.emissiveI : 0.7;
@@ -180,8 +184,11 @@ window.DS = window.DS || {};
   function buildSlime(info) {
     const s = info.tier === 'colossal' || info.tier === 'miniboss' ? 1 : 1;
     const root = new THREE.Group();
-    const bodyColor = info.tier === 'elite' ? 0xa3e86b : C.slime;
-    const dark = info.tier === 'elite' ? 0x4a9b3a : C.slimeDark;
+    /* A palette override lets the GOLD slime be the same animal in a different
+       set of colours, instead of a second copy of this function. */
+    const pal = (info && info.pal) || null;
+    const bodyColor = pal ? pal.body : (info.tier === 'elite' ? 0xa3e86b : C.slime);
+    const dark = pal ? pal.dark : (info.tier === 'elite' ? 0x4a9b3a : C.slimeDark);
     // A slime: rounded two-slab body, a darker bottom skirt it "sits" on,
     // a nucleus drifting inside (the darker ball reads as goo depth), shine,
     // and a real face — whites + pupils + a wavy mouth.
@@ -209,6 +216,61 @@ window.DS = window.DS || {};
     }
     part(s.root, 0.34, 0.1, 0.3, 0, 0.84, -0.02, C.goldDark);
     return s;
+  }
+
+  /* The bonus slime. bonus.js spawns 'goldslime' and there was no builder for
+     it, so the one enemy that is a REWARD was the one enemy you could not see
+     coming. Same body, gold, with coins stuck in the goo. */
+  function buildGoldslime(info) {
+    const s = buildSlime({ tier: 'elite', pal: { body: 0xffd76b, dark: 0x8a6a10 } });
+    part(s.root, 0.18, 0.05, 0.18, 0.26, 0.34, 0.28, C.gold);
+    part(s.root, 0.15, 0.05, 0.15, -0.24, 0.22, 0.30, C.goldDark);
+    part(s.root, 0.13, 0.05, 0.13, 0.05, 0.5, 0.4, C.gold);
+    return s;
+  }
+
+  /* A piranha, spawned by water.js. It is built to be read IN PROFILE — flat
+     body, forked tail, fins, jaw — because that is how a fish is seen, and
+     because with no builder at all this one was simply invisible: BUILDERS had
+     no 'piranha', build() returned null, and the water was full of biting
+     nothing. */
+  function buildPiranha(info) {
+    const root = new THREE.Group();
+    const gold = info && info.tier === 'elite';
+    const body = gold ? 0x8a6a2a : 0x4a6a78;
+    const dark = gold ? 0x5a4418 : 0x2c3f4a;
+    const belly = gold ? 0xd8b46a : 0xa8c4cc;
+
+    const core = part(root, 0.46, 0.34, 0.24, 0, 0, 0, body);
+    part(root, 0.3, 0.26, 0.2, 0.26, -0.02, 0, body);          // head
+    part(root, 0.3, 0.12, 0.2, -0.02, -0.13, 0, belly);        // pale belly
+    part(root, 0.1, 0.18, 0.26, 0.0, 0.22, 0, dark);           // dorsal fin
+
+    /* Forked tail on its own pivot: a fish that swims has to swish. */
+    const tail = new THREE.Group();
+    tail.position.set(-0.26, 0, 0);
+    part(tail, 0.14, 0.2, 0.1, -0.08, 0, 0, dark);
+    part(tail, 0.18, 0.24, 0.05, -0.22, 0.07, 0, dark);
+    part(tail, 0.18, 0.24, 0.05, -0.22, -0.07, 0, dark);
+    root.add(tail);
+
+    const finL = part(root, 0.16, 0.05, 0.2, 0.06, -0.04, 0.15, dark);
+    const finR = part(root, 0.16, 0.05, 0.2, 0.06, -0.04, -0.15, dark);
+
+    /* Eyes on the sides, because in profile only one of them is ever seen. */
+    part(root, 0.07, 0.08, 0.05, 0.3, 0.08, 0.11, C.white);
+    part(root, 0.07, 0.08, 0.05, 0.3, 0.08, -0.11, C.white);
+    part(root, 0.05, 0.05, 0.04, 0.32, 0.08, 0.13, C.eye);
+    part(root, 0.05, 0.05, 0.04, 0.32, 0.08, -0.13, C.eye);
+
+    /* A jaw that drops when it strikes — the tell before the bite. */
+    const jaw = part(root, 0.22, 0.09, 0.2, 0.3, -0.11, 0, dark);
+    for (let i = 0; i < 3; i++) {
+      part(jaw, 0.03, 0.07, 0.03, 0.06 - i * 0.07, 0.06, 0.08, C.white);
+      part(jaw, 0.03, 0.07, 0.03, 0.06 - i * 0.07, 0.06, -0.08, C.white);
+    }
+    return { root, torso: root, head: root, body: core, jaw: jaw, tail: tail,
+             finL: finL, finR: finR, armL: null, armR: null, legL: null, legR: null };
   }
 
   function buildZombie(info) {
@@ -285,6 +347,20 @@ window.DS = window.DS || {};
              armL: null, armR: null, legL: null, legR: null };
   }
 
+  /* The spider's silk. In 2D this was a `drawExtra` line drawn from the enemy
+     to its hang point, which vanished the moment voxels took over. It is a
+     mesh here, shown only while the spider is actually hanging. */
+  function buildSpiderThread(model) {
+    const threadMat = mat(0xe8e4dc, { opacity: 0.45 });
+    const thread = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1, 0.05), threadMat);
+    thread.position.set(0, 0, 0);
+    thread.visible = false;
+    thread.frustumCulled = false;
+    model.root.add(thread);
+    model.thread = thread;
+    return model;
+  }
+
   function buildSpider() {
     const root = new THREE.Group();
     part(root, 0.7, 0.34, 0.8, 0, 0.3, -0.1, C.spider);      // abdomen
@@ -304,7 +380,8 @@ window.DS = window.DS || {};
         legs.push(leg);
       }
     }
-    return { root, torso: root, head: root, legs, armL: null, armR: null, legL: null, legR: null };
+    return buildSpiderThread({ root, torso: root, head: root, legs,
+                               armL: null, armR: null, legL: null, legR: null });
   }
 
   function buildSpitter() {
@@ -333,6 +410,15 @@ window.DS = window.DS || {};
     part(bomb, 0.06, 0.08, 0.06, 0, 0.3, 0, 0xffe066, { emissive: 0xff9e38 });
     s.armR.add(bomb);
     s.bomb = bomb;
+    /* Fuse sparks, hidden until the wind-up: the 2D swell-and-glow was the
+       only warning this thing gives. */
+    const spark = new THREE.Group();
+    part(spark, 0.14, 0.14, 0.14, 0, 0, 0, 0xffe066, { emissive: 0xff9e38, emissiveI: 1.2 });
+    part(spark, 0.3, 0.3, 0.02, 0, 0, 0, 0xe8743b, { emissive: 0xe8743b, emissiveI: 1, opacity: 0.5 });
+    spark.position.set(0, 0.36, 0);
+    spark.visible = false;
+    bomb.add(spark);
+    s.fuseSpark = spark;
     return s;
   }
 
@@ -349,6 +435,11 @@ window.DS = window.DS || {};
     part(shield, 0.14, 0.5, 0.1, 0, 0, 0.25, C.metalDark);
     s.armL.add(shield);
     s.shield = shield;
+    // A rim that lights while the guard is up, so "braced" is legible at a glance.
+    const rim = part(shield, 0.16, 0.66, 0.06, 0, 0, 0.3, 0xa8e4ff,
+                     { emissive: 0xa8e4ff, emissiveI: 1 });
+    rim.visible = false;
+    s.shieldRim = rim;
     return s;
   }
 
@@ -396,6 +487,21 @@ window.DS = window.DS || {};
     part(staff, 0.06, 0.85, 0.06, 0, 0.25, 0, C.woodDark);
     part(staff, 0.16, 0.16, 0.16, 0, 0.72, 0, 0xc86ee0, { emissive: 0x9b6ec8 });
     s.armL.add(staff);
+    /* The ritual circle: a flat ring of runes at the feet, drawn 2D before
+       this and therefore invisible in the whole 3D build. */
+    const ring = new THREE.Group();
+    const runeMat = mat(0xc86ee0, { emissive: 0x9b6ec8, emissiveI: 1, opacity: 0.85 });
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const r = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.26), runeMat);
+      r.position.set(Math.sin(a) * 0.75, 0.04, Math.cos(a) * 0.75);
+      r.rotation.y = a;
+      ring.add(r);
+    }
+    ring.visible = false;
+    ring.frustumCulled = false;
+    s.root.add(ring);
+    s.ritualRing = ring;
     return s;
   }
 
@@ -412,6 +518,14 @@ window.DS = window.DS || {};
     part(s.armR, 0.3, 0.3, 0.3, 0, -0.62, 0, C.stoneDark);
     part(s.head, 0.06, 0.1, 0.03, -0.14, 0.45, 0.42, 0xffe066, { emissive: 0xffe066 });
     part(s.head, 0.06, 0.1, 0.03, 0.14, 0.45, 0.42, 0xffe066, { emissive: 0xffe066 });
+    /* Extra cracks that only open up during its wind-up (2D-only glow before). */
+    const cracks = new THREE.Group();
+    part(cracks, 0.12, 0.44, 0.05, -0.17, 0.2, 0.2, 0xff9e38, { emissive: 0xe8743b, emissiveI: 1.2 });
+    part(cracks, 0.44, 0.12, 0.05, 0.05, 0.02, 0.2, 0xff9e38, { emissive: 0xe8743b, emissiveI: 1.2 });
+    part(cracks, 0.12, 0.34, 0.05, 0.2, 0.34, 0.2, 0xff9e38, { emissive: 0xe8743b, emissiveI: 1.2 });
+    cracks.visible = false;
+    s.root.add(cracks);
+    s.windCracks = cracks;
     return s;
   }
 
@@ -593,7 +707,9 @@ window.DS = window.DS || {};
     necromancer: buildNecromancer,
     golem: buildGolem,
     warden: buildWarden,
-    arbiter: buildArbiter
+    arbiter: buildArbiter,
+    piranha: buildPiranha,
+    goldslime: buildGoldslime
   };
 
   /* Height of each kind standing, in world units — the pose code normalises
@@ -602,7 +718,8 @@ window.DS = window.DS || {};
     hero: 1.28, slime: 0.9, slimeking: 2.1, zombie: 1.25, skeleton: 1.2,
     bat: 0.8, spider: 0.75, spitter: 1.3, bomber: 1.2, shielder: 1.35,
     wraith: 1.55, necromancer: 1.55, golem: 1.9, warden: 2.8, arbiter: 2.3,
-    merchant: 1.28, table: 0.72, shrine: 1.9, chest: 1.02
+    merchant: 1.28, table: 0.72, shrine: 1.9, chest: 1.02,
+    piranha: 0.62, goldslime: 0.9
   };
 
   // kindForEntity maps any game entity onto a builder key.
@@ -617,14 +734,27 @@ window.DS = window.DS || {};
     return e.kind || 'slime';
   }
 
+  /* Any entity kind WITHOUT a builder used to vanish silently: build() returned
+     null and the renderer drew nothing. Two live enemies were in exactly that
+     state (piranha, goldslime), so an unknown kind now falls back to the slime
+     silhouette and says so once, which turns a missing monster into a nudge to
+     write its builder. */
   function build(kind, info) {
-    const fn = BUILDERS[kind];
-    if (!fn) return null;
-    const model = fn(info || {});
-    model.kind = kind;
-    model.height = HEIGHT[kind] || 1.2;
+    let key = kind;
+    if (!BUILDERS[key]) {
+      if (key && !warnedKinds[key]) {
+        warnedKinds[key] = true;
+        console.warn('[DS] no 3D model for enemy kind "' + key + '" — using a slime placeholder');
+      }
+      key = 'slime';
+    }
+    const model = BUILDERS[key](info || {});
+    model.kind = key;
+    model.height = HEIGHT[key] || 1.2;
     return model;
   }
+
+  const warnedKinds = {};
 
   // --- posing ----------------------------------------------------------------
 
@@ -653,7 +783,55 @@ window.DS = window.DS || {};
     if (p.torso && p.torsoY0 != null) {
       p.torso.position.y = p.torsoY0 + bob;
     }
-    if (p.body && model.kind === 'slime' || model.kind === 'slimeking') {
+    /* --- the tells that used to be 2D-only -------------------------------
+
+       Benang laba-laba, bengkak bom, perisai terangkat, lingkaran ritual, dan
+       retakan golem semuanya digambar oleh `drawExtra` di dalam jalur gambar 2D
+       musuh — yang di-skip begitu model voxel aktif. Jadi monster ini kehilangan
+       satu-satunya petunjuk serangannya. Semuanya hidup kembali di sini, dibaca
+       dari state entitas yang sama. */
+    if (p.thread) {
+      const ce = e.ceiling != null ? e.ceiling : (e.y - 40);
+      /* Pixels to model units: 0.1 world units per pixel, divided by the scale
+         the renderer puts on the root (actorScale), because the thread is a
+         child of that root. */
+      const unit = 0.1 / ((e.sizeScale || 1) * 0.95);
+      const topY = ((e.y + e.h * 0.5) - ce) * unit;
+      p.thread.visible = !!e.hanging;
+      if (p.thread.visible) {
+        p.thread.position.y = topY * 0.5;
+        p.thread.scale.y = Math.max(0.1, topY);
+      }
+    }
+    if (p.jaw) {
+      // A piranha's bite: the jaw drops through the wind-up and snaps shut.
+      const open = strike ? 1 : wind * 0.8;
+      p.jaw.position.y = -0.11 - open * 0.1;
+      p.jaw.rotation.x = open * 0.35;
+      p.tail.rotation.y = Math.sin(cyc * 1.3) * 0.35 * Math.min(1, 0.3 + walk);
+      if (p.finL) p.finL.rotation.z = Math.sin(cyc * 1.7) * 0.25;
+      if (p.finR) p.finR.rotation.z = -Math.sin(cyc * 1.7) * 0.25;
+    }
+    if (p.fuseSpark) {
+      p.fuseSpark.visible = wind > 0 || strike;
+      if (p.fuseSpark.visible) {
+        p.fuseSpark.rotation.y = time * 9;
+        p.fuseSpark.scale.setScalar(0.7 + wind * 0.6);
+      }
+    }
+    if (p.shieldRim) p.shieldRim.visible = !!e.shieldUp;
+    if (p.ritualRing) {
+      const casting = wind > 0 || strike;
+      p.ritualRing.visible = casting;
+      if (casting) {
+        p.ritualRing.rotation.y = time * 2.2;
+        const grow = strike ? 1.25 : 0.6 + wind * 0.5;
+        p.ritualRing.scale.setScalar(grow);
+      }
+    }
+    if (p.windCracks) p.windCracks.visible = wind > 0 || strike;
+
+    if (p.body && model.kind === 'slime' || model.kind === 'slimeking' || model.kind === 'goldslime') {
       const squash = 1 + Math.sin(time * 6 + (e.x || 0)) * 0.06;
       p.body.scale.y = squash;
       p.body.scale.x = 2 - squash;
@@ -881,16 +1059,44 @@ window.DS = window.DS || {};
 
   // --- projectiles & pickups -------------------------------------------------
 
-  function buildProjectile(kind, element) {
+  /*
+     `friendly` matters more than it looks. An enemy's shot and the player's shot
+     are the same builder, and in a dark room the ONLY thing separating "mine"
+     from "about to hit me" is the read: a hostile orb gets a hot white core, a
+     saturated rim and a hard outline, and it never shares a colour with the
+     player's own element. Before this, a spitter's poison orb was a 0.22-unit
+     dark-green cube in a dark-green swamp — technically on screen, practically
+     invisible.
+  */
+  function buildProjectile(kind, element, friendly) {
     const g = new THREE.Group();
+    const hostile = !friendly;
     if (kind === 'arrow') {
       part(g, 0.03, 0.03, 0.5, 0, 0, 0, C.wood);
       part(g, 0.07, 0.07, 0.1, 0, 0, 0.28, C.metal);
       part(g, 0.12, 0.04, 0.08, 0, 0, -0.22, C.boneDark);
+      /* An elemental bow looses an elemental arrow. Without this the arrow was
+         always plain wood and metal, so the element only showed up after the
+         hit - the one thing a player needs to read BEFORE they shoot. */
+      if (element) {
+        const col = elementColorHex(element);
+        part(g, 0.09, 0.09, 0.34, 0, 0, 0.04, col, { emissive: col, emissiveI: 0.95, opacity: 0.8 });
+        part(g, 0.15, 0.15, 0.02, 0, 0, 0.34, col, { emissive: col, emissiveI: 0.7, opacity: 0.5 });
+      }
+      if (hostile) {
+        /* The archer's tell: a red flight streak, so an incoming arrow reads at
+           a glance instead of blending into the scenery. */
+        part(g, 0.05, 0.05, 0.42, 0, 0, -0.06, 0xff5a4a, { emissive: 0xff3a2a, emissiveI: 1.1, opacity: 0.85 });
+      }
     } else {
       const col = elementColorHex(element);
-      part(g, 0.22, 0.22, 0.22, 0, 0, 0, col, { emissive: col, emissiveI: 1.1 });
-      part(g, 0.3, 0.3, 0.02, 0, 0, 0, col, { emissive: col, emissiveI: 0.6, opacity: 0.45 });
+      const rim = hostile ? 0xff5a4a : col;
+      // Hot core, coloured shell, hard rim: readable at any distance.
+      part(g, 0.16, 0.16, 0.16, 0, 0, 0, 0xfff6e0, { emissive: 0xfff0c0, emissiveI: 1.3 });
+      part(g, 0.3, 0.3, 0.3, 0, 0, 0, col, { emissive: col, emissiveI: 1.0, opacity: 0.75 });
+      part(g, 0.38, 0.38, 0.05, 0, 0, 0.02, rim, { emissive: rim, emissiveI: 0.9, opacity: 0.6 });
+      part(g, 0.38, 0.05, 0.38, 0, 0, 0.02, rim, { emissive: rim, emissiveI: 0.9, opacity: 0.6 });
+      if (hostile) part(g, 0.44, 0.44, 0.44, 0, 0, 0, 0xff2a1a, { emissive: 0xff2a1a, emissiveI: 0.8, opacity: 0.18 });
     }
     return g;
   }

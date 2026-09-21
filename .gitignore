@@ -18,3 +18,10 @@ Thumbs.db
 # Local configuration overrides
 .claude/
 
+
+# Agent skill/tooling directories (Cloudflare skills install)
+.agents/
+.wrangler/
+
+# Local screenshot dumps from the dev server's POST /__shot bridge
+assets/preview/

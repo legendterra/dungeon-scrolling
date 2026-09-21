@@ -29,16 +29,30 @@ window.DS = window.DS || {};
     const biome = g.biome;
     const p = g.player;
 
+    /* Inside the black room the hero carries only a guttering ember, and the
+       torches in the room are dead (game.js strips their decor). The room's own
+       light is the rift, which the 3D scene renders as a real back light; here
+       it is punched into the veil so the 2D darkness agrees with it. */
+    const lairDepth = (g.lair && DS.Lair) ? DS.Lair.depthIn(g, g.lair) : 0;
+
     if (p && !p.dead) {
       // The player's own light pulses gently and flares while a skill runs.
       const pulse = 1 + Math.sin(g.frames * 0.05) * 0.04;
       const boost = p.routine ? 1.35 : p.charging ? 1.15 : 1;
+      // In the black room that lamp shrinks to arm's length.
+      const carry = 1 - lairDepth * 0.62;
       // Two passes: a wide soft falloff plus a tight bright core, so the hero
       // stays clearly readable even at the new darkness levels.
       add(DS.Ent.centerX(p), DS.Ent.centerY(p),
-          biome.lightRadius * pulse * boost, 1, biome.light);
+          biome.lightRadius * pulse * boost * carry, 1, biome.light);
       add(DS.Ent.centerX(p), DS.Ent.centerY(p),
-          biome.lightRadius * 0.42 * boost, 1, biome.light);
+          biome.lightRadius * 0.42 * boost * carry, 1, biome.light);
+    }
+
+    if (lairDepth > 0) {
+      const lx = g.lair.riftX, ly = g.lair.riftY;
+      add(lx, ly, 96 * lairDepth, 1, '#ffe8b0');
+      add(lx, ly, 46 * lairDepth, 1, '#fff2cc');
     }
 
     for (let i = 0; i < g.map.decor.length; i++) {
@@ -96,7 +110,14 @@ window.DS = window.DS || {};
     const is3D = !!(DS.R3D && DS.R3D.isEnabled);
     ensure();
     const R = DS.R;
-    const darkness = DS.Modifiers.darknessFor(g) * (is3D ? 0.45 : 1);
+    let darkness = DS.Modifiers.darknessFor(g) * (is3D ? 0.45 : 1);
+    /* The black room pulls the veil up to near-total as you walk in, blended by
+       how deep inside you are so crossing the threshold is a dimming, not a
+       cut to black. */
+    if (g.lair && DS.Lair) {
+      const d = DS.Lair.depthIn(g, g.lair);
+      if (d > 0) darkness = darkness + (0.94 - darkness) * d;
+    }
     if (darkness <= 0.01) return;
 
     // Must clear first: without this the list accumulates across frames and the

@@ -277,7 +277,12 @@ window.DS = window.DS || {};
   function plantDoors(map, out) {
     for (let i = 0; i < doorMarks.length; i++) {
       const tx = doorMarks[i];
-      const floor = map.floorBelow(tx, 0);
+      /* groundBelow, NOT floorBelow(tx, 0). A cave is rock from row 0 down to
+         its ceiling, so asking from the sky finds the ROOF and every door and
+         torch was planted against it - hung in mid-air, in a cave, at the
+         height of the ceiling. groundBelow skips the roof and answers with the
+         first surface you could actually stand on. */
+      const floor = map.groundBelow(tx);
       if (floor >= map.pixelH) continue;
       const topRow = Math.floor(floor / T) - 2;
       map.set(tx, topRow, TILE.DOOR);
@@ -294,7 +299,7 @@ window.DS = window.DS || {};
       const tx = torchMarks[i];
       if (Math.abs(tx - doorX) < 4) continue;
       if (chestsX.some(function (cx) { return Math.abs(tx - cx) < 3; })) continue;
-      const floor = map.floorBelow(tx, 0);
+      const floor = map.groundBelow(tx);
       if (floor >= map.pixelH) continue;
       map.decor.push({
         kind: 'torch', x: tx * T + 4, y: floor - TORCH_H + 1,
@@ -374,7 +379,8 @@ window.DS = window.DS || {};
      above what remains so there is always a clean way across. */
   const MAX_SPIKE_RUN = 2;
 
-  function capSpikeRuns(map) {
+  function capSpikeRuns(map, maxRun) {
+    const limit = maxRun || MAX_SPIKE_RUN;
     const floorRow = ROOM_H - 3;
     let runStart = -1;
 
@@ -384,22 +390,32 @@ window.DS = window.DS || {};
       if (spike && runStart < 0) runStart = tx;
       else if (!spike && runStart >= 0) {
         const width = tx - runStart;
-        if (width > MAX_SPIKE_RUN) {
-          for (let x = runStart + MAX_SPIKE_RUN; x < tx; x++) {
+        if (width > limit) {
+          for (let x = runStart + limit; x < tx; x++) {
             map.set(x, floorRow, TILE.EMPTY);
           }
         }
-        map.fill(runStart, floorRow - 3, Math.min(width, MAX_SPIKE_RUN) + 1, 1, TILE.PLATFORM);
+        map.fill(runStart, floorRow - 3, Math.min(width, limit) + 1, 1, TILE.PLATFORM);
         runStart = -1;
       }
     }
   }
 
-  // Torches every few rooms keep long corridors from going flat and dark.
-  function scatterTorches(map, rng, out) {
+  /* Torches every few rooms keep long corridors from going flat and dark.
+
+     They used to be planted every 8-13 tiles, which lit a floor into a runway
+     and made the light feel like wallpaper. Light is now a scarce resource at
+     a spacing the difficulty curve owns (26 tiles at depth 1, 42 by depth 10),
+     and the deep floors lean on their own ambience - crystal, lava, fireflies -
+     instead of on a torch every screen. */
+  function scatterTorches(map, rng, out, depth) {
     const doorX = (out && out.door) ? Math.floor(out.door.x / T) : -99;
     const chestsX = (out && out.chests) ? out.chests.map(function (c) { return Math.floor(c.x / T); }) : [];
-    for (let tx = 6; tx < map.w - 4; tx += rng.int(8, 13)) {
+    const base = DS.Difficulty
+      ? DS.Difficulty.forDepth(depth || 1).torchSpacing
+      : 10;
+    const spacing = Math.max(10, base);
+    for (let tx = 6; tx < map.w - 4; tx += rng.int(spacing - 3, spacing + 4)) {
       if (Math.abs(tx - doorX) < 4) continue;
       if (chestsX.some(function (cx) { return Math.abs(tx - cx) < 3; })) continue;
       const floor = map.groundBelow(tx);
@@ -417,7 +433,9 @@ window.DS = window.DS || {};
      puzzle and hazard placers all think in rooms and there is no reason to
      teach them a second coordinate system. */
   function buildCarved(rng, depth, out) {
-    const rooms = DS.M.clamp(7 + Math.floor(depth * 1.2), 7, 14);
+    const diff = DS.Difficulty ? DS.Difficulty.forDepth(depth) : null;
+    const rooms = diff ? DS.M.clamp(diff.roomCount + 1, 7, 14)
+                       : DS.M.clamp(7 + Math.floor(depth * 1.2), 7, 14);
     const map = DS.Map.create(ROOM_W * rooms, ROOM_H);
 
     DS.Parkour.carve(map, rng, depth, out);
@@ -431,9 +449,11 @@ window.DS = window.DS || {};
     }
 
     map.sealPits(rng);
-    scatterTorches(map, rng, out);
+    scatterTorches(map, rng, out, depth);
 
     out.chests = out.chests.filter(function () { return rng.chance(0.85); });
+    /* Carved floors must still be completable: the exit has to exist and the
+       route to it has to survive the support pass. */
     const doorPx = out.door ? out.door.x : -999;
     const cleanChests = [];
     for (let i = 0; i < out.chests.length; i++) {
@@ -453,20 +473,163 @@ window.DS = window.DS || {};
 
   /* kind: 'normal' | 'safe' | 'boss'
      Returns { map, spawns, roomCount } */
-  /* Which shape of floor this depth is. The corridor and the carved climb are
-     the two originals; the flooded cave and the mountain are whole different
-     rooms with their own rules, and they only start turning up once the run is
-     past its opening floor. Rolling them here - rather than at the call site -
-     keeps every caller asking for the same thing: a floor. */
+  /* Which shape of floor this depth is.
+
+     This used to be a dice roll - 18% mountain, 20% flooded, otherwise a
+     corridor - which is how a run could open on a lava hall at depth 2 and
+     close on a beach. The shape of a floor is now decided by the BIOME LADDER
+     in difficulty.js: coast into cave, cave into bog, bog up a mountain, then
+     down into flooded halls and out through the ash. Same journey every run,
+     different route through it, which is what makes a dungeon read as a place.
+     A missing module degrades to the old corridor rather than crashing. */
   function pickFlavor(rng, depth) {
-    if (depth < 2) return 'plain';
-    const roll = rng.float();
-    if (DS.Mountain && roll < 0.18) return 'mountain';
-    if (DS.Water && roll < 0.38) return 'flooded';
+    if (!DS.Difficulty) return 'plain';
+    const flavor = DS.Difficulty.biomeForDepth(depth).flavor;
+    if (flavor === 'mountain' && DS.Mountain) return 'mountain';
+    if (flavor === 'flooded' && DS.Water) return 'flooded';
+    if (flavor === 'carved' && DS.Parkour) return 'carved';
     return 'plain';
   }
 
+  /* --- "nothing floats" as a generation rule --------------------------------
+
+     A platform tile hanging in open air is the one shape this game must never
+     ship: a dungeon is terrain, not a Mario level. The authored rooms are full
+     of them (`==` runs at head height), so instead of trusting every template -
+     and every future one - the finished map is swept and any platform that
+     nothing anchors gets a support built under it.
+
+     A platform is anchored if solid rock touches it left or right (it is a
+     ledge in a wall) or directly below it is solid (it sits on something).
+     Anything else grows a stone column down to the first solid surface it can
+     reach, so the ledge becomes a pillar you can read as geology. If there is no
+     ground below at all, the platform is removed rather than left floating. */
+  const SUPPORT_REACH = 6;    // rows/columns of open air a support may bridge
+
+  function supportPlatforms(map) {
+    let shelves = 0, hung = 0, pillars = 0, dropped = 0;
+
+    for (let ty = 0; ty < map.h; ty++) {
+      let tx = 0;
+      while (tx < map.w) {
+        if (!map.isPlatform(tx, ty)) { tx++; continue; }
+
+        // Measure the run: a ledge is one object, so it gets one answer.
+        let x1 = tx;
+        while (x1 + 1 < map.w && map.isPlatform(x1 + 1, ty)) x1++;
+        const run = { x0: tx, x1: x1 };
+
+        const wallLeft = map.isSolid(run.x0 - 1, ty);
+        const wallRight = map.isSolid(run.x1 + 1, ty);
+        const onRock = map.isSolid(run.x0, ty + 1) || map.isSolid(run.x1, ty + 1);
+        if (!wallLeft && !wallRight && !onRock) {
+          /* Three ways to make it honest, in order of how little they disturb
+             the level:
+               1. reach sideways to a wall - the ledge becomes a balcony, which
+                  is exactly what a ledge in a dungeon is;
+               2. hang from the ceiling, leaving a row of headroom - reads as
+                  bedrock above, and blocks nothing on the floor;
+               3. last resort, a single stone column under the middle.
+             A pillar is LAST because a column under a platform is also a wall
+             in whatever corridor runs beneath it. */
+          const reach = Math.min(run.x0, map.w - 1 - run.x1, SUPPORT_REACH);
+          let strapped = false;
+          for (let d = 1; d <= reach && !strapped; d++) {
+            if (map.isSolid(run.x0 - d, ty)) {
+              for (let x = run.x0 - d; x < run.x0; x++) map.set(x, ty, TILE.WALL);
+              strapped = true;
+            } else if (map.isSolid(run.x1 + d, ty)) {
+              for (let x = run.x1 + 1; x <= run.x1 + d; x++) map.set(x, ty, TILE.WALL);
+              strapped = true;
+            }
+          }
+          if (strapped) {
+            shelves++;
+          } else {
+            // Hang it: anchor far enough above to leave standing room.
+            let ay = -1;
+            for (let d = 2; d <= SUPPORT_REACH + 2; d++) {
+              if (ty - d < 0) break;
+              if (map.isSolid(run.x0, ty - d) || map.isPlatform(run.x0, ty - d)) { ay = ty - d; break; }
+            }
+            if (ay >= 0 && ty - ay >= 3) {
+              /* Fill from just under the anchor down to two rows above the
+                 ledge: row ty-1 stays clear, which is the space the player's
+                 head needs when standing on it. */
+              for (let x = run.x0; x <= run.x1; x++) {
+                for (let fy = ay + 1; fy <= ty - 2; fy++) map.set(x, fy, TILE.WALL);
+              }
+              hung++;
+            } else {
+              /* Last resort: legs. A SHORT drop becomes a solid mesa (the ledge
+                 is simply the top of a rock, which is the most dungeon-looking
+                 answer there is). A drop too deep to fill is spanned by one
+                 column under the middle, because filling a tall shaft would
+                 wall off whatever corridor runs below it. */
+              const mid = Math.round((run.x0 + run.x1) / 2);
+              let gy = ty + 1;
+              while (gy < map.h && !map.isSolid(mid, gy) && !map.isRope(mid, gy)) gy++;
+              if (gy >= map.h) {
+                for (let x = run.x0; x <= run.x1; x++) map.set(x, ty, TILE.EMPTY);
+                dropped++;
+              } else {
+                for (let fy = ty + 1; fy < gy; fy++) map.set(mid, fy, TILE.WALL);
+                pillars++;
+              }
+            }
+          }
+        }
+
+        tx = x1 + 1;
+      }
+    }
+    return { shelves: shelves, hung: hung, pillars: pillars, removed: dropped };
+  }
+
+  /* A door is two tiles tall and its BOTTOM row must be the floor of its own
+     column. Each flavor planted it at a row it had reserved while building, but
+     the terrain passes that run afterwards - pit sealing, water stocking, the
+     vault roof - can move the ground out from under that reservation, which
+     left the exit (and the 3D doorway built from it) hanging a tile in the air.
+     So the finished terrain wins: the door is re-seated on the real floor. */
+  function reseatDoor(map, out) {
+    if (!out.door) return;
+    const tx = Math.floor(out.door.x / T);
+    // Same trap as above: from row 0 a cave answers with its ceiling. Ask for
+    // the surface the player would stand on.
+    const floor = map.groundBelow(tx);
+    if (floor == null || floor >= map.pixelH) return;
+    const floorRow = Math.floor(floor / T);
+    const topRow = floorRow - 2;
+    if (topRow < 0) return;
+
+    // Clear whatever rows the door used to occupy before re-planting it.
+    for (let ty = 0; ty < map.h; ty++) {
+      if (map.get(tx, ty) === TILE.DOOR) map.set(tx, ty, TILE.EMPTY);
+    }
+    map.set(tx, topRow, TILE.DOOR);
+    map.set(tx, topRow + 1, TILE.DOOR);
+    out.door.y = topRow * T;
+  }
+
+  /* Every flavor builds a level its own way; this is the one place that runs
+     afterwards, on all of them, so a rule like "the door stands on the floor"
+     cannot be true of three flavors and quietly false of the fourth. */
   function build(rng, depth, kind) {
+    const level = assemble(rng, depth, kind);
+    if (level && level.map && level.spawns) {
+      /* TWO passes run on EVERY flavor, after it has finished building, so a
+         rule like "nothing floats" cannot be true of three flavors and quietly
+         false of the fourth:
+           1. support every ledge that has nothing holding it up;
+           2. stand the exit door on the floor the terrain actually ended up at. */
+      supportPlatforms(level.map);
+      reseatDoor(level.map, level.spawns);
+    }
+    return level;
+  }
+
+  function assemble(rng, depth, kind) {
     const out = { player: null, enemies: [], chests: [], door: null, merchant: null, table: null };
 
     // The trial chamber is its own room and is never mixed with anything else.
@@ -498,17 +661,29 @@ window.DS = window.DS || {};
        baseline; the carved one is a climb or a descent with parkour between
        the ledges. Carved floors get commoner as you descend, so the dungeon
        visibly stops being a corridor the deeper it goes. */
-    const carvedChance = DS.M.clamp(0.45 + depth * 0.07, 0.45, 0.85);
+    /* The LADDER decides the shape of a floor; this only adds a little variety
+       inside a rung. It used to roll a flat ~50% carve on every plain floor,
+       which meant the shore (depth 1) was a parkour climb half the time and the
+       teaching floors were the least predictable in the game. A 'carved' rung
+       is a climb almost always; anything else keeps parkour as an occasional
+       change of pace, and the tutorial floors stay exactly what the ladder says. */
+    const carvedChance = flavor === 'carved' ? 0.85
+                        : (DS.Difficulty && DS.Difficulty.isTutorial(depth) ? 0 : 0.25);
     if (DS.Parkour && rng.chance(carvedChance)) return buildCarved(rng, depth, out);
+    if (flavor === 'carved' && DS.Parkour) return buildCarved(rng, depth, out);
 
     // Longer levels the deeper you go, but never long enough to drag.
-    const middle = DS.M.clamp(6 + Math.floor(depth * 1.1), 6, 12);
+    const diff = DS.Difficulty ? DS.Difficulty.forDepth(depth) : null;
+    const middle = diff ? diff.roomCount
+                        : DS.M.clamp(6 + Math.floor(depth * 1.1), 6, 12);
     const picks = [];
     for (let i = 0; i < middle; i++) picks.push(rng.pick(PADDED_ROOMS));
 
     // One pit of doom per level, more likely the deeper you are. Never the
-    // first middle room, so the floor always opens on solid ground.
-    const pitChance = DS.M.clamp(0.35 + depth * 0.08, 0.35, 0.85);
+    // first middle room, so the floor always opens on solid ground - and never
+    // at all on the teaching floors, where a chasm is just a lost run.
+    const pitChance = diff ? diff.pitChance
+                           : DS.M.clamp(0.35 + depth * 0.08, 0.35, 0.85);
     if (middle >= 2 && rng.chance(pitChance)) {
       picks[rng.int(1, middle - 1)] = rng.pick(PADDED_PITS);
     }
@@ -525,17 +700,19 @@ window.DS = window.DS || {};
     plantDoors(map, out);
     plantTorches(map, out);
     ensureTraversable(map);
-    capSpikeRuns(map);
+    capSpikeRuns(map, diff ? diff.spikeRunMax : MAX_SPIKE_RUN);
     /* Give every bottomless column its bottom before anything else reads the
        map. Each pit rolls its own kind - a chasm that ends the run, or a bed
        of spikes you can climb back out of - so a hole in the floor has to be
        looked at rather than assumed. */
     map.sealPits(rng);
-    scatterTorches(map, rng, out);
+    scatterTorches(map, rng, out, depth);
 
     // Chests are a chance per marker, not a guarantee, so two runs through the
-    // same template still feel different.
-    out.chests = out.chests.filter(function () { return rng.chance(0.72); });
+    // same template still feel different. They get rarer - and better - with
+    // depth, so opening one stays an event.
+    const keepChest = diff ? diff.chestKeep : 0.72;
+    out.chests = out.chests.filter(function () { return rng.chance(keepChest); });
 
     // A bonus chest sometimes appears on a random enemy marker.
     if (rng.chance(0.4) && out.enemies.length) {
@@ -562,9 +739,13 @@ window.DS = window.DS || {};
 
   /* The tile row of the walking surface in a column, or -1 for a bottomless
      one. Carved levels have a different floor height every few tiles, so
-     anything that used to assume ROOM_H - 2 asks for this instead. */
+     anything that used to assume ROOM_H - 2 asks for this instead.
+
+     Uses groundBelow for the same reason as the door: in a cave the sky is
+     rock, and "the first solid from row 0" is the ceiling. Everything that
+     places a prop at a column's walking height goes through here. */
   function floorRowAt(map, tx) {
-    const y = map.floorBelow(tx, 0);
+    const y = map.groundBelow(tx);
     if (y >= map.pixelH) return -1;
     const row = Math.floor(y / T);
     return map.isSolid(tx, row) ? row : -1;

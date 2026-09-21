@@ -192,7 +192,14 @@ window.DS = window.DS || {};
 
     const map = g.map;
     const rooms = level.roomCount;
-    const chance = DS.M.clamp(0.30 + g.depth * 0.09, 0.3, 0.8);
+    /* Hazard density belongs to the difficulty curve, which pins the teaching
+       floors at ZERO. The old formula gave depth 1 a 39% chance of a saw per
+       room, which is how a first-time player met a spinning blade before they
+       met a slime. */
+    const diff = DS.Difficulty ? DS.Difficulty.forDepth(g.depth) : null;
+    const chance = diff ? diff.hazardChance
+                        : DS.M.clamp(0.30 + g.depth * 0.09, 0.3, 0.8);
+    if (chance <= 0) return;
 
     for (let room = 1; room < rooms - 1; room++) {
       if (!g.rng.chance(chance)) continue;
