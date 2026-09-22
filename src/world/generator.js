@@ -506,6 +506,16 @@ window.DS = window.DS || {};
      ground below at all, the platform is removed rather than left floating. */
   const SUPPORT_REACH = 6;    // rows/columns of open air a support may bridge
 
+  /* A cell a support may be built through. Rock may be stacked, water may not:
+     a column dropped through a lake used to punch a one-tile stone tooth out of
+     the surface and leave a dry slot beside it, which is exactly what "the water
+     isn't generated around the pillars" was. */
+  function buildableCell(map, tx, ty) {
+    if (map.isWater(tx, ty)) return false;
+    if (map.isWater(tx, ty + 1)) return false;   // never roof over the waterline
+    return true;
+  }
+
   function supportPlatforms(map) {
     let shelves = 0, hung = 0, pillars = 0, dropped = 0;
 
@@ -546,9 +556,13 @@ window.DS = window.DS || {};
           if (strapped) {
             shelves++;
           } else {
-            // Hang it: anchor far enough above to leave standing room.
+            /* Hang it: anchor far enough above to leave standing room. The
+               search runs all the way to the ceiling rather than stopping six
+               rows up: a ledge over a lake sits under a roof nine rows above
+               it, and missing that anchor by one row is what sent every such
+               platform down the "legs" branch below. */
             let ay = -1;
-            for (let d = 2; d <= SUPPORT_REACH + 2; d++) {
+            for (let d = 2; d < ty; d++) {
               if (ty - d < 0) break;
               if (map.isSolid(run.x0, ty - d) || map.isPlatform(run.x0, ty - d)) { ay = ty - d; break; }
             }
@@ -556,10 +570,24 @@ window.DS = window.DS || {};
               /* Fill from just under the anchor down to two rows above the
                  ledge: row ty-1 stays clear, which is the space the player's
                  head needs when standing on it. */
-              for (let x = run.x0; x <= run.x1; x++) {
-                for (let fy = ay + 1; fy <= ty - 2; fy++) map.set(x, fy, TILE.WALL);
+              let ok = true;
+              for (let x = run.x0; x <= run.x1 && ok; x++) {
+                for (let fy = ay + 1; fy <= ty - 2; fy++) {
+                  if (!buildableCell(map, x, fy)) { ok = false; break; }
+                }
               }
-              hung++;
+              if (ok) {
+                for (let x = run.x0; x <= run.x1; x++) {
+                  for (let fy = ay + 1; fy <= ty - 2; fy++) map.set(x, fy, TILE.WALL);
+                }
+                hung++;
+              } else {
+                /* The only thing above this ledge is water. Rather than roof
+                   the pool over, drop it: a lake keeps its surface and its
+                   air pockets, which is the whole point of a flooded floor. */
+                for (let x = run.x0; x <= run.x1; x++) map.set(x, ty, TILE.EMPTY);
+                dropped++;
+              }
             } else {
               /* Last resort: legs. A SHORT drop becomes a solid mesa (the ledge
                  is simply the top of a rock, which is the most dungeon-looking
@@ -569,7 +597,15 @@ window.DS = window.DS || {};
               const mid = Math.round((run.x0 + run.x1) / 2);
               let gy = ty + 1;
               while (gy < map.h && !map.isSolid(mid, gy) && !map.isRope(mid, gy)) gy++;
-              if (gy >= map.h) {
+              let blocked = false;
+              for (let fy = ty + 1; fy < gy; fy++) {
+                if (!buildableCell(map, mid, fy)) { blocked = true; break; }
+              }
+              if (gy >= map.h || blocked) {
+                /* Nothing honest to stand it on, or the only path is through a
+                   body of water: take the platform out. A floating ledge is the
+                   one shape this pass exists to prevent, and a stone tooth
+                   through a lake is the one it used to create. */
                 for (let x = run.x0; x <= run.x1; x++) map.set(x, ty, TILE.EMPTY);
                 dropped++;
               } else {
@@ -612,18 +648,60 @@ window.DS = window.DS || {};
     out.door.y = topRow * T;
   }
 
+  /* Nothing falls out of the world.
+
+     A room's pit is a column with no floor, and sealPits gives every one of them
+     a bottom — but only the ones it can SEE. A crossing platform laid over the
+     hole hides it, because the question sealPits asks is whether the column has
+     any rock at all in it and a one-way platform is not rock; and then the
+     support pass takes that crossing away again, because a platform with nothing
+     under it is exactly what it exists to remove. What is left is a hole with no
+     bottom in it: fall in and the run is stranded under the level with no way
+     back and nothing to kill you. So the last word on the terrain, after every
+     other pass has had its say, is the killing floor for any column that still
+     has nothing to stand on.
+
+     Water and rope columns are left alone: a body in water swims and a body on a
+     rope climbs, so neither is a trap, and sealing the bottom of a pool would
+     kill a swimmer who did nothing wrong. */
+  function closeTraps(map) {
+    let sealed = 0;
+    for (let tx = 1; tx < map.w - 1; tx++) {
+      let stand = false, wayOut = false;
+      for (let ty = 0; ty < map.h; ty++) {
+        const t = map.get(tx, ty);
+        if (t === TILE.WALL || t === TILE.PLATFORM) stand = true;
+        if (t === TILE.WATER || t === TILE.ROPE || t === TILE.DEATHSPIKE) wayOut = true;
+      }
+      if (stand || wayOut) continue;
+      map.set(tx, map.h - 1, TILE.DEATHSPIKE);
+      sealed++;
+    }
+    return sealed;
+  }
+
   /* Every flavor builds a level its own way; this is the one place that runs
      afterwards, on all of them, so a rule like "the door stands on the floor"
      cannot be true of three flavors and quietly false of the fourth. */
   function build(rng, depth, kind) {
     const level = assemble(rng, depth, kind);
     if (level && level.map && level.spawns) {
-      /* TWO passes run on EVERY flavor, after it has finished building, so a
+      /* Four passes run on EVERY flavor, after it has finished building, so a
          rule like "nothing floats" cannot be true of three flavors and quietly
          false of the fourth:
            1. support every ledge that has nothing holding it up;
-           2. stand the exit door on the floor the terrain actually ended up at. */
+           2. prove the exit is in reach, and repair the terrain where it is not
+              (systems/reach.js) — this runs HERE, after the support pass, because
+              the pillars and shelves that pass builds can seal a corridor and
+              the flavor's own safety net has already had its say;
+           3. close any column the passes above left bottomless, so a fall is a
+              death rather than a trap under the level;
+           4. stand the exit door on the floor the terrain actually ended up at. */
       supportPlatforms(level.map);
+      // The report is kept on the level so a QA pass can assert the generator's
+      // own claim instead of re-deriving it (and its own truncated MAX_REPAIRS).
+      level.reach = DS.Reach ? DS.Reach.ensureExit(level.map, level.spawns) : null;
+      level.traps = closeTraps(level.map);
       reseatDoor(level.map, level.spawns);
     }
     return level;

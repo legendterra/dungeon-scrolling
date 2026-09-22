@@ -199,12 +199,7 @@ window.DS = window.DS || {};
   }
 
   function glowS(R, x, y, radius, color) {
-    const cx = R.ctx;
-    const grd = cx.createRadialGradient(x, y, 0, x, y, radius);
-    grd.addColorStop(0, color);
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    cx.fillStyle = grd;
-    cx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    R.glow(x, y, radius, color, 1, true);
   }
 
   /* The title sits over the trees on the left, clear of the fire, with a dark

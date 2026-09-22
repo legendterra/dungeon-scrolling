@@ -190,85 +190,17 @@ window.DS = window.DS || {};
     for (let i = tx; i < cols; i++) column(map, i, tailRow);
     segments.push({ x: tx, w: cols - tx, row: tailRow, safe: true });
 
-    ensureClimbs(map);
-    ensureCrossings(map);
+    /* No local safety net any more. The climb rule and the exit guarantee both
+       live in systems/reach.js and run from world/generator.js AFTER the support
+       pass, which is the only order that works: this carver's own rungs used to
+       be built first, and the pillar that the support pass raised afterwards
+       could seal the corridor with nobody left to re-check the level. */
+    /* The climb rule and exit guarantee have moved into systems/reach.js, which
+       generator.js runs after the support pass, so a corridor sealed by a later
+       pillar is still caught. This carver only places terrain and markers,
+       leaving the level's traversability as a single claim made by one owner. */
     populate(map, rng, depth, segments, out);
-    ensureReachable(map, out);
     return segments;
-  }
-
-  /* Safety net, and the only thing here that is allowed to be dumb about it.
-     Whatever the shape generator, the decorations or a later system did to the
-     terrain, this walks the finished floor and guarantees that every step up
-     taller than the player can clear has a ladder of platforms beside it. A
-     level that cannot be finished is worse than a level that is not pretty. */
-  const CLIMB_STEP = 2;        // rows between rungs
-  const MAX_FREE_RISE = 2;     // a step this tall needs no help
-
-  function floorRowOf(map, tx) {
-    for (let ty = 0; ty < map.h; ty++) {
-      if (map.isSolid(tx, ty)) return ty;
-    }
-    return -1;
-  }
-
-  function ensureClimbs(map) {
-    for (let tx = 2; tx < map.w; tx++) {
-      const here = floorRowOf(map, tx);
-      const prev = floorRowOf(map, tx - 1);
-      if (here < 0 || prev < 0) continue;
-
-      const rise = prev - here;
-      if (rise <= MAX_FREE_RISE) continue;
-
-      // Rungs climb the low side of the cliff, stepping one column further
-      // left each time so no two of them sit directly on top of each other.
-      for (let s = 1; s * CLIMB_STEP < rise; s++) {
-        const row = prev - s * CLIMB_STEP;
-        if (row <= CEIL_ROW) break;
-        const x = tx - 1 - s;
-        if (x < 0) break;
-        if (map.get(x, row) === TILE.EMPTY) map.set(x, row, TILE.PLATFORM);
-        if (map.get(x + 1, row) === TILE.EMPTY) map.set(x + 1, row, TILE.PLATFORM);
-      }
-    }
-  }
-
-  /* The pit half of the safety net: every bottomless run gets stepping stones,
-     whatever put it there. Platforms are only added where the gap has none
-     within reach, so authored crossings are left exactly as they were. */
-  function ensureCrossings(map) {
-    let start = -1;
-    for (let tx = 0; tx <= map.w; tx++) {
-      const open = tx < map.w && floorRowOf(map, tx) < 0;
-      if (open && start < 0) start = tx;
-      if (open || start < 0) continue;
-
-      const left = floorRowOf(map, start - 1);
-      const right = floorRowOf(map, tx);
-      const lip = Math.min(left < 0 ? BASE_ROW : left, right < 0 ? BASE_ROW : right);
-      const deck = Math.max(CEIL_ROW + 2, lip - 3);
-
-      /* Checked one stride at a time rather than once for the whole gap. A gap
-         with a stone at each end and nothing in the middle still counts as
-         crossed if you only ask whether the gap has any platform at all — and
-         that is exactly the hole a run used to end in. */
-      for (let x = start; x < tx - 1; x += HOP) {
-        if (spanHasPlatform(map, x, Math.min(x + HOP - 1, tx - 1), deck)) continue;
-        platformRun(map, x, deck, 2);
-      }
-      start = -1;
-    }
-  }
-
-  // Any platform in these columns that a jump from the deck line could reach.
-  function spanHasPlatform(map, from, to, deck) {
-    for (let tx = from; tx <= to; tx++) {
-      for (let ty = deck - 2; ty <= deck + 2; ty++) {
-        if (map.isPlatform(tx, ty)) return true;
-      }
-    }
-    return false;
   }
 
   /* Markers. Enemies stand on flat ground, chests go on the highest ledges
@@ -302,106 +234,6 @@ window.DS = window.DS || {};
         y: (seg.row - 1) * T
       });
     }
-  }
-
-  /* The last word on whether a level is playable.
-
-     The two passes above are local rules, and local rules can still combine
-     into a wall — a cliff whose ladder is blocked by the pit in front of it,
-     say. So the finished map is walked with a deliberately pessimistic model
-     of the player (a three-tile hop, no dash, no air jump, when the real hero
-     has all three), and wherever that walk stops short of the exit, a platform
-     is added at the frontier and the walk is run again. What ships is a level
-     the weakest possible player can finish. */
-  const JUMP_UP = 3;           // rows a hop is assumed to clear
-  const JUMP_OUT = 3;          // columns a hop is assumed to clear
-  const MAX_REPAIRS = 60;
-
-  function standable(map, tx, ty) {
-    if (tx < 0 || tx >= map.w || ty < 1 || ty >= map.h) return false;
-    if (map.isBlocked(tx, ty) || map.isSpike(tx, ty)) return false;
-    return map.isSolid(tx, ty + 1) || map.isPlatform(tx, ty + 1);
-  }
-
-  function reachable(map, sx, sy) {
-    const seen = {};
-    const queue = [[sx, sy]];
-    seen[sx + ',' + sy] = true;
-
-    while (queue.length) {
-      const cell = queue.pop();
-      const x = cell[0], y = cell[1];
-      const moves = [];
-
-      for (let dx = -JUMP_OUT; dx <= JUMP_OUT; dx++) {
-        for (let dy = -JUMP_UP; dy <= 1; dy++) {
-          if (!dx && !dy) continue;
-          if (Math.abs(dx) > 1 && dy > 0) continue;   // no diving sideways
-          moves.push([x + dx, y + dy]);
-        }
-      }
-      // Falling: step off in any direction and drop to the first surface.
-      for (let dx = -JUMP_OUT; dx <= JUMP_OUT; dx++) {
-        for (let fy = y + 1; fy < map.h; fy++) {
-          if (standable(map, x + dx, fy)) { moves.push([x + dx, fy]); break; }
-          if (map.isBlocked(x + dx, fy)) break;
-        }
-      }
-
-      for (let i = 0; i < moves.length; i++) {
-        const mx = moves[i][0], my = moves[i][1];
-        if (!standable(map, mx, my)) continue;
-        const key = mx + ',' + my;
-        if (seen[key]) continue;
-        seen[key] = true;
-        queue.push([mx, my]);
-      }
-    }
-    return seen;
-  }
-
-  function ensureReachable(map, out) {
-    if (!out.player || out.doorTx == null) return;
-
-    let sx = Math.floor(out.player.x / T);
-    let sy = Math.floor(out.player.y / T);
-    while (sy < map.h - 1 && !standable(map, sx, sy)) sy++;
-    if (!standable(map, sx, sy)) return;
-
-    for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
-      const seen = reachable(map, sx, sy);
-
-      let bestX = -1, bestY = 0;
-      for (const key in seen) {
-        const parts = key.split(',');
-        const x = +parts[0];
-        if (x > bestX) { bestX = x; bestY = +parts[1]; }
-      }
-      if (bestX >= out.doorTx) return;    // the exit is in reach: done
-
-      // Add one rung at the frontier and ask again.
-      if (!bridge(map, bestX, bestY)) return;
-    }
-  }
-
-  /* One platform placed just beyond the frontier: first try a step up and
-     forward, then level, then a landing lower down. Returns false when there
-     is nowhere legal to put it, which stops the repair loop rather than
-     letting it spin. */
-  function bridge(map, fx, fy) {
-    const tries = [
-      [fx + 2, fy - 2], [fx + 3, fy - 2], [fx + 2, fy],
-      [fx + 3, fy - 4], [fx + 2, fy + 2], [fx + 3, fy + 3]
-    ];
-    for (let i = 0; i < tries.length; i++) {
-      const x = tries[i][0], y = tries[i][1];
-      if (x >= map.w - 1 || y <= CEIL_ROW || y >= map.h - 1) continue;
-      if (map.get(x, y) !== TILE.EMPTY || map.get(x + 1, y) !== TILE.EMPTY) continue;
-      if (map.isBlocked(x, y - 1)) continue;      // needs headroom to stand
-      platformRun(map, x, y, 2);
-      return true;
-    }
-    return false;
   }
 
   DS.Parkour = {

@@ -4,16 +4,17 @@
 
      THREE (this file)  the dungeon ARCHITECTURE: wall slabs, floor pavers,
                         platforms, spikes, torches, chests, the exit portal,
-                        pressure plates and the moving hazards. Also a big
-                        pixel-art backdrop plane and the fog/ambient mood.
+                        pressure plates and the moving hazards. Also the staged
+                        horizon - see the backdrop ladder below - and the
+                        fog/ambient mood.
      Canvas 2D          every gameplay SPRITE (hero, enemies, pickups, FX),
                         water and ropes, and the darkness/lighting composite.
 
-   The backdrop reuses the parallax art baked by src/art/backdrop.js, so the
-   far scenery is the same pixel art the menus and the 2D renderer show —
-   no second, competing art style. Fog and lighting per theme are kept subtle;
-   the real mood comes from the 2D darkness veil, which is composited over
-   this canvas in src/systems/lighting.js. */
+   The horizon is geometry, not art: every biome stages its own distant
+   landscape (see BACKDROP_RECIPE) out of boxes and cones in real depth bands,
+   anchored on the level's own walking surface. Fog and lighting per theme are
+   kept subtle; the real mood comes from the 2D darkness veil, which is
+   composited over this canvas in src/systems/lighting.js. */
 window.DS = window.DS || {};
 
 (function (DS) {
@@ -22,11 +23,15 @@ window.DS = window.DS || {};
   const M = DS.M;   // math helpers (clamp/lerp/approach)
 
   let enabled = false;
+  let lastGame = null;      // the frame's game object, for the doll pass
   let scene, camera, renderer, canvas;
   let playerLight = null;
   let ambientLight = null;
   let hemiLight = null;
   let dirLight = null;
+  let fillLight = null;
+  let activeTheme = null;           // the THEMES row in force, for the lair mood
+  let lairMood = 0;                 // approached to 1 inside the black room
 
   let torchLights = [];
   let flameSprites = [];
@@ -46,7 +51,6 @@ window.DS = window.DS || {};
   let plateMeshes = [];
   /* Both are dead: the backdrop is geometry now. Kept as null guards for the
      teardown path, which predates the recipe builder. */
-  let backdropMesh = null;
   let hazardMeshes = [];
   let spikeMeshes = [];
 
@@ -75,7 +79,11 @@ window.DS = window.DS || {};
   let crateMeshes = [];
   let shrineMesh = null;
   let vignetteMesh = null;
-  let nearBackdrop = null;
+  /* The sky (gradient + stars + moon) rides the camera's eye line every frame,
+     which is the only way the horizon stays where the horizon is: the eye level
+     in world units moves with the player, so a sky pinned to a fixed y drifts
+     away from the horizon it is supposed to explain. */
+  let skyRig = null;
 
   // 1 world pixel = 0.1 Three.js units (1 tile of 16px = 1.6 units)
   const P2U = 0.1;
@@ -87,12 +95,61 @@ window.DS = window.DS || {};
   const FOV = 39.5;
   const TILT_ANGLE = 0.12; // ~7 degrees
 
-  // Backdrop plane. Sits far behind the walkway; its texel size is chosen so
-  // a backdrop pixel appears at roughly world-pixel size from the camera.
-  const BACKDROP_Z = -8;
-  const BACKDROP_PX_U = P2U * (CAM_DIST - BACKDROP_Z) / CAM_DIST * 1.18; // ~0.155 units
-  const SKY_W = 640;   // composite is two sky screens wide, like the mid layer
-  const SKY_H = 180;
+  /* --- the camera rig --------------------------------------------------------
+
+     The view used to be one hardcoded side-on shot: yaw 0, pitch 7 degrees.
+     Voxel models and a 3D backdrop behind a camera with no angle at all is why
+     the world read as a painted wall with toys in front of it, so the rig is
+     now four numbers and a preset list.
+
+     preset.yaw is the turn toward the level (0 = straight side-on, 60 degrees =
+     the three-quarter RPG shot), preset.pitch the downward tilt. There is a
+     real trade-off here and it is MEASURED, not guessed: a yaw of A degrees
+     shows cos(A) of the level's width, so 40 degrees keeps 77% of the play
+     field while 60 degrees keeps 50% -- prettier, but you can see half as much
+     of what is coming. The default is therefore 40/24, and STEEP 60/35 ships as
+     one keypress away (F6) with the numbers on screen, so the choice is the
+     player's rather than mine. Gameplay physics are untouched either way. */
+  const CAM_PRESETS = [
+    { key: 'left',  label: 'SIDE 0/7',     yaw: 0,    pitch: 0.12, dist: 26, fov: 39.5 },
+    { key: 'foot',  label: 'THREE-Q 40/24', yaw: 0.70, pitch: 0.42, dist: 26, fov: 39.5 },
+    { key: 'wide',  label: 'STEEP 60/35',  yaw: 1.05, pitch: 0.61, dist: 24, fov: 42 },
+    { key: 'film',  label: 'FILM 20/16',   yaw: 0.35, pitch: 0.28, dist: 30, fov: 36 }
+  ];
+  const camRig = { yaw: 0.70, pitch: 0.42, dist: 26, fov: 39.5, preset: 1, show: 0 };
+
+  function applyCameraPreset(i) {
+    const p = CAM_PRESETS[M.clamp(i, 0, CAM_PRESETS.length - 1)];
+    camRig.preset = M.clamp(i, 0, CAM_PRESETS.length - 1);
+    camRig.yaw = p.yaw;
+    camRig.pitch = p.pitch;
+    camRig.dist = p.dist;
+    camRig.fov = p.fov;
+    camRig.show = 240;                 // frames the readout stays up
+    if (camera) {
+      camera.fov = camRig.fov;
+      camera.updateProjectionMatrix();
+    }
+    try { localStorage.setItem('ds.cameraPreset', String(camRig.preset)); } catch (e) { /* private mode */ }
+  }
+
+  /* --- the depth ladder -----------------------------------------------------
+
+     Every backdrop band is authored at ONE distance (BACKDROP_REF_D, the near
+     rung) whatever rung of the ladder it actually sits on: the builder scales a
+     band by (CAM_DIST + d) / (CAM_DIST + BACKDROP_REF_D), so moving a band
+     further away grows it in world units while it keeps its size on screen.
+     That is what buys depth rather than a flat painting - the camera only pans,
+     so two bands 4 and 44 units out slide against each other at very different
+     rates, and haze separates them by value the way the eye expects.
+
+     The rungs are geometric (each one about 1.5x the last) because that is how
+     depth reads: what matters is the RATIO between planes, not the gap. */
+  const BACKDROP_REF_D = 4.5;
+  const BACKDROP_GROUND_D = 90;   // how far the flat ground runs to the horizon
+  const BACKDROP_SKY_Z = -92;     // just behind the far ground edge
+  const SKY_H = 150;              // sky plane height, in world units
+  const SKY_DROP = 8;             // sky extends this far below the eye line
 
   /* Per-theme mood. Deliberately restrained: the 2D darkness veil does the
      heavy lifting, so ambient stays low and warm/cool shifts carry the biome. */
@@ -211,156 +268,207 @@ window.DS = window.DS || {};
      This used to be two flat textured planes: the 2D backdrop art baked into a
      canvas and hung at z=-8 and z=-2.6. It read as wallpaper - a painting of a
      room pinned behind a room, with no parallax of its own and no relationship
-     to the level's lights.
+     to the level's lights. The next version turned it into geometry but packed
+     every band into a 6-unit shell (-3 to -9), so the whole horizon crowded the
+     walkway and read as a jumble of boxes rather than as distance.
 
-     Every biome now has a RECIPE describing what its horizon is made of, and
-     one builder turns that recipe into real, lit, fogged geometry staged in
-     depth bands. Parallax comes from perspective (the camera only pans, so the
-     bands slide against each other by themselves), fog separates them, and the
-     same torch that lights the walkway now lights the near rock - which is what
-     makes a dark room with a lit background readable at all.
+     Every biome now owns a LADDER: five or six bands spread from 4.5 to 44
+     units out, with the near rungs carrying ground clutter and the far rungs
+     carrying the silhouette of the place - a treeline, a coast, a colonnade.
+     One builder turns a recipe into real, lit, fogged geometry: parallax comes
+     from perspective (the camera only pans, so the bands slide against each
+     other by themselves), haze separates them by value, and the same torch that
+     lights the walkway lights the near rock.
 
      Everything a layer emits is a BOX (a rock tooth, a pillar, a tree, a plank)
      or a CONE (a stalactite) or an OCTAHEDRON (a crystal), so a whole band
-     collapses into one or two InstancedMeshes: four draw calls for a backdrop
-     that used to be two, for twenty times the geometry. */
+     collapses into one or two InstancedMeshes. */
   /*
      `sp` is SPACING, not a count: how many world units apart two objects of
-     this band sit. A floor is 100-200 units long and the camera only ever sees
-     about 14 of them, so a fixed count is a trap — eight trees spread over 200
-     units is one tree every few screens. Asking for spacing instead means every
-     floor, long or short, gets the same density on screen.
-  */
-  /*
-     Heights are in world units and they are tuned to the CAMERA WINDOW, not to
-     the map. The camera sits ~6 units above the floor line and sees ±9 units at
-     z=0, ±11 at z=-6 and ±12 at z=-9, so a backdrop band only fills the frame if
-     it rises about 16-24 units off the floor. The first pass anchored everything
-     at floor level with 4-13 unit heights and produced a horizon that only
-     existed in the bottom third of the screen.
+     this band sit, in REFERENCE units (see BACKDROP_REF_D). A floor is 100-200
+     units long and the camera only ever sees about 14 of them, so a fixed count
+     is a trap - eight trees spread over 200 units is one tree every few screens.
+     Asking for spacing instead means every floor, long or short, gets the same
+     density on screen.
+
+     Heights are authored in the same reference units, and the framing budget is
+     tight because the camera looks 7 degrees down: the eye line sits about a
+     sixth of the way down the screen, so everything a backdrop may show lives in
+     the band from the horizon up to roughly 13 degrees above it. At the far rung
+     (44 units up the ladder, 70 from the eye) that is about 19 world units, so a
+     far ridge is authored around 4.5-8 and scaled up to 10-18. A band authored
+     at 20-30 - which is what the previous pass did - is a rock face with its
+     summit far above the top of the frame.
   */
   const BACKDROP_RECIPE = {
     forest: {
-      stars: { sp: 1.6, size: 0.10, alpha: 0.45 },
+      skyGlow: 1.0, haze: 0.8, ground: 0x0e1d13,
+      stars: { sp: 1.6, size: 0.12, alpha: 0.5 },
+      moon: { col: 0xfff0cc, r: 4.6 },
+      motes: { col: 0x86efac, size: 0.30, alpha: 0.45, rise: 0.2 },
       layers: [
-        { kind: 'spires', sp: 8,   z: -8.2, col: 0x07130d, h0: 14, h1: 26 },
-        { kind: 'trees',  sp: 4.0, z: -6.6, col: 0x0b1c12 },
-        { kind: 'trees',  sp: 3.4, z: -4.4, col: 0x132618 },
-        { kind: 'rubble', sp: 2.4, z: -3.2, col: 0x182f1e }
+        { kind: 'rubble', sp: 2.6, d: 4.5, col: 0x16281a, s0: 0.25, s1: 0.9 },
+        { kind: 'trees',  sp: 2.8, d: 8,   col: 0x101f14, h0: 4.0, h1: 6.6 },
+        { kind: 'trees',  sp: 3.2, d: 13,  col: 0x0d1a11, h0: 2.8, h1: 4.6 },
+        { kind: 'hills',  sp: 3.6, d: 20,  col: 0x0a150e, h0: 2.0, h1: 3.6 },
+        { kind: 'trees',  sp: 3.0, d: 30,  col: 0x0a140e, h0: 1.8, h1: 3.0 },
+        { kind: 'ridge',  sp: 3.4, d: 44,  col: 0x060f0a, h0: 1.3, h1: 2.2 }
       ]
     },
     caves: {
-      ceiling: { z: -5.2, col: 0x050f0e, y: 20 },
+      ceiling: { y: 10.5, col: 0x050f0e },
+      skyGlow: 0.44, haze: 0.66, ground: 0x0a1a17,
+      mist: { sp: 3.2, size: 0.22, alpha: 0.16, col: 0x4f8078 },
+      motes: { col: 0x5eead4, size: 0.26, alpha: 0.4, rise: -0.35 },
       layers: [
-        { kind: 'bricks',      sp: 5.0, z: -7.4, col: 0x081716 },
-        { kind: 'spires',      sp: 4.0, z: -5.8, col: 0x0c211f, h0: 10, h1: 20 },
-        { kind: 'stalactites', sp: 2.2, z: -4.4, col: 0x11302c, top: 20 },
-        { kind: 'rubble',      sp: 2.4, z: -3.2, col: 0x14302b }
+        { kind: 'rubble',      sp: 2.4, d: 4.5, col: 0x14302b, s0: 0.25, s1: 0.9 },
+        { kind: 'stalactites', sp: 2.2, d: 8,   col: 0x11302c, top: 8.5, h0: 3.0, h1: 6.0 },
+        { kind: 'spires',      sp: 3.0, d: 13,  col: 0x0c211f, h0: 2.8, h1: 4.8 },
+        { kind: 'spires',      sp: 3.2, d: 20,  col: 0x081716, h0: 2.2, h1: 3.8 },
+        { kind: 'bricks',      sp: 3.4, d: 28,  col: 0x061311, rows: 4 }
       ]
     },
     cave: {
-      ceiling: { z: -5.2, col: 0x04100f, y: 20 },
+      ceiling: { y: 10.5, col: 0x04100f },
+      skyGlow: 0.42, haze: 0.62, ground: 0x081614,
+      mist: { sp: 3.6, size: 0.2, alpha: 0.14, col: 0x4c8c86 },
+      motes: { col: 0x6ee7d0, size: 0.24, alpha: 0.4, rise: -0.3 },
       layers: [
-        { kind: 'spires',      sp: 4.5, z: -7.2, col: 0x071a19, h0: 12, h1: 22 },
-        { kind: 'stalactites', sp: 1.9, z: -5.6, col: 0x0e2c2a, top: 20 },
-        { kind: 'crystals',    sp: 4.0, z: -4.6, col: 0x1d5f58, glow: true, s0: 0.9, s1: 2.6 },
-        { kind: 'rubble',      sp: 2.2, z: -3.2, col: 0x123430 }
+        { kind: 'rubble',      sp: 2.2, d: 4.5, col: 0x123430, s0: 0.25, s1: 0.9 },
+        { kind: 'crystals',    sp: 3.0, d: 8,   col: 0x2a7f74, glow: true, s0: 1.4, s1: 3.2 },
+        { kind: 'stalactites', sp: 2.0, d: 13,  col: 0x0e2c2a, top: 8.5, h0: 3.0, h1: 5.6 },
+        { kind: 'spires',      sp: 3.2, d: 20,  col: 0x071a19, h0: 2.2, h1: 4.0 },
+        { kind: 'bricks',      sp: 3.4, d: 28,  col: 0x05130f, rows: 4 }
       ]
     },
     prison: {
-      ceiling: { z: -5.4, col: 0x150e04, y: 20 },
+      ceiling: { y: 10, col: 0x150e04 },
+      skyGlow: 0.46, haze: 0.68, ground: 0x140c03,
+      motes: { col: 0xf97316, size: 0.3, alpha: 0.5, rise: 0.7 },
       layers: [
-        { kind: 'bricks',  sp: 3.2, z: -7.6, col: 0x140c03, rows: 15 },
-        { kind: 'arches',  sp: 7.0, z: -5.9, col: 0x1d1206 },
-        { kind: 'columns', sp: 4.6, z: -4.4, col: 0x291a09 },
-        { kind: 'rubble',  sp: 2.4, z: -3.2, col: 0x2e1f0c }
+        { kind: 'rubble',  sp: 2.4, d: 4.5, col: 0x2e1f0c, s0: 0.3, s1: 1.0 },
+        { kind: 'columns', sp: 3.4, d: 8,   col: 0x291a09, h0: 3.8, h1: 6.6 },
+        { kind: 'arches',  sp: 4.2, d: 13,  col: 0x1f1307, h0: 3.0, h1: 5.0 },
+        { kind: 'bricks',  sp: 3.0, d: 20,  col: 0x150d04, rows: 5 },
+        { kind: 'columns', sp: 3.6, d: 28,  col: 0x100903, h0: 2.4, h1: 4.0 }
       ]
     },
     vault: {
-      ceiling: { z: -5.2, col: 0x120722, y: 20 },
+      ceiling: { y: 10.5, col: 0x120722 },
+      skyGlow: 0.48, haze: 0.68, ground: 0x140728,
+      motes: { col: 0xc084fc, size: 0.32, alpha: 0.5, rise: 0.15 },
       layers: [
-        { kind: 'columns',  sp: 5.5, z: -7.4, col: 0x140a2a },
-        { kind: 'crystals', sp: 3.2, z: -5.8, col: 0x3b2a72, s0: 1.4, s1: 4.2 },
-        { kind: 'crystals', sp: 4.4, z: -4.2, col: 0x6a4fc0, glow: true, s0: 0.9, s1: 2.4 },
-        { kind: 'rubble',   sp: 2.4, z: -3.2, col: 0x241645 }
+        { kind: 'rubble',   sp: 2.4, d: 4.5, col: 0x241645, s0: 0.3, s1: 1.0 },
+        { kind: 'crystals', sp: 3.0, d: 8,   col: 0x8a66e0, glow: true, s0: 1.6, s1: 3.8 },
+        { kind: 'columns',  sp: 3.6, d: 13,  col: 0x1c1038, h0: 3.0, h1: 5.2 },
+        { kind: 'crystals', sp: 3.2, d: 20,  col: 0x3b2a72, s0: 0.9, s1: 2.2 },
+        { kind: 'arches',   sp: 4.5, d: 28,  col: 0x120726, h0: 2.4, h1: 4.0 }
       ]
     },
     nest: {
-      ceiling: { z: -5.2, col: 0x170508, y: 20 },
+      ceiling: { y: 10, col: 0x170508 },
+      skyGlow: 0.44, haze: 0.66, ground: 0x1a060a,
+      motes: { col: 0xfb7185, size: 0.28, alpha: 0.5, rise: 0.1 },
       layers: [
-        { kind: 'bricks',      sp: 4.0, z: -7.4, col: 0x160508, rows: 14 },
-        { kind: 'trees',       sp: 4.6, z: -5.8, col: 0x1c070b, bare: true },
-        { kind: 'stalactites', sp: 2.4, z: -4.4, col: 0x2a0d12, top: 20 },
-        { kind: 'bones',       sp: 3.2, z: -3.2, col: 0x3a2028 }
+        { kind: 'bones',       sp: 3.0, d: 4.5, col: 0x3a2028 },
+        { kind: 'trees',       sp: 3.0, d: 8,   col: 0x1c070b, bare: true, h0: 3.8, h1: 6.4 },
+        { kind: 'stalactites', sp: 2.2, d: 13,  col: 0x2a0d12, top: 8.5, h0: 2.6, h1: 5.0 },
+        { kind: 'bricks',      sp: 3.2, d: 20,  col: 0x160508, rows: 5 },
+        { kind: 'spires',      sp: 3.4, d: 28,  col: 0x120506, h0: 2.0, h1: 3.4 }
       ]
     },
     trial: {
-      ceiling: { z: -5.2, col: 0x180607, y: 20 },
+      ceiling: { y: 10, col: 0x180607 },
+      skyGlow: 0.46, haze: 0.66, ground: 0x1c0709,
+      motes: { col: 0xff8a6a, size: 0.28, alpha: 0.45, rise: 0.3 },
       layers: [
-        { kind: 'bricks',  sp: 3.6, z: -7.4, col: 0x170607, rows: 15 },
-        { kind: 'arches',  sp: 6.5, z: -5.8, col: 0x220a0a },
-        { kind: 'columns', sp: 4.4, z: -4.3, col: 0x30100f },
-        { kind: 'rubble',  sp: 2.2, z: -3.2, col: 0x361412 }
+        { kind: 'rubble',  sp: 2.2, d: 4.5, col: 0x361412, s0: 0.3, s1: 1.0 },
+        { kind: 'columns', sp: 3.4, d: 8,   col: 0x30100f, h0: 3.8, h1: 6.6 },
+        { kind: 'arches',  sp: 4.2, d: 13,  col: 0x260c0c, h0: 3.0, h1: 5.0 },
+        { kind: 'bricks',  sp: 3.0, d: 20,  col: 0x1a0708, rows: 5 },
+        { kind: 'arches',  sp: 4.5, d: 28,  col: 0x120405, h0: 2.4, h1: 4.0 }
       ]
     },
     throne: {
-      ceiling: { z: -5.2, col: 0x1a1205, y: 20 },
+      ceiling: { y: 10.5, col: 0x1a1205 },
+      skyGlow: 0.5, haze: 0.68, ground: 0x221806,
+      motes: { col: 0xfde047, size: 0.32, alpha: 0.5, rise: 0.15 },
       layers: [
-        { kind: 'arches',  sp: 6.5, z: -7.6, col: 0x1d1406 },
-        { kind: 'columns', sp: 4.4, z: -5.9, col: 0x2a1d08 },
-        { kind: 'spires',  sp: 5.5, z: -4.4, col: 0x38270c, h0: 10, h1: 18 },
-        { kind: 'rubble',  sp: 2.4, z: -3.2, col: 0x3d2a0e }
+        { kind: 'rubble',  sp: 2.4, d: 4.5, col: 0x3d2a0e, s0: 0.3, s1: 1.0 },
+        { kind: 'columns', sp: 3.4, d: 8,   col: 0x38270c, h0: 3.8, h1: 6.8 },
+        { kind: 'arches',  sp: 4.4, d: 13,  col: 0x2c1e08, h0: 3.0, h1: 5.2 },
+        { kind: 'spires',  sp: 3.4, d: 20,  col: 0x241806, h0: 2.2, h1: 3.8 },
+        { kind: 'arches',  sp: 4.6, d: 30,  col: 0x1a1204, h0: 2.0, h1: 3.4 }
       ]
     },
-    /* --- the ladder rungs -------------------------------------------------- */
+    /* --- the ladder rungs --------------------------------------------------- */
     shore: {
-      stars: { sp: 1.3, size: 0.11, alpha: 0.55 },
-      moon: { col: 0xfff0cc },
+      skyGlow: 0.85, haze: 0.85, ground: 0x1b2730,
+      stars: { sp: 1.3, size: 0.13, alpha: 0.55 },
+      moon: { col: 0xfff0cc, r: 5.0 },
+      mist: { sp: 2.8, size: 0.26, alpha: 0.14, col: 0xa8c8e0 },
+      motes: { col: 0xa8c8e0, size: 0.26, alpha: 0.4, rise: 0.2 },
       layers: [
-        { kind: 'ridge',  sp: 13,  z: -9.0, col: 0x101a26, h0: 13, h1: 24 },
-        { kind: 'spires', sp: 6,   z: -7.2, col: 0x16222e, h0: 8, h1: 16 },
-        { kind: 'falls',  sp: 26,  z: -6.0, col: 0x9fd8ff, glow: true, h0: 12, h1: 20 },
-        { kind: 'rubble', sp: 2.2, z: -3.4, col: 0x27333d }
+        { kind: 'rubble', sp: 2.6, d: 4.5, col: 0x2b3742, s0: 0.25, s1: 0.9 },
+        { kind: 'spires', sp: 3.0, d: 8,   col: 0x1f2b36, h0: 3.0, h1: 5.8 },
+        { kind: 'hills',  sp: 3.6, d: 13,  col: 0x16212b, h0: 2.0, h1: 3.6 },
+        { kind: 'ridge',  sp: 3.2, d: 22,  col: 0x111a24, h0: 1.4, h1: 2.6 },
+        { kind: 'ridge',  sp: 3.6, d: 34,  col: 0x0d151e, h0: 1.1, h1: 2.0 }
       ]
     },
     swamp: {
+      skyGlow: 0.6, haze: 0.7, ground: 0x101c0a,
+      mist: { sp: 3.0, size: 0.3, alpha: 0.2, col: 0x9fd06a },
+      motes: { col: 0xb8e06a, size: 0.28, alpha: 0.4, rise: -0.1 },
       layers: [
-        { kind: 'spires', sp: 7,   z: -8.2, col: 0x0a1206, h0: 12, h1: 22 },
-        { kind: 'trees',  sp: 3.6, z: -6.4, col: 0x0e1a09, bare: true },
-        { kind: 'trees',  sp: 4.4, z: -4.4, col: 0x16260d, bare: true },
-        { kind: 'rubble', sp: 2.2, z: -3.2, col: 0x1b2c10 }
-      ],
-      mist: { sp: 3.2, size: 0.34, alpha: 0.22, col: 0x9fd06a }
+        { kind: 'reeds', sp: 1.6, d: 4.5, col: 0x1b2c10 },
+        { kind: 'trees', sp: 2.6, d: 8,   col: 0x0e1a09, bare: true, h0: 4.2, h1: 7.0 },
+        { kind: 'trees', sp: 3.0, d: 13,  col: 0x0a1407, bare: true, h0: 2.8, h1: 4.8 },
+        { kind: 'hills', sp: 3.4, d: 20,  col: 0x081005, h0: 1.8, h1: 3.2 },
+        { kind: 'spires', sp: 3.0, d: 30, col: 0x060d04, h0: 1.5, h1: 2.6 }
+      ]
     },
     mountain: {
-      stars: { sp: 1.4, size: 0.12, alpha: 0.6 },
-      moon: { col: 0xdceaff },
+      skyGlow: 0.72, haze: 0.85, ground: 0x1a2028,
+      stars: { sp: 1.4, size: 0.13, alpha: 0.6 },
+      moon: { col: 0xdceaff, r: 5.0 },
+      motes: { col: 0xdceaff, size: 0.24, alpha: 0.35, rise: -0.15 },
       layers: [
-        { kind: 'ridge',  sp: 12,  z: -9.6, col: 0x141c2a, h0: 17, h1: 30, snow: true },
-        { kind: 'ridge',  sp: 9,   z: -7.4, col: 0x1b2434, h0: 11, h1: 22, snow: true },
-        { kind: 'spires', sp: 5,   z: -5.4, col: 0x27313f, h0: 8, h1: 17 },
-        { kind: 'rubble', sp: 2.2, z: -3.2, col: 0x333d4a }
+        { kind: 'rubble', sp: 2.4, d: 4.5, col: 0x3a4351, s0: 0.3, s1: 1.0 },
+        { kind: 'spires', sp: 2.8, d: 8,   col: 0x323b48, h0: 3.0, h1: 5.6 },
+        { kind: 'ridge',  sp: 3.0, d: 13,  col: 0x28313e, h0: 2.8, h1: 4.8, snow: true },
+        { kind: 'ridge',  sp: 3.2, d: 20,  col: 0x1e2634, h0: 2.4, h1: 4.2, snow: true },
+        { kind: 'ridge',  sp: 3.4, d: 32,  col: 0x161d2a, h0: 1.9, h1: 3.4, snow: true },
+        { kind: 'clouds', sp: 6,   d: 32,  col: 0x3a465c, glow: true }
       ]
     },
     flooded: {
-      ceiling: { z: -5.2, col: 0x05121c, y: 20 },
+      ceiling: { y: 10.5, col: 0x05121c },
+      skyGlow: 0.58, haze: 0.66, ground: 0x0a1a24,
+      mist: { sp: 3.0, size: 0.22, alpha: 0.14, col: 0x8fd8ff },
+      motes: { col: 0x8fd8ff, size: 0.26, alpha: 0.4, rise: -0.25 },
       layers: [
-        { kind: 'arches',  sp: 7,   z: -7.6, col: 0x081a26 },
-        { kind: 'columns', sp: 4.4, z: -5.9, col: 0x0d2432 },
-        { kind: 'falls',   sp: 20,  z: -4.6, col: 0x8fd8ff, glow: true, h0: 10, h1: 18 },
-        { kind: 'ice',     sp: 6,   z: -3.4, col: 0x2d5a70 },
-        { kind: 'rubble',  sp: 2.4, z: -3.0, col: 0x1d4256 }
+        { kind: 'ice',     sp: 5.5, d: 4.5, col: 0x2d5a70 },
+        { kind: 'columns', sp: 3.4, d: 8,   col: 0x14313f, h0: 3.6, h1: 6.2 },
+        { kind: 'arches',  sp: 4.0, d: 13,  col: 0x0f2836, h0: 2.8, h1: 4.6 },
+        { kind: 'falls',   sp: 14,  d: 13,  col: 0x8fd8ff, glow: true, h0: 3.0, h1: 5.2 },
+        { kind: 'bricks',  sp: 3.0, d: 20,  col: 0x0a1e2b, rows: 5 },
+        { kind: 'arches',  sp: 4.5, d: 28,  col: 0x071823, h0: 2.2, h1: 3.6 }
       ]
     },
     volcanic: {
-      ceiling: { z: -5.4, col: 0x150604, y: 20 },
+      ceiling: { y: 10, col: 0x150604 },
+      skyGlow: 0.9, haze: 0.8, ground: 0x1a0a06,
+      mist: { sp: 2.6, size: 0.32, alpha: 0.16, col: 0xff8a3c },
+      ember: { sp: 2.8, size: 0.11, alpha: 0.5, col: 0xff8a3c },
+      motes: { col: 0xff8a3c, size: 0.2, alpha: 0.45, rise: 0.55 },
       layers: [
-        { kind: 'ridge',  sp: 11,  z: -9.0, col: 0x1b0a05, h0: 15, h1: 27 },
-        { kind: 'spires', sp: 5,   z: -6.6, col: 0x2a0f07, h0: 10, h1: 20 },
-        { kind: 'falls',  sp: 16,  z: -5.2, col: 0xff7a3c, glow: true, h0: 12, h1: 22 },
-        { kind: 'rubble', sp: 2.2, z: -3.2, col: 0x361508 }
-      ],
-      ember: { sp: 2.8, size: 0.10, alpha: 0.5, col: 0xff8a3c }
+        { kind: 'rubble', sp: 2.4, d: 4.5, col: 0x3a1608, s0: 0.3, s1: 1.0 },
+        { kind: 'spires', sp: 2.8, d: 8,   col: 0x2f1207, h0: 3.2, h1: 6.0 },
+        { kind: 'falls',  sp: 13,  d: 13,  col: 0xff7a3c, glow: true, h0: 3.2, h1: 5.6 },
+        { kind: 'ridge',  sp: 3.2, d: 20,  col: 0x1c0a05, h0: 2.2, h1: 3.8 },
+        { kind: 'ridge',  sp: 3.4, d: 30,  col: 0x140703, h0: 1.8, h1: 3.0 }
+      ]
     }
   };
 
@@ -378,116 +486,167 @@ window.DS = window.DS || {};
   /* The vocabulary a recipe is written in. Each builder is handed the layer's
      box list, an x along the map's width, the map's floor line, a seeded rng,
      and its own layer entry. */
+  /* Every builder writes y from the GROUND LINE UP - the band's own base is
+     zero, not the map's bottom row - which is what lets one builder scale a
+     whole band up for the far rungs without the base sliding off. */
   const BACKDROP_KINDS = {
     /* Rock teeth: a tapered block with a smaller one leaning on it. */
     spires: function (o, x, rng, L) {
-      const h = rng.float(L.h0, L.h1);
-      const wd = rng.float(0.8, 2.4);
-      box(o.boxes, x, o.floorY + h * 0.5, 0, wd, h, wd, rng.float(-0.05, 0.05), rng.float(-0.4, 0.4));
+      const h = rng.float(L.h0 || 6, L.h1 || 12);
+      const wd = h * rng.float(0.32, 0.62);
+      box(o.boxes, x, h * 0.5, 0, wd, h, wd, rng.float(-0.05, 0.05), rng.float(-0.4, 0.4));
       if (rng.chance(0.55)) {
         const h2 = h * rng.float(0.35, 0.7);
-        box(o.boxes, x + rng.float(-1.6, 1.6), o.floorY + h2 * 0.5, rng.float(-0.6, 0.6),
+        box(o.boxes, x + rng.float(-1.2, 1.2), h2 * 0.5, rng.float(-0.5, 0.5),
             wd * 0.6, h2, wd * 0.6, rng.float(-0.12, 0.12), rng.float(-0.5, 0.5));
       }
     },
-    /* A mountain ridge: wide blocks with optional snow caps. */
+    /* Rolling ground: wide, low, overlapping mounds with a shoulder on them.
+       The one shape every open horizon needs, because it is what stops a
+       distant band from reading as isolated boxes in a void. */
+    hills: function (o, x, rng, L) {
+      const h = rng.float(L.h0 || 2, L.h1 || 4);
+      const wd = rng.float(2.4, 5.0);
+      box(o.boxes, x, h * 0.5, rng.float(-0.4, 0.4), wd, h, rng.float(1.6, 3.0), 0, rng.float(-0.25, 0.25));
+      if (rng.chance(0.5)) {
+        const h2 = h * rng.float(0.45, 0.85);
+        box(o.boxes, x + rng.float(-2.2, 2.2), h2 * 0.5, rng.float(-0.5, 0.5),
+            wd * 0.6, h2, 2.0, 0, rng.float(-0.3, 0.3));
+      }
+    },
+    /* A mountain ridge: wide overlapping blocks with optional snow caps. */
     ridge: function (o, x, rng, L) {
-      const h = rng.float(L.h0, L.h1);
+      const h = rng.float(L.h0 || 3, L.h1 || 6);
       const wd = rng.float(3.2, 7.5);
-      box(o.boxes, x, o.floorY + h * 0.5, 0, wd, h, rng.float(2, 4), rng.float(-0.03, 0.03), rng.float(-0.25, 0.25));
-      if (L.snow) box(o.boxes, x, o.floorY + h * 0.94, 0, wd * 0.42, h * 0.14, 2.4, 0, rng.float(-0.2, 0.2));
+      box(o.boxes, x, h * 0.5, 0, wd, h, rng.float(2, 4), rng.float(-0.03, 0.03), rng.float(-0.25, 0.25));
+      if (L.snow) box(o.boxes, x, h * 0.94, 0, wd * 0.42, h * 0.14, 2.4, 0, rng.float(-0.2, 0.2));
     },
-    /* A colonnade: pillar, base, capital. */
+    /* A colonnade: pillar, base, capital. Width follows height, so a two-tile
+       far colonnade is as slender as a twenty-unit one was. */
     columns: function (o, x, rng, L) {
-      const h = rng.float(13, 20);
-      const wd = rng.float(0.9, 1.5);
-      box(o.boxes, x, o.floorY + h * 0.5, 0, wd, h, wd);
-      box(o.boxes, x, o.floorY + 0.25, 0, wd * 1.6, 0.5, wd * 1.6);
-      box(o.boxes, x, o.floorY + h - 0.2, 0, wd * 1.5, 0.55, wd * 1.5);
+      const h = rng.float(L.h0 || 3, L.h1 || 5);
+      const wd = h * rng.float(0.09, 0.15);
+      box(o.boxes, x, h * 0.5, 0, wd, h, wd);
+      box(o.boxes, x, 0.06, 0, wd * 1.6, 0.12, wd * 1.6);
+      box(o.boxes, x, h - 0.05, 0, wd * 1.5, 0.14, wd * 1.5);
     },
-    /* Pillars with a lintel across them — halls, vaults, prisons. */
+    /* Pillars with a lintel across them - halls, vaults, prisons. */
     arches: function (o, x, rng, L) {
-      const h = rng.float(12, 19);
-      const span = rng.float(4, 7);
-      const wd = rng.float(0.7, 1.2);
-      box(o.boxes, x - span * 0.5, o.floorY + h * 0.5, 0, wd, h, 1.4);
-      box(o.boxes, x + span * 0.5, o.floorY + h * 0.5, 0, wd, h, 1.4);
-      box(o.boxes, x, o.floorY + h + 0.35, 0, span + wd * 1.6, 0.7, 1.8);
-      if (rng.chance(0.5)) box(o.boxes, x, o.floorY + h + 1.1, 0, span * 0.5, 0.8, 1.6);
+      const h = rng.float(L.h0 || 3, L.h1 || 5);
+      const span = h * rng.float(0.22, 0.4);
+      const wd = h * rng.float(0.05, 0.09);
+      box(o.boxes, x - span * 0.5, h * 0.5, 0, wd, h, h * 0.3);
+      box(o.boxes, x + span * 0.5, h * 0.5, 0, wd, h, h * 0.3);
+      box(o.boxes, x, h + h * 0.06, 0, span + wd * 1.6, h * 0.12, h * 0.36);
+      if (rng.chance(0.5)) box(o.boxes, x, h + h * 0.2, 0, span * 0.5, h * 0.12, h * 0.32);
     },
     /* A ruined wall face: slabs with gaps where the mortar fell out. */
     bricks: function (o, x, rng, L) {
-      const rows = L.rows || 13;
+      const rows = L.rows || 8;
       for (let r = 0; r < rows; r++) {
         if (rng.chance(0.22)) continue;
-        const y = o.floorY + 1.1 + r * 1.15;
-        const wd = rng.float(2.6, 5.2);
-        box(o.boxes, x + rng.float(-0.5, 0.5), y, 0, wd, 1.0, 1.1, 0, 0);
+        const y = 0.9 + r * 1.0;
+        box(o.boxes, x + rng.float(-0.5, 0.5), y, 0, rng.float(2.6, 5.2), 0.9, 1.1, 0, 0);
       }
     },
-    /* Trees. `bare` drops the canopy and keeps dead branches instead. */
+    /* Trees. `bare` drops the canopy and keeps dead branches instead, and the
+       canopy is sized off the trunk so a far treeline is still a treeline. */
     trees: function (o, x, rng, L) {
-      const h = rng.float(12, 22);
-      const trunkW = rng.float(0.5, 1.0);
-      box(o.boxes, x, o.floorY + h * 0.5, 0, trunkW, h, trunkW, rng.float(-0.03, 0.03));
+      const h = rng.float(L.h0 || 3, L.h1 || 5);
+      const trunkW = h * rng.float(0.06, 0.11);
+      box(o.boxes, x, h * 0.5, 0, trunkW, h, trunkW, rng.float(-0.03, 0.03));
       if (L.bare) {
         for (let b = 0; b < 3; b++) {
-          box(o.boxes, x + rng.float(-1.2, 1.2), o.floorY + h * rng.float(0.45, 0.9), rng.float(-0.4, 0.4),
-              rng.float(1.4, 2.6), 0.22, 0.22, rng.float(-0.5, 0.5));
+          box(o.boxes, x + rng.float(-1.2, 1.2), h * rng.float(0.45, 0.9), rng.float(-0.4, 0.4),
+              h * rng.float(0.3, 0.55), 0.16, 0.16, rng.float(-0.5, 0.5));
         }
         return;
       }
-      const cw = rng.float(2.6, 4.6);
-      box(o.boxes, x, o.floorY + h + 0.6, 0, cw, 1.7, cw * 0.8);
-      box(o.boxes, x + rng.float(-0.8, 0.8), o.floorY + h + 2.0, 0, cw * 0.7, 1.5, cw * 0.6);
+      const cw = h * rng.float(0.6, 0.95);
+      box(o.boxes, x, h + cw * 0.25, 0, cw, cw * 0.42, cw * 0.8);
+      box(o.boxes, x + rng.float(-0.8, 0.8), h + cw * 0.75, 0, cw * 0.7, cw * 0.36, cw * 0.6);
+    },
+    /* Reeds: thin blades in a clump, the swamp and the shore's near rung. */
+    reeds: function (o, x, rng, L) {
+      const n = rng.int(3, 6);
+      for (let i = 0; i < n; i++) {
+        const h = rng.float(0.5, 1.5);
+        box(o.boxes, x + rng.float(-1.1, 1.1), h * 0.5, rng.float(-0.4, 0.4),
+            rng.float(0.09, 0.18), h, 0.14, rng.float(-0.12, 0.12));
+      }
+    },
+    /* Cloud bands, well above the ground line: the only thing a backdrop may
+       put ABOVE the horizon, so they stay flat, pale and unlit. */
+    clouds: function (o, x, rng, L) {
+      const y = rng.float(6.5, 9.5);
+      const wd = rng.float(3.5, 8.0);
+      box(o.boxes, x, y, rng.float(-6, 0), wd, rng.float(0.5, 1.1), rng.float(1.5, 2.6));
+      if (rng.chance(0.6)) {
+        box(o.boxes, x + rng.float(-3, 3), y + rng.float(-1.2, 1.2), rng.float(-6, 0),
+            wd * rng.float(0.5, 0.9), rng.float(0.35, 0.8), rng.float(1.2, 2.2));
+      }
     },
     /* Stalactites hanging off a ceiling line. */
     stalactites: function (o, x, rng, L) {
-      const top = o.floorY + (L.top || 24);
-      const h = rng.float(3.0, 9.0);
-      o.shards.push([x, top - h * 0.5, rng.float(-0.6, 0.6), rng.float(0.9, 2.6), h, 0.0]);
+      /* Hanging teeth are the one shape where a repeated row reads as a
+         pattern in a heartbeat: the drop point varies by a couple of units and
+         one in four is a long one, so the fringe has a profile. */
+      const top = (L.top || 8.5) + rng.float(-1.2, 1.2);
+      const h = rng.float(L.h0 || 1.4, L.h1 || 3.4) * (rng.chance(0.26) ? 1.45 : 1);
+      o.shards.push([x, top - h * 0.5, rng.float(-0.9, 0.9), h * rng.float(0.2, 0.52), h, 0.0]);
     },
-    /* Crystal clusters — octahedra, the only non-box primitive with a glow. */
+    /* Crystal clusters - octahedra, the only non-box primitive with a glow. */
     crystals: function (o, x, rng, L) {
       const n = rng.int(2, 4);
       for (let i = 0; i < n; i++) {
         const s = rng.float(L.s0 || 0.5, L.s1 || 1.6);
-        o.shards.push([x + rng.float(-1.1, 1.1), o.floorY + s * rng.float(0.5, 1.3), rng.float(-0.5, 0.5), s, s, rng.float(0, 3.14)]);
+        o.shards.push([x + rng.float(-1.1, 1.1), s * rng.float(0.5, 1.3), rng.float(-0.5, 0.5), s, s, rng.float(0, 3.14)]);
       }
     },
     /* Ice: flat angular slabs standing and lying in the water light. */
     ice: function (o, x, rng, L) {
-      const h = rng.float(3, 9);
-      box(o.boxes, x, o.floorY + h * 0.5, 0, rng.float(2, 4), h, rng.float(0.5, 1.2), rng.float(-0.3, 0.3), rng.float(-0.5, 0.5));
-      box(o.boxes, x + rng.float(-2, 2), o.floorY + 0.3, 0, rng.float(2, 4), 0.6, rng.float(1.5, 3), 0, rng.float(-0.6, 0.6));
+      const h = rng.float(L.h0 || 1.2, L.h1 || 2.6);
+      box(o.boxes, x, h * 0.5, 0, rng.float(2, 4) * (h / 5), h, rng.float(0.5, 1.2), rng.float(-0.3, 0.3), rng.float(-0.5, 0.5));
+      box(o.boxes, x + rng.float(-2, 2), 0.2, 0, rng.float(2, 4) * (h / 5), 0.5, rng.float(1.5, 3), 0, rng.float(-0.6, 0.6));
     },
     /* A falling sheet of water (or lava) against the far wall. */
     falls: function (o, x, rng, L) {
-      const h = rng.float(L.h0 || 6, L.h1 || 14);
-      box(o.boxes, x, o.floorY + h * 0.5, 0, rng.float(1.2, 2.6), h, 0.25);
-      box(o.boxes, x, o.floorY + 0.5, 0, rng.float(2.4, 4), 1.0, rng.float(1.6, 3));
+      const h = rng.float(L.h0 || 3, L.h1 || 6);
+      box(o.boxes, x, h * 0.5, 0, h * rng.float(0.16, 0.3), h, 0.25);
+      box(o.boxes, x, 0.35, 0, h * rng.float(0.35, 0.6), 0.8, rng.float(1.6, 3));
     },
     /* Loose stone at the foot of the wall. */
     rubble: function (o, x, rng, L) {
       for (let i = 0; i < 3; i++) {
-        const s = rng.float(0.7, 2.6);
-        box(o.boxes, x + rng.float(-1.2, 1.2), o.floorY + s * 0.45, rng.float(-0.3, 0.8), s, s * 0.9, s, rng.float(-0.4, 0.4), rng.float(0, 1.5));
+        const s = rng.float(L.s0 || 0.25, L.s1 || 1.0);
+        box(o.boxes, x + rng.float(-1.2, 1.2), s * 0.45, rng.float(-0.3, 0.8), s, s * 0.9, s, rng.float(-0.4, 0.4), rng.float(0, 1.5));
       }
     },
     /* Bone piles: crossed long bones and a skull-sized block. */
     bones: function (o, x, rng, L) {
       for (let i = 0; i < 3; i++) {
-        box(o.boxes, x + rng.float(-1.4, 1.4), o.floorY + rng.float(0.15, 0.5), rng.float(-0.2, 0.6),
-            rng.float(1.2, 2.4), 0.22, 0.22, rng.float(-1.2, 1.2), rng.float(0, 1.5));
+        box(o.boxes, x + rng.float(-1.4, 1.4), rng.float(0.15, 0.5), rng.float(-0.2, 0.6),
+            rng.float(0.8, 1.6), 0.18, 0.18, rng.float(-1.2, 1.2), rng.float(0, 1.5));
       }
-      box(o.boxes, x + rng.float(-0.6, 0.6), o.floorY + 0.35, 0, rng.float(0.5, 0.8), 0.7, 0.7);
+      box(o.boxes, x + rng.float(-0.6, 0.6), 0.3, 0, rng.float(0.4, 0.6), 0.5, 0.5);
     }
   };
 
-  function instancedBoxes(list, mat) {
+  /* A cheap deterministic hash, used for per-instance value jitter: forty
+     identical rocks in one band would otherwise render as a single flat mass,
+     and breaking that mass up into objects is the cheapest realism there is. */
+  function hash01(n) {
+    const s = Math.sin(n * 12.9898) * 43758.5453;
+    return s - Math.floor(s);
+  }
+
+  /* `tint` is how much per-instance value jitter to apply (0 = none). Only the
+     backdrop asks for it; the dungeon's own batches stay uniform. */
+  function instancedBoxes(list, mat, tint) {
     const geo = new THREE.BoxGeometry(1, 1, 1);
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
     const d = new THREE.Object3D();
+    const inst = tint ? new THREE.Color() : null;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
       d.position.set(b[0], b[1], b[2]);
@@ -498,8 +657,14 @@ window.DS = window.DS || {};
       d.scale.set(b[3], b[4], b[5]);
       d.updateMatrix();
       mesh.setMatrixAt(i, d.matrix);
+      if (inst) {
+        const j = 1 - tint * 0.5 + tint * hash01(b[0] * 0.37 + b[1] * 0.11 + b[2] * 0.71);
+        inst.setRGB(j, j, j);
+        mesh.setColorAt(i, inst);
+      }
     }
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     /* Culling is switched OFF on every backdrop batch. three r128 bounds an
        InstancedMesh by its GEOMETRY (a unit box at the group origin), not by
        the instances, so a band spanning 200 world units disappears the moment
@@ -509,9 +674,10 @@ window.DS = window.DS || {};
     return mesh;
   }
 
-  function instancedShards(list, mat, geo, flip) {
+  function instancedShards(list, mat, geo, flip, tint) {
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
     const d = new THREE.Object3D();
+    const inst = tint ? new THREE.Color() : null;
     for (let i = 0; i < list.length; i++) {
       const s = list[i];
       d.position.set(s[0], s[1], s[2]);
@@ -520,23 +686,30 @@ window.DS = window.DS || {};
       d.scale.set(s[3], s[4], s[3]);
       d.updateMatrix();
       mesh.setMatrixAt(i, d.matrix);
+      if (inst) {
+        const j = 1 - tint * 0.5 + tint * hash01(s[0] * 0.53 + s[1] * 0.29 + s[2] * 0.61);
+        inst.setRGB(j, j, j);
+        mesh.setColorAt(i, inst);
+      }
     }
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.frustumCulled = false;
     return mesh;
   }
 
-  /* Slow, sparse motes in the backdrop air — mist over a swamp, embers in an
+  /* Slow, sparse motes in the backdrop air - mist over a swamp, embers in an
      ash field. Separate from ScreenParticleManager, which drifts with the
-     camera: this belongs to the horizon. */
-  function backdropMotes(spec, WU, floorY, rng) {
+     camera: this belongs to the horizon, so it is strung over the near half of
+     the ladder and anchored to the same ground line as the bands. */
+  function backdropMotes(spec, WU, anchorY, rng) {
     const n = bandCount(spec, WU);
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
       pos[i * 3 + 0] = rng.float(-0.05, 1.05) * WU;
-      pos[i * 3 + 1] = floorY + rng.float(1, 26);
-      pos[i * 3 + 2] = rng.float(-8, -3);
+      pos[i * 3 + 1] = anchorY + rng.float(0.5, 14);
+      pos[i * 3 + 2] = rng.float(-34, -4);
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
@@ -546,18 +719,25 @@ window.DS = window.DS || {};
     return new THREE.Points(geo, mat);
   }
 
-  /* A sky is not a backdrop painting: it is the far shell of the world. A
-     vertical gradient on one plane behind everything else, a huge floor slab at
-     the horizon so the rock bands never end in mid-air, and then the bands.
-     Without the two shells the geometry read as "floating boxes in the void". */
-  function makeSkyTexture(topHex, botHex) {
+  /* A sky is not a backdrop painting: it is the far shell of the world, and the
+     whole job of it is the bright haze band that sits ON the horizon line.
+     Four stops, canvas top to bottom: dark overhead, the theme's mid sky, a
+     still-hazy band, and the haze itself at the ground line. */
+  function makeSkyTexture(topHex, midHex, lowHex, hazeHex) {
     const cv = document.createElement('canvas');
     cv.width = 2; cv.height = 128;
     const ctx = cv.getContext('2d');
+    /* The stops are placed against what the camera can actually see, not
+       against the plane: the plane runs 8 units below the eye line, so its very
+       bottom (and the pure haze colour on it) is hidden behind the far ground.
+       The haze plateau therefore starts at 0.9 - about seven degrees above the
+       horizon - which is the band the eye reads as "there is distance there". */
     const grd = ctx.createLinearGradient(0, 0, 0, 128);
     grd.addColorStop(0, topHex);
-    grd.addColorStop(0.62, mixHex(topHex, botHex, 0.65));
-    grd.addColorStop(1, botHex);
+    grd.addColorStop(0.5, midHex);
+    grd.addColorStop(0.78, lowHex);
+    grd.addColorStop(0.9, hazeHex);
+    grd.addColorStop(1, hazeHex);
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, 2, 128);
     const tex = new THREE.CanvasTexture(cv);
@@ -578,45 +758,51 @@ window.DS = window.DS || {};
     return 'rgb(' + r + ',' + g + ',' + bl + ')';
   }
 
-  function buildBackdrop(themeName, w, h) {
+  function buildBackdrop(themeName, w, h, anchorY) {
     const rec = BACKDROP_RECIPE[themeName] || BACKDROP_RECIPE.forest;
     const theme = THEMES[themeName] || THEMES.forest;
     const WU = w * 16 * P2U;
-    const floorY = -(h * 16) * P2U;
     const rng = DS.makeRng((0x5EEDBA5E ^ (themeName.length * 7919) ^ (w * 131)) >>> 0);
     const group = new THREE.Group();
+    const glow = rec.skyGlow != null ? rec.skyGlow : 0.75;
 
-    /* The far shell: sky, and the ground it all stands on. */
-    /* Dark overhead, lighter at the horizon — the way a real haze sits. */
-    const skyTop = mixHex(theme.fog, theme.hemiSky, 0.03);
-    const skyBot = mixHex(theme.fog, theme.hemiSky, 0.34);
-    const themeSky = new THREE.Color();
-    themeSky.setStyle(mixHex(theme.fog, 0x000000, 0.45));
-    scene.background = themeSky;
+    /* The haze the horizon fades into. The sky's lowest band IS this colour,
+       and every distant band is mixed toward a darkened copy of it, because a
+       Lambert surface is lit by the ambient + hemisphere rig (about 1.4x) and
+       an unlit sky is not: mixing a band toward the raw sky haze comes out
+       BRIGHTER than the sky behind it, which is exactly the washed-out, inverted
+       horizon this rework exists to kill. Silhouettes must sit below the haze. */
+    const hazeHex = mixHex(mixHex(theme.fog, theme.hemiSky, 0.15 + 0.95 * glow), 0xffffff, 0.08);
+    const bandHaze = new THREE.Color(hazeHex).multiplyScalar(0.45);
+    const topHex = mixHex(theme.fog, 0x000000, 0.35);
+    scene.background = new THREE.Color(topHex);
+
+    /* --- the sky rig -------------------------------------------------------
+       Gradient, stars and moon live in one group whose origin is the EYE LINE
+       (render() pins it there every frame), so the haze band lands on the
+       horizon whatever the camera's height - which is what keeps a floor's
+       horizon from drifting as the player walks up and down. */
+    skyRig = new THREE.Group();
+    skyRig.position.set(WU * 0.5, 0, BACKDROP_SKY_Z);
 
     const skyMat = new THREE.MeshBasicMaterial({
-      map: makeSkyTexture(skyTop, skyBot), fog: false, depthWrite: false
+      map: makeSkyTexture(topHex, mixHex(theme.fog, theme.hemiSky, 0.18 * glow),
+                          mixHex(theme.fog, theme.hemiSky, 0.52 * glow), hazeHex),
+      fog: false, depthWrite: false
     });
-    const sky = new THREE.Mesh(new THREE.PlaneGeometry(WU * 1.4, 78), skyMat);
-    sky.position.set(WU * 0.5, floorY + 22, -16);
+    const sky = new THREE.Mesh(new THREE.PlaneGeometry(WU * 3, SKY_H + SKY_DROP), skyMat);
+    sky.position.set(0, (SKY_H - SKY_DROP) * 0.5, 0);
     sky.frustumCulled = false;
-    group.add(sky);
+    skyRig.add(sky);
 
-    const shellMat = new THREE.MeshLambertMaterial({ color: mixHex(theme.fog, 0x000000, 0.35) });
-    const shell = new THREE.Mesh(new THREE.BoxGeometry(WU * 1.4, 1.4, 6), shellMat);
-    shell.position.set(WU * 0.5, floorY - 0.7, -8);
-    shell.frustumCulled = false;
-    group.add(shell);
-
-    /* Stars first: they belong behind everything, including the rock. */
     if (rec.stars) {
       const starN = bandCount(rec.stars, WU);
       const geo = new THREE.BufferGeometry();
       const pos = new Float32Array(starN * 3);
       for (let i = 0; i < starN; i++) {
-        pos[i * 3 + 0] = rng.float(-0.05, 1.05) * WU;
-        pos[i * 3 + 1] = floorY + rng.float(12, 40);
-        pos[i * 3 + 2] = -12;
+        pos[i * 3 + 0] = rng.float(-0.5, 1.5) * WU;
+        pos[i * 3 + 1] = rng.float(18, SKY_H - 12);
+        pos[i * 3 + 2] = 1;
       }
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       const mat = new THREE.PointsMaterial({
@@ -626,76 +812,119 @@ window.DS = window.DS || {};
       });
       const stars = new THREE.Points(geo, mat);
       stars.frustumCulled = false;
-      group.add(stars);
+      skyRig.add(stars);
     }
 
     if (rec.moon) {
       const moonMat = new THREE.MeshBasicMaterial({ color: rec.moon.col, fog: false });
-      const moon = new THREE.Mesh(new THREE.CircleGeometry(2.6, 16), moonMat);
-      moon.position.set(WU * 0.24, floorY + 13, -13);
+      const moon = new THREE.Mesh(new THREE.CircleGeometry(rec.moon.r || 4.5, 20), moonMat);
+      moon.position.set(WU * 0.26, rng.float(60, 100), 0.5);
       moon.frustumCulled = false;
-      group.add(moon);
+      skyRig.add(moon);
     }
 
+    group.add(skyRig);
+
+    /* --- the ground --------------------------------------------------------
+       Not one slab but three, each a little paler than the last in toward the
+       horizon, so the plain carries its own depth ramp. Without it the bands
+       stand in a void and the walkway floats over nothing; with it the terrain
+       runs from under the player's feet to the sky, which is most of what makes
+       a horizon read as a place. A single flat plane at one value would read as
+       a wall lying down - and it would also hand the bands nothing to be told
+       apart from. */
+    const groundHex = mixHex(rec.ground != null ? rec.ground : theme.fog, hazeHex, 0.3);
+    const GSEG = [
+      { near: 1.2, far: 13, tone: 0.34 },
+      { near: 13, far: 40, tone: 0.52 },
+      { near: 40, far: BACKDROP_GROUND_D, tone: 0.72 }
+    ];
+    for (let gi = 0; gi < GSEG.length; gi++) {
+      const s = GSEG[gi];
+      const segMat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color(groundHex).multiplyScalar(s.tone)
+      });
+      const seg = new THREE.Mesh(
+        new THREE.BoxGeometry(WU * 2, 2.6, s.far - s.near), segMat);
+      seg.position.set(WU * 0.5, anchorY - 1.3, -(s.near + s.far) * 0.5);
+      seg.frustumCulled = false;
+      group.add(seg);
+    }
+
+    /* --- the ladder -------------------------------------------------------- */
     const layers = rec.layers || [];
     for (let li = 0; li < layers.length; li++) {
       const L = layers[li];
-      const o = { boxes: [], shards: [], floorY: floorY };
+      const d = L.d != null ? L.d : BACKDROP_REF_D;
+      const k = L.k != null ? L.k : (CAM_DIST + d) / (CAM_DIST + BACKDROP_REF_D);
+      const o = { boxes: [], shards: [] };
       const kind = BACKDROP_KINDS[L.kind];
       if (!kind) continue;
       const n = bandCount(L, WU);
-      for (let k = 0; k < n; k++) {
+      for (let j = 0; j < n; j++) {
         kind(o, rng.float(-0.06, 1.06) * WU, rng, L);
       }
 
-      /* Unlit for anything that is its own light source (lava, water, a lit
-         crystal): a Lambert material would need a torch to be told it glows. */
+      /* Aerial perspective. Two silhouettes of the same value at 6 and 44 units
+         read as one flat cut-out, so every far band is mixed toward the horizon
+         haze until it is a pale ghost of the near one. A band that is its own
+         light source (lava, a light shaft) keeps most of its colour, because a
+         washed-out torch stops reading as a light. */
+      const far = M.clamp((d - BACKDROP_REF_D) / 34, 0, 1);
+      const hazeT = far * (rec.haze != null ? rec.haze : 0.75) * (L.glow ? 0.35 : 1);
+      const col = new THREE.Color(L.col).lerp(bandHaze, hazeT);
       const mat = L.glow
-        ? new THREE.MeshBasicMaterial({ color: L.col, transparent: true, opacity: 0.85 })
-        : new THREE.MeshLambertMaterial({ color: L.col });
-      /* Nearer bands are lit brighter: a horizon reads as depth because the
-         close rock catches the torch and the far rock does not. Doing it here
-         means a recipe can be written in one flat colour and still separate. */
-      if (!L.glow) mat.color.multiplyScalar(1 + li * 0.42);
+        ? new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85 })
+        : new THREE.MeshLambertMaterial({ color: col });
+      /* The near rung keeps a touch more of its own light (the torch is right
+         there), and no more than a touch: the whole depth read depends on the
+         near band being the DARK one. */
+      if (!L.glow) mat.color.multiplyScalar(1 + (1 - far) * 0.12);
 
+      /* One scale for the whole band about its base: authored in reference
+         units, enlarged by exactly the factor that its distance grew by. */
       const layerGroup = new THREE.Group();
-      layerGroup.position.z = L.z;
-      if (o.boxes.length) layerGroup.add(instancedBoxes(o.boxes, mat));
+      layerGroup.position.set(WU * 0.5 * (1 - k), anchorY, -d);
+      layerGroup.scale.setScalar(k);
+      if (o.boxes.length) layerGroup.add(instancedBoxes(o.boxes, mat, 0.44));
       if (o.shards.length) {
         const isCrystal = L.kind === 'crystals';
         const geo = isCrystal
           ? new THREE.OctahedronGeometry(0.5)
           : new THREE.ConeGeometry(0.6, 1, 5);
-        layerGroup.add(instancedShards(o.shards, mat, geo, !isCrystal));
+        layerGroup.add(instancedShards(o.shards, mat, geo, !isCrystal, 0.4));
       }
       group.add(layerGroup);
     }
 
-    /* An underground theme gets a ceiling: one long slab with teeth under it,
-       which is what tells the eye "this room has a roof" instead of "this room
-       has a painting on the back wall". */
+    /* An underground theme gets a roof: one long slab with teeth under it, which
+       is what tells the eye "this room has a roof" instead of "this room has a
+       painting on the back wall". It starts a few units out, because a ceiling
+       directly overhead is above the top of the frame and only comes into view
+       once it has receded. */
     if (rec.ceiling) {
       const c = rec.ceiling;
+      const cmat = new THREE.MeshLambertMaterial({ color: mixHex(c.col, hazeHex, 0.14) });
       const cg = new THREE.Group();
-      cg.position.z = c.z;
-      const cmat = new THREE.MeshLambertMaterial({ color: c.col });
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(WU * 1.2, 2.2, 3.2), cmat);
-      slab.position.set(WU * 0.5, floorY + (c.y || 25) + 1.1, 0);
+      cg.position.y = anchorY;
+      const slab = new THREE.Mesh(
+        new THREE.BoxGeometry(WU * 1.6, 2.0, BACKDROP_GROUND_D * 0.85), cmat);
+      slab.position.set(WU * 0.5, c.y + 1.0, -BACKDROP_GROUND_D * 0.42);
       slab.frustumCulled = false;
       cg.add(slab);
       const teeth = [];
       const toothCount = bandCount({ sp: 4.5 }, WU);
       for (let i = 0; i < toothCount; i++) {
-        const th = rng.float(1.2, 3.6);
-        box(teeth, rng.float(-0.04, 1.04) * WU, floorY + (c.y || 25) - th * 0.5, rng.float(-0.6, 0.6),
+        const th = rng.float(1.0, 2.6);
+        box(teeth, rng.float(-0.04, 1.04) * WU, c.y - th * 0.5, rng.float(-26, -2),
             rng.float(0.7, 1.6), th, rng.float(0.7, 1.6));
       }
-      cg.add(instancedBoxes(teeth, cmat));
+      cg.add(instancedBoxes(teeth, cmat, 0.3));
       group.add(cg);
     }
 
-    if (rec.mist) { const m = backdropMotes(rec.mist, WU, floorY, rng); m.frustumCulled = false; group.add(m); }
-    if (rec.ember) { const m = backdropMotes(rec.ember, WU, floorY, rng); m.frustumCulled = false; group.add(m); }
+    if (rec.mist) { const m = backdropMotes(rec.mist, WU, anchorY, rng); m.frustumCulled = false; group.add(m); }
+    if (rec.ember) { const m = backdropMotes(rec.ember, WU, anchorY, rng); m.frustumCulled = false; group.add(m); }
 
     return group;
   }
@@ -805,7 +1034,12 @@ window.DS = window.DS || {};
       this.time = 0;
     }
 
-    setTheme(themeName) {
+    /* One theme table drives the air as well as the horizon: a biome names its
+       own motes (spores, drip, ash, dust) in the same recipe entry its bands
+       live in, so adding a biome can never again leave the air on the default.
+       The old version had an if-chain over six themes and silently gave the
+       other seven blue dust. */
+    setTheme(themeName, rec) {
       if (this.particles) {
         this.group.remove(this.particles);
         if (this.particles.geometry) this.particles.geometry.dispose();
@@ -819,40 +1053,23 @@ window.DS = window.DS || {};
       const positions = new Float32Array(count * 3);
       const velocities = [];
 
-      let color = 0x98d4ff;
-      let size = 0.26;
-      let opacity = 0.65;
-
-      if (themeName === 'forest') {
-        color = 0x86efac; size = 0.35; opacity = 0.75;
-      } else if (themeName === 'caves') {
-        color = 0x5eead4; size = 0.28; opacity = 0.70;
-      } else if (themeName === 'prison') {
-        color = 0xf97316; size = 0.32; opacity = 0.85;
-      } else if (themeName === 'vault') {
-        color = 0xc084fc; size = 0.36; opacity = 0.85;
-      } else if (themeName === 'nest') {
-        color = 0xfb7185; size = 0.30; opacity = 0.80;
-      } else if (themeName === 'throne') {
-        color = 0xfde047; size = 0.35; opacity = 0.85;
-      }
+      const m = (rec && rec.motes) || {};
+      const color = m.col != null ? m.col : 0x98d4ff;
+      const size = m.size != null ? m.size : 0.26;
+      const opacity = m.alpha != null ? m.alpha : 0.45;
+      const rise = m.rise || 0;
 
       for (let i = 0; i < count; i++) {
         positions[i * 3 + 0] = (Math.random() - 0.5) * 44;
         positions[i * 3 + 1] = (Math.random() - 0.5) * 26;
         positions[i * 3 + 2] = (Math.random() - 0.5) * 10;
 
-        let vx = (Math.random() - 0.5) * 0.5;
-        let vy = (Math.random() - 0.5) * 0.4;
-        let vz = (Math.random() - 0.5) * 0.3;
-
-        if (themeName === 'prison') {
-          vx = (Math.random() - 0.5) * 0.7; vy = Math.random() * 1.6 + 0.5;
-        } else if (themeName === 'caves') {
-          vx = (Math.random() - 0.5) * 0.3; vy = -(Math.random() * 1.1 + 0.2);
-        }
-
-        velocities.push({ x: vx, y: vy, z: vz, wobble: Math.random() * 6.28 });
+        velocities.push({
+          x: (Math.random() - 0.5) * (rise ? 0.7 : 0.5),
+          y: rise + (Math.random() - 0.5) * 0.4,
+          z: (Math.random() - 0.5) * 0.3,
+          wobble: Math.random() * 6.28
+        });
       }
 
       geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -860,7 +1077,7 @@ window.DS = window.DS || {};
         color: color,
         size: size,
         transparent: true,
-        opacity: opacity * 0.6,
+        opacity: opacity,
         blending: THREE.AdditiveBlending,
         depthWrite: false
       });
@@ -903,6 +1120,7 @@ window.DS = window.DS || {};
   let screenParticleManager = null;
   let waterSurfaceMesh = null;      // the lit surface of every pool, animated
   let riftLight = null;             // the black room's back light
+  let backLight = null;             // the moon: light from behind everything
   let waterCrestMesh = null;        // the bright line where water meets air
 
   function init() {
@@ -912,15 +1130,7 @@ window.DS = window.DS || {};
     if (!canvas) {
       canvas = document.createElement('canvas');
       canvas.id = 'game3d';
-      canvas.style.position = 'absolute';
-      canvas.style.left = '50%';
-      canvas.style.top = '50%';
-      canvas.style.transform = 'translate(-50%, -50%)';
-      canvas.style.pointerEvents = 'none';
-      canvas.style.zIndex = '1';
-      const game2d = document.getElementById('game');
-      if (game2d && game2d.parentNode) game2d.parentNode.insertBefore(canvas, game2d);
-      else document.body.appendChild(canvas);
+      document.body.appendChild(canvas);
     }
 
     try {
@@ -931,6 +1141,28 @@ window.DS = window.DS || {};
         powerPreference: 'high-performance'
       });
       renderer.setPixelRatio(window.devicePixelRatio || 1);
+      /* Filmic response and linear-correct output: without these, every
+         material the scene lights is a Lambert face whose highlights clip to
+         white and whose shadows sit on one flat value. */
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      /* ACES compresses the highlights, which would otherwise read as a darker
+         frame than the linear one it replaced; the exposure lifts it back. */
+      renderer.toneMappingExposure = 1.25;
+      /* F6 cycles the camera preset (see the rig above). */
+      window.addEventListener('keydown', function (e) {
+        if (e.code === 'F6') {
+          e.preventDefault();
+          applyCameraPreset((camRig.preset + 1) % CAM_PRESETS.length);
+        } else if (e.code === 'F7') {
+          e.preventDefault();
+          applyCameraPreset(1);
+        }
+      });
+      try {
+        const saved = parseInt(localStorage.getItem('ds.cameraPreset'), 10);
+        applyCameraPreset(isNaN(saved) ? 1 : saved);
+      } catch (e) { applyCameraPreset(1); }
     } catch (err) {
       console.warn('WebGL init failed:', err);
       return false;
@@ -952,6 +1184,23 @@ window.DS = window.DS || {};
     scene.add(dirLight);
 
     playerLight = new THREE.PointLight(0xffe2a0, 0.55, 11, 1.4);
+
+    /* The back light. It used to be a 0.16 nudge that only kept a monster from
+       matching the wall behind it; with voxel models and a lit backdrop, light
+       coming from BEHIND is what gives every block two visible faces, so it is
+       a real light now -- the moon behind the dungeon. The black room turns it
+       up further (see world/lair.js), which is what makes that room read as
+       backlit silhouettes instead of as a dark level. */
+    backLight = new THREE.DirectionalLight(0x9fb0d0, 0.42);
+    backLight.position.set(-12, 18, -26);
+    scene.add(backLight);
+
+    /* A soft fill from the camera side, so front faces are read rather than
+       guessed. Deliberately weaker than the back light: the volume cue is the
+       value difference between them. */
+    fillLight = new THREE.DirectionalLight(0xbfd4ff, 0.18);
+    fillLight.position.set(6, 8, 22);
+    scene.add(fillLight);
     playerLight.position.set(0, 0, 1.2);
     scene.add(playerLight);
 
@@ -1057,16 +1306,17 @@ window.DS = window.DS || {};
 
   function resize() {
     if (!renderer || !canvas) return;
-    const game2d = document.getElementById('game');
-    if (game2d) {
-      canvas.style.width = game2d.style.width;
-      canvas.style.height = game2d.style.height;
-      const w = parseInt(game2d.style.width, 10) || (DS.C.W * (DS.C.RS || 2));
-      const h = parseInt(game2d.style.height, 10) || (DS.C.H * (DS.C.RS || 2));
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    }
+    /* One canvas fills the window now. The game used to size the WebGL canvas
+       to match the 2D one so the two layers lined up; with the 2D canvas gone,
+       the world simply gets the whole screen, and the screen layer letterboxes
+       its own 16:9 logical frame inside it. */
+    const w = window.innerWidth || (DS.C.W * (DS.C.RS || 2));
+    const h = window.innerHeight || (DS.C.H * (DS.C.RS || 2));
+    renderer.setSize(w, h, false);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
   }
 
   /* Frees a subtree. It has to recurse: the backdrop is a group of groups, and
@@ -1122,10 +1372,31 @@ window.DS = window.DS || {};
     return 'forest';
   }
 
+  /* Where a floor's horizon is, in pixels: the median of the level's own
+     WALKING surface, sampled across the map.
+
+     The backdrop used to be anchored to the map's bottom row, which is a
+     different place on every floor: a 22-tile corridor put the horizon just
+     under the eye line and a 44-tile carved floor put it 70 units down, so the
+     same theme's horizon moved between rooms and the bands ended up either
+     buried or towering. The walking surface is the one line that means the same
+     thing everywhere, and the player is standing on it. */
+  function horizonRow(map) {
+    const rows = [];
+    for (let tx = 2; tx < map.w - 2; tx += 3) {
+      const g = map.groundBelow(tx);
+      if (g < map.pixelH) rows.push(g);
+    }
+    if (!rows.length) return map.pixelH;
+    rows.sort(function (a, b) { return a - b; });
+    return rows[rows.length >> 1];
+  }
+
   /* Mood + backdrop. Everything big and distant lives here; the walkway
      architecture is built in loadLevel(). */
-  function setupTheme(themeName, w, h, biome) {
+  function setupTheme(themeName, w, h, biome, anchorY) {
     const t = THEMES[themeName] || THEMES.forest;
+    activeTheme = t;
 
     scene.fog = new THREE.FogExp2(t.fog, FOG_DENSITY);
     ambientLight.color.setHex(t.ambient);
@@ -1137,17 +1408,31 @@ window.DS = window.DS || {};
     dirLight.intensity = t.dirI;
     dirLight.position.set(15, 30, 25);
 
-    disposeGroup(themeGroup);
-    backdropMesh = null;
-    nearBackdrop = null;
+    /* A second, weak key from BEHIND. Everything in the game was lit from the
+       camera's side, which flattens voxel models into coloured stickers; one
+       dim back light picks out their edges and makes the silhouettes separate
+       from the walls behind them. */
+    if (backLight) {
+      backLight.color.setHex(t.hemiSky);
+      backLight.intensity = 0.42;
+      backLight.position.set(-12, 18, -26);
+    }
+    if (fillLight) {
+      fillLight.color.setHex(t.ambient);
+      fillLight.intensity = 0.18;
+    }
 
-    /* The horizon is geometry now (see BACKDROP_RECIPE). It goes into the same
-       group the old planes lived in, so teardown is unchanged. */
-    const backdrop = buildBackdrop(themeName, w, h);
+    disposeGroup(themeGroup);
+    skyRig = null;
+
+    /* The horizon is geometry now (see BACKDROP_RECIPE), standing on the
+       level's own walking surface. It goes into the same group the old planes
+       lived in, so teardown is unchanged. */
+    const backdrop = buildBackdrop(themeName, w, h, anchorY);
     if (backdrop) themeGroup.add(backdrop);
 
     if (screenParticleManager) {
-      screenParticleManager.setTheme(themeName);
+      screenParticleManager.setTheme(themeName, BACKDROP_RECIPE[themeName]);
     }
   }
 
@@ -1744,7 +2029,7 @@ window.DS = window.DS || {};
     const flavor = (g && g.flavor) || '';
     const themeName = resolveTheme(depth, biome, flavor);
 
-    setupTheme(themeName, w, h, biome);
+    setupTheme(themeName, w, h, biome, -horizonRow(map) * P2U);
 
     const wallTex = makeWallTexture(biome);
     const floorTex = makeFloorTexture(biome);
@@ -2255,10 +2540,17 @@ window.DS = window.DS || {};
   function renderArmory(g, rect) {
     if (!renderer || !armoryScene || !armoryModel || !rect) return;
     const el = renderer.domElement;
-    const kx = el.width / DS.C.W;
-    const ky = el.height / DS.C.H;
-    const sx = Math.round(rect.x * kx);
-    const sy = Math.round(el.height - (rect.y + rect.h) * ky);
+    /* The doll's slot is given in the screen layer's LOGICAL pixels, so it has
+       to be mapped through the letterboxed UI viewport (ui3/screen.js) and the
+       device pixel ratio rather than assuming the canvas is 320x180. */
+    const v = DS.UI3 && DS.UI3.view;
+    const dpr = el.width / Math.max(1, el.clientWidth || el.width);
+    const kx = (v ? v.scale : 1) * dpr;
+    const ky = kx;
+    const ox = (v ? v.x : 0) * dpr;
+    const oy = (v ? v.y : 0) * dpr;
+    const sx = Math.round(ox + rect.x * kx);
+    const sy = Math.round(el.height - (oy + (rect.y + rect.h) * ky));
     const sw = Math.max(1, Math.round(rect.w * kx));
     const sh = Math.max(1, Math.round(rect.h * ky));
 
@@ -3366,15 +3658,48 @@ window.DS = window.DS || {};
       updateSwingFx();
     }
 
-    camera.position.x = camX;
-    camera.position.y = camY - CAM_DIST * Math.tan(TILT_ANGLE);
-    camera.position.z = CAM_DIST;
+    /* The rig: orbit the eye around the camera target by (yaw, pitch) at the
+       preset's distance, and always aim back at the target. With yaw at 0 and
+       pitch at 7 degrees this is exactly the shot the game shipped before. */
+    const cp = Math.cos(camRig.pitch);
+    camera.position.set(camX + Math.sin(camRig.yaw) * camRig.dist * cp,
+                        camY + Math.sin(camRig.pitch) * camRig.dist,
+                        Math.cos(camRig.yaw) * camRig.dist * cp);
     camera.lookAt(camX, camY, 0);
+    if (camRig.show > 0) camRig.show--;
+
+    /* --- the black room is a BACKLIT room ------------------------------------
+
+       It used to be a black one: the veil went to 0.94 and the room was a
+       silhouette of nothing. Here the hero's lamp gutters down, the moon behind
+       the rift becomes the key light, and the backdrop is left bright -- so the
+       monsters are dark shapes in FRONT of a lit background, which is the look
+       the room was always described as having. Every value is approached rather
+       than snapped, so the change is a dimming you walk through. */
+    const lairTarget = (g.lair && DS.Lair) ? DS.Lair.depthIn(g, g.lair) : 0;
+    lairMood = M.approach(lairMood, lairTarget, 0.045);
+    const t = activeTheme || THEMES.forest;
+    if (ambientLight) ambientLight.intensity = AMBIENT_I * (1 - 0.62 * lairMood);
+    if (hemiLight) hemiLight.intensity = HEMI_I * (1 - 0.45 * lairMood);
+    if (dirLight) dirLight.intensity = t.dirI * (1 - 0.78 * lairMood);
+    if (backLight) {
+      backLight.intensity = 0.42 + 1.25 * lairMood;
+      backLight.color.setHex(lairMood > 0.01 ? 0xffe0b0 : t.hemiSky);
+    }
+    if (riftLight) riftLight.intensity = 2.4 + 1.6 * lairMood;
+
+    /* The sky rides the eye line (see the sky rig in buildBackdrop). */
+    if (skyRig) skyRig.position.y = camera.position.y;
+    /* The backdrop ladder is built along -Z, so a turned camera would look past
+       its edge. Turning the theme group with the rig keeps the horizon framed:
+       the bands are rigid, the eye orbits them. */
+    if (themeGroup) themeGroup.rotation.y = camRig.yaw * 0.85;
 
     if (g.player && playerLight) {
       playerLight.position.x = (g.player.x + g.player.w * 0.5) * P2U;
       playerLight.position.y = -(g.player.y + g.player.h * 0.5) * P2U;
-      playerLight.intensity = 0.6 + Math.sin(g.frames * 0.035) * 0.04;
+      /* The carried lamp, guttering down to an ember in the black room. */
+      playerLight.intensity = (0.6 + Math.sin(g.frames * 0.035) * 0.04) * (1 - 0.55 * lairMood);
     }
 
     for (let i = 0; i < torchLights.length; i++) {
@@ -3580,22 +3905,32 @@ window.DS = window.DS || {};
     }
 
     renderer.render(scene, camera);
+    lastGame = g;
+  }
 
-    /* The bag screen leaves a hole where its doll goes; fill it with the live
-       3D model. Runs after the world pass, in its own scissored viewport. */
-    if (g.modal && g.modal.kind === 'bag' && DS.UI && DS.UI.dollRect && DS.Voxel) {
-      const rect = DS.UI.dollRect();
-      ensureArmory();
-      refreshArmory(g);
-      renderArmory(g, rect);
-    }
+  /* The inventory's live 3D doll. It used to render into a hole punched out of
+     the 2D canvas; with the screen layer drawing the bag panel in WebGL, the
+     doll is a scissored pass drawn AFTER the UI, which lands it in the same slot
+     without any rectangle to erase. */
+  function renderDoll() {
+    const g = lastGame;
+    if (!g || !g.modal || g.modal.kind !== 'bag') return;
+    if (!DS.UI || !DS.UI.dollRect || !DS.Voxel) return;
+    ensureArmory();
+    refreshArmory(g);
+    renderArmory(g, DS.UI.dollRect());
   }
 
   DS.R3D = {
     init: init,
     resize: resize,
+    /* Camera rig: presets + the live readout the HUD shows. */
+    get rig() { return camRig; },
+    presets: CAM_PRESETS,
+    setPreset: applyCameraPreset,
     loadLevel: loadLevel,
     render: render,
+    renderDoll: renderDoll,
     spawnElemPuddle: spawnElemPuddle,
     spawnGroundBurst: spawnGroundBurst,
     spawnSmokePuff: spawnSmokePuff,
@@ -3610,6 +3945,14 @@ window.DS = window.DS || {};
     groundAnchor: groundAnchor,
     auditAnchors: auditAnchors,
     get isEnabled() { return enabled; },
+    /* The single WebGL renderer, shared with the screen layer (ui3/screen.js). */
+    get gl() { return renderer; },
+    get canvas() { return canvas; },
+    get camera() { return camera; },
+    get lights() {
+      return { ambient: ambientLight, hemi: hemiLight, dir: dirLight,
+               back: backLight, player: playerLight };
+    },
     /* True when gameplay characters are 3D models — every sprite-drawing
        call site keys off this so the 2D canvas draws only FX/UI. */
     get voxels() { return enabled && !!(DS.Voxel); },

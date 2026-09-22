@@ -130,38 +130,14 @@ window.DS = window.DS || {};
     if (g.horror > 0.7 && g.frames % 6 === 0) DS.R.shake(0.35);
   }
 
-  /* Drawn over the finished, lit frame: a vignette that tightens with depth and
-     a light film of grain. */
+  /* Atmosphere, as uniforms on the post overlay instead of painted gradients:
+     a vignette that tightens with depth and a light film of grain. Both used to
+     be drawn with a 2D context over the finished frame; the overlay shader runs
+     on the GPU in the same pass that carries the fade and the hit flash. */
   function drawAtmosphere(g) {
-    if (g.horror <= 0.01) return;
-    const R = DS.R;
-    const cx = R.ctx;
-    const C = DS.C;
-
-    cx.save();
-    cx.setTransform(C.RS, 0, 0, C.RS, 0, 0);
-
-    const inner = C.W * (0.52 - g.horror * 0.16);
-    const grd = cx.createRadialGradient(C.W / 2, C.H / 2, inner,
-                                        C.W / 2, C.H / 2, C.W * 0.78);
-    grd.addColorStop(0, 'rgba(0,0,0,0)');
-    grd.addColorStop(1, 'rgba(4,2,6,' + (0.35 + g.horror * 0.45).toFixed(2) + ')');
-    cx.fillStyle = grd;
-    cx.fillRect(0, 0, C.W, C.H);
-
-    // Grain: a scatter of dark specks reseeded every few frames.
-    if (g.horror > 0.35) {
-      const count = Math.round(g.horror * 90);
-      cx.fillStyle = 'rgba(0,0,0,0.20)';
-      for (let i = 0; i < count; i++) {
-        const seed = (g.frames >> 2) + i * 2654435761;
-        const x = (seed % C.W + C.W) % C.W;
-        const y = ((seed >> 8) % C.H + C.H) % C.H;
-        cx.fillRect(x, y, 1, 1);
-      }
-    }
-
-    cx.restore();
+    if (g.horror <= 0.01 || !DS.UI3) return;
+    DS.UI3.post.vignette = Math.max(DS.UI3.post.vignette, 0.35 + g.horror * 0.45);
+    if (g.horror > 0.35) DS.UI3.post.grain = Math.max(DS.UI3.post.grain, g.horror * 0.22);
   }
 
   DS.Modifiers = {

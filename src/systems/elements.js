@@ -788,21 +788,9 @@ window.DS = window.DS || {};
     const R = DS.R;
     const vox = DS.R3D && DS.R3D.voxels;
 
-    /* In voxel mode the flat colour band is replaced by a glowing 3D plate
-       (syncElemFields); the old band only painted itself over the plate. */
-    if (!vox) {
-      for (let i = 0; i < g.fields.length; i++) {
-        const f = g.fields[i];
-        const fade = Math.min(1, f.life / 60);
-        const h = f.def.mist ? f.r * 0.9 : 6;
-
-        R.ctx.save();
-        R.ctx.globalAlpha = fade;
-        R.rect(f.x - f.r, f.y - h, f.r * 2, h, f.def.color);
-        R.rect(f.x - f.r, f.y - h, f.r * 2, 1, f.def.edge);
-        R.ctx.restore();
-      }
-    }
+    /* Fields are a glowing 3D plate (renderer3d's syncElemFields). The flat
+       colour band that used to be painted here is gone: it drew over the plate
+       and, in a 3D frame, over the monsters standing in it. */
 
     // Jagged lightning, redrawn each frame so it flickers on its own.
     if (!g.bolts) return;

@@ -26,66 +26,30 @@ window.DS = window.DS || {};
 
   // --- HUD ------------------------------------------------------------------
 
+  /* The HUD, in the action-RPG arrangement: vitals along the bottom centre,
+     abilities bottom right, currency top right in the same panel the bag uses,
+     and only the floor's name across the top. It replaces a heart row, three
+     stacked bars and a skill pair all crowded into the top-left corner -- with
+     a voxel dungeon behind them, the corner that used to hold everything is now
+     the part of the screen the player most needs to see. */
   function hud(g) {
-    const R = DS.R, S = DS.SPR;
+    const R = DS.R;
     const p = g.player;
     if (!p) return;
 
-    /* Hearts. Boons can push the maximum well past the starting six, so the
-       row wraps rather than running off the screen edge, and everything below
-       it shifts down by however many rows the wrap actually used. */
-    const PER_ROW = 12;
-    const rows = Math.max(1, Math.ceil(p.stats.maxHp / PER_ROW));
-    const heartPulse = Math.floor(g.frames / 60) % 2 === 0
-                       ? Math.sin((g.frames % 60) / 60 * Math.PI) * 1 : 0;
-    for (let i = 0; i < p.stats.maxHp; i++) {
-      const x = 4 + (i % PER_ROW) * 9;
-      const y = 4 + Math.floor(i / PER_ROW) * 8;
-      if (i < p.hp) {
-        // Last full heart pulses gently
-        const pulse = (i === Math.floor(p.hp) - 1) ? heartPulse : 0;
-        if (pulse > 0.3 && R.sprScaled) {
-          const sc = 1 + pulse * 0.18;
-          R.sprScaled(S.heart, x + 3, y + 3, sc, sc, false, 3, 3);
-        } else {
-          R.sprS(S.heart, x, y);
-        }
-      } else {
-        R.rectS(x + 1, y + 1, 5, 4, '#3a3654');
-      }
-    }
-
-    let barY = 11 + (rows - 1) * 8;
-
-    // Shield sits directly under the hearts it protects.
-    if (p.stats.shield > 0) {
-      R.bar(4, barY, 54, 3, p.shield / p.stats.shield, '#a8e4ff', '#16324f');
-    }
-    barY += 4;
-
-    R.bar(4, barY, 54, 4, p.stamina / p.stats.maxStamina, '#5cbf62', '#1c1a2b');
-    // Mana is always shown now that every weapon spends it on skills.
     const held = Inv.weapon(p.inv);
-    R.bar(4, barY + 6, 54, 4, p.mana / p.stats.maxMana, '#4fb3e0', '#1c1a2b');
-    drawMiniDash(p, 4, barY + 12);
-    if (held) drawSkills(g, p, held, 4, barY + 19);
+    drawVitals(g, p);
+    drawCurrency(g);
 
-    // Currency
-    R.sprS(S.coin, C.W - 46, 4);
-    R.text(String(g.inv.coins), C.W - 38, 4, GOLD);
-    R.sprS(S.shard, C.W - 46, 13);
-    R.text(String(g.inv.shards), C.W - 38, 13, CYAN);
-    if (g.inv.keys > 0) {
-      R.sprS(S.key, C.W - 46, 22);
-      R.text(String(g.inv.keys), C.W - 38, 22, GOLD);
-    }
-
-    // Depth
     const label = g.levelKind === 'safe' ? 'SAFE ROOM'
                 : g.levelKind === 'boss' ? 'THRONE ROOM'
                 : g.levelKind === 'trial' ? 'THE TRIAL'
                 : 'DEPTH ' + g.depth;
     R.textCenter(label, C.W / 2, 4, MUTED);
+
+    // Abilities hug the bottom-right corner: thumb reach, and out of the way of
+    // the walkway the player is reading.
+    if (held) drawSkills(g, p, held, C.W - 44, C.H - 26);
 
     drawBreath(g, p);
     drawMomentum(g);
@@ -94,11 +58,89 @@ window.DS = window.DS || {};
     if (g.boss && !g.boss.dead) drawBossBar(g);
     drawToast(g);
     drawControls(g);
+    if (DS.R3D && DS.R3D.rig && DS.R3D.rig.show > 0) drawCamReadout();
     // A modal owns the screen; the world's interaction hint underneath it is
     // just text bleeding through a panel.
     if (g.prompt && !g.modal && !g.paused) {
       R.hintsCenter([[g.prompt.key, g.prompt.text]], C.W / 2, C.H - 46, INK, CYAN);
     }
+  }
+
+  /* HP, shield, mana, stamina and the dash charges, stacked on one plate at the
+     bottom centre. Health is a bar with a number on it rather than a row of
+     hearts: the pool grows past a dozen with boons, and a heart row that wraps
+     onto a second line told the player nothing about how much was left. */
+  function drawVitals(g, p) {
+    const R = DS.R;
+    const W2 = 150, X = (C.W - W2) / 2, Y = C.H - 24;
+
+    R.panelS(X - 4, Y - 5, W2 + 8, 27, 'rgba(10,8,16,0.72)', '#514c72');
+
+    const hpPct = p.hp / Math.max(1, p.stats.maxHp);
+    const low = hpPct <= 0.25;
+    const pulse = low && Math.floor(g.frames / 12) % 2 === 0;
+    R.barRPG(X, Y, W2, 6, hpPct, pulse ? '#e8743b' : '#c0303c', '#2a1116');
+    R.textSmall(String(Math.max(0, Math.ceil(p.hp))) + '/' + p.stats.maxHp,
+                X + 3, Y + 1, '#ffffff');
+
+    if (p.stats.shield > 0) {
+      R.barRPG(X, Y + 7, W2, 3, p.shield / p.stats.shield, '#a8e4ff', '#16324f');
+    } else {
+      R.rectS(X, Y + 7, W2, 3, 'rgba(20,18,32,0.8)');
+    }
+
+    // Mana left, stamina right, dash charges as pips under the stamina half.
+    const half = Math.floor((W2 - 4) / 2);
+    R.barRPG(X, Y + 12, half, 4, p.mana / Math.max(1, p.stats.maxMana), '#4fb3e0', '#12253a');
+    R.barRPG(X + half + 4, Y + 12, half, 4,
+             p.stamina / Math.max(1, p.stats.maxStamina), '#5cbf62', '#14240f');
+    R.textSmall('MP', X + 1, Y + 17, CYAN);
+    R.textSmall('SP', X + half + 5, Y + 17, '#5cbf62');
+
+    const max = DS.Player.MINI_CHARGES;
+    const refill = 1 - M.clamp(p.miniTimer / DS.Player.MINI_RECHARGE, 0, 1);
+    for (let i = 0; i < max; i++) {
+      const cx = X + W2 - 6 - i * 7;
+      R.rectS(cx, Y + 17, 5, 5, '#1c1a2b');
+      if (i < p.miniLeft) R.rectS(cx + 1, Y + 18, 3, 3, '#a3e86b');
+      else if (p.miniLeft < max) {
+        const fill = Math.max(0, Math.round(3 * refill));
+        if (fill > 0) R.rectS(cx + 1, Y + 21 - fill, 3, fill, '#3d6b3f');
+      }
+    }
+  }
+
+  /* Coins, shards and keys in the bag's own plate, so the HUD and the inventory
+     speak the same language instead of the currency being the one spot on
+     screen still drawn as bare icons. */
+  function drawCurrency(g) {
+    const R = DS.R, S = DS.SPR;
+    const rows = 2 + (g.inv.keys > 0 ? 1 : 0);
+    const w = 64, h = 6 + rows * 9, x = C.W - w - 4, y = 4;
+    R.panelS(x, y, w, h, 'rgba(13,11,18,0.86)', '#514c72');
+
+    const row = function (i, icon, value, color) {
+      const ry = y + 4 + i * 9;
+      R.sprS(icon, x + 4, ry);
+      R.textRight(String(value), x + w - 5, ry + 1, color);
+    };
+    row(0, S.coin, g.inv.coins, GOLD);
+    row(1, S.shard, g.inv.shards, CYAN);
+    if (g.inv.keys > 0) row(2, S.key, g.inv.keys, GOLD);
+  }
+
+  /* The camera preset readout, up for a few seconds after F6. It names the
+     preset and prints the two angles, because the yaw is a real trade-off
+     between how 3D the frame looks and how much of the level fits on it. */
+  function drawCamReadout() {
+    const R = DS.R;
+    const rig = DS.R3D.rig;
+    const preset = DS.R3D.presets[rig.preset];
+    const w = 132, x = C.W - w - 4, y = 30;
+    R.panelS(x, y, w, 22, 'rgba(10,8,16,0.86)', '#6f6a90');
+    R.textSmall('CAMERA', x + 4, y + 3, MUTED);
+    R.textSmall(preset.label, x + 4, y + 11, CYAN);
+    R.textSmall('F6 NEXT  F7 RESET', x + 4, y + 17, '#3a3654');
   }
 
   /* The control sheet, drawn in the canvas instead of as HTML under it.
@@ -131,29 +173,6 @@ window.DS = window.DS || {};
     const ink = strong ? MUTED : '#3a3654';
     for (let i = 0; i < CONTROL_ROWS.length; i++) {
       R.hintsCenter(CONTROL_ROWS[i], C.W / 2, y + i * 10, ink, strong ? CYAN : '#2a2740');
-    }
-  }
-
-  /* Right-click dash charges as glowing circles (more candy than rectangles). */
-  function drawMiniDash(p, x, y) {
-    const R = DS.R;
-    const max = DS.Player.MINI_CHARGES;
-    const refill = 1 - DS.M.clamp(p.miniTimer / DS.Player.MINI_RECHARGE, 0, 1);
-
-    for (let i = 0; i < max; i++) {
-      const cx = x + 3 + i * 10;
-      const cy = y + 3;
-      // Dark background circle
-      R.rectS(cx - 3, cy - 3, 6, 6, '#1c1a2b');
-      if (i < p.miniLeft) {
-        // Fully charged: bright green circle
-        R.rectS(cx - 2, cy - 2, 4, 4, '#a3e86b');
-        R.rectS(cx - 1, cy - 1, 2, 2, '#d4ffa0');
-      } else if (p.miniLeft < max) {
-        // Recharging: partial fill arc-ish with a narrow strip
-        const fill = Math.max(0, Math.round(4 * refill));
-        if (fill > 0) R.rectS(cx - 2, cy + 2 - fill, 4, fill, '#3d6b3f');
-      }
     }
   }
 
@@ -806,22 +825,11 @@ window.DS = window.DS || {};
 
   function dollRect() { return DOLL_WINDOW; }
 
-  /* Punch the doll's window out of the 2D canvas so the WebGL pass behind it
-     shows through. The screen dim (R.fade) is painted on this same canvas, so
-     erasing the rect REVEALS the 3D doll instead of darkening it — which is
-     what would happen if the doll were drawn under the veil. */
-  function punchDollHole() {
-    const R = DS.R;
-    const cx = R.ctx;
-    if (!cx) return;
-    const s = DS.C.RS;
-    cx.save();
-    cx.setTransform(s, 0, 0, s, 0, 0);
-    cx.globalCompositeOperation = 'destination-out';
-    cx.fillStyle = '#000000';
-    cx.fillRect(DOLL_WINDOW.x, DOLL_WINDOW.y, DOLL_WINDOW.w, DOLL_WINDOW.h);
-    cx.restore();
-  }
+  /* The doll's window used to be punched out of the 2D canvas so the WebGL pass
+     behind it showed through. There is no canvas to erase now: the doll is a
+     scissored Three.js pass (renderer3d.renderDoll) drawn on top of the bag
+     panels, so this only has to keep the window clear of UI art. */
+  function punchDollHole() { }
 
   const SLOT_SIZE = 22;
   const BAG_COLS = 6;

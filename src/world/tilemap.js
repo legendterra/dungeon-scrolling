@@ -341,19 +341,11 @@ window.DS = window.DS || {};
     }
   }
 
+  /* World-space bloom on a torch or a lit prop: one tinted quad off the shared
+     radial texture (ui3/screen.js), where this used to build a canvas gradient
+     on every draw. */
   function glow(R, x, y, radius, color) {
-    const cx = R.ctx;
-    const g = cx.createRadialGradient(
-      x - R.camOffsetX(), y - R.camOffsetY(), 0,
-      x - R.camOffsetX(), y - R.camOffsetY(), radius
-    );
-    g.addColorStop(0, color);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    cx.fillStyle = g;
-    cx.fillRect(
-      x - R.camOffsetX() - radius, y - R.camOffsetY() - radius,
-      radius * 2, radius * 2
-    );
+    R.glow(x, y, radius, color, 1, false);
   }
 
   DS.TILE = TILE;

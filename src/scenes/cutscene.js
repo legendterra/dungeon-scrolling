@@ -199,11 +199,7 @@ window.DS = window.DS || {};
     // The slabs that gave way, tumbling alongside the fall.
     for (let i = 0; i < state.shards.length; i++) {
       const s = state.shards[i];
-      R.ctx.save();
-      R.ctx.translate(Math.round(s.x) + 8, Math.round(s.y) + 8);
-      R.ctx.rotate(s.angle);
-      R.ctx.drawImage(biome.tile.floor, -8, -8);
-      R.ctx.restore();
+      R.sprRot(biome.tile.floor, Math.round(s.x), Math.round(s.y), s.angle, false, 8, 8);
     }
   }
 
@@ -257,11 +253,7 @@ window.DS = window.DS || {};
     }
 
     if (angle) {
-      R.ctx.save();
-      R.ctx.translate(HERO_X + 6, y + 8);
-      R.ctx.rotate(angle);
-      R.ctx.drawImage(sprite, -6, -8);
-      R.ctx.restore();
+      R.sprRot(sprite, HERO_X - 2, y, angle, false, 6, 8);
     } else {
       R.sprS(sprite, HERO_X - 2, y);
     }
@@ -287,14 +279,12 @@ window.DS = window.DS || {};
 
   /* Darkness is the point of the scene, so it is composited last over the top
      of everything except the text. */
+  /* The intro's darkness, as the post overlay instead of a painted gradient:
+     the frame sinks toward the corners and the hero's torch is the middle. */
   function drawVignette(R) {
-    const cx = R.ctx;
-    const grd = cx.createRadialGradient(HERO_X + 4, FLOOR_Y - 10, 20,
-                                        HERO_X + 4, FLOOR_Y - 10, 150);
-    grd.addColorStop(0, 'rgba(6,5,10,0)');
-    grd.addColorStop(1, 'rgba(6,5,10,0.88)');
-    cx.fillStyle = grd;
-    cx.fillRect(0, 0, C.W, C.H);
+    if (!DS.UI3) return;
+    DS.UI3.post.vignette = 0.9;
+    DS.UI3.post.darken = 0.22;
   }
 
   const CAPTIONS = [
@@ -312,20 +302,14 @@ window.DS = window.DS || {};
       const outA = M.clamp((cap.until - t) / 22, 0, 1);
       const a = Math.min(inA, outA);
       if (a <= 0.02) continue;
-      R.ctx.save();
-      R.ctx.globalAlpha = a;
-      R.textCenter(cap.text, C.W / 2, C.H - 30, INK);
-      R.ctx.restore();
+      R.textCenterAlpha(cap.text, C.W / 2, C.H - 30, INK, 1, a);
     }
   }
 
+  /* Screen-space bloom: the tint carries the alpha, exactly like the old
+     rgba() stop list did. */
   function glow(R, x, y, radius, color) {
-    const cx = R.ctx;
-    const grd = cx.createRadialGradient(x, y, 0, x, y, radius);
-    grd.addColorStop(0, color);
-    grd.addColorStop(1, 'rgba(0,0,0,0)');
-    cx.fillStyle = grd;
-    cx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    R.glow(x, y, radius, color, 1, true);
   }
 
   DS.Cutscene = { createIntro: createIntro };

@@ -1,33 +1,43 @@
-/* Canvas setup, integer upscaling, camera, and every drawing primitive.
-   World-space helpers subtract the camera; the *S variants take screen pixels. */
+/* Screen drawing API, backed by Three.js.
+
+   This module used to own a 2D canvas. The game shipped two canvases -- a WebGL
+   one for the dungeon and a 2D one stacked on top for the HUD, menus and world
+   FX -- which meant two renderers, two coordinate systems, and world-anchored
+   marks (labels, damage numbers, HP bars) that were painted over the 3D scene no
+   matter what depth they belonged at.
+
+   The API is unchanged on purpose. Nearly every screen in the game is built
+   from these primitives (rect/panelS/text/textSmall/bar/spr/fade), roughly three
+   thousand call sites in total; rewriting them all by hand is how a migration
+   turns into a rewrite. Instead the primitives now append quads into the
+   Three.js screen layer (`src/ui3/screen.js`), which flushes them as a couple of
+   instanced meshes after the world pass.
+
+   Coordinate rules, exactly as before:
+     * x/y are logical pixels in a 320x180 frame, +y downward;
+     * world-space calls (rect/spr/line/arc) subtract the camera offset and the
+       current punch zoom; screen-space calls (rectS/sprS/...) do not;
+     * text metrics are byte-identical to the 2D faces, so no layout moved. */
+
 window.DS = window.DS || {};
 
 (function (DS) {
   'use strict';
 
   const C = DS.C;
-  const Art = DS.Art;
+  const UI = () => DS.UI3;
 
-  let cv = null, cx = null;
+  let cv = null;
   let scale = 1;
 
   const cam = { x: C.W / 2, y: C.H / 2 };
   let shakeAmount = 0, shakeX = 0, shakeY = 0;
   let offX = 0, offY = 0; // rounded camera offset used for this frame
 
-  /* How much the 320x180 frame is blown up to fill the window.
-
-     Two candidates: the scale that fills the window exactly, and the largest
-     whole multiple of RS that fits inside it (even device pixels). The even
-     one wins while it wastes little of the window; otherwise the game fills
-     the screen edge to edge.
-
-     The old rule floored to a multiple of RS after subtracting a 24px pad, so
-     a 1920x1080 window rendered at 1280x720 — two thirds of the screen — and
-     the player had to reach for browser zoom to see the game at a sane size.
-     Gameplay is untouched either way: the logical grid stays 320x180 and
-     nearest-neighbour sampling keeps the voxel look. */
-  const FIT_SLACK = 0.08;   // how much letterbox we accept for even pixels
+  /* How much the logical 320x180 frame is blown up. Two candidates: the scale
+     that fills the window, and the largest whole multiple of RS that fits. The
+     even one wins while it wastes little of the window. */
+  const FIT_SLACK = 0.08;
 
   function fitScale() {
     const sx = window.innerWidth / C.W;
@@ -40,15 +50,12 @@ window.DS = window.DS || {};
 
   function resize() {
     scale = fitScale();
-    cv.style.width = Math.round(C.W * scale) + 'px';
-    cv.style.height = Math.round(C.H * scale) + 'px';
+    if (DS.UI3 && DS.UI3.ready) DS.UI3.resize();
     if (DS.R3D && DS.R3D.resize) DS.R3D.resize();
   }
 
-  /* Real fullscreen, so the game can own the whole monitor instead of however
-     tall the browser chrome leaves the viewport. F2 rather than F (interact)
-     or F11 (the browser's own toggle) - nothing else in the game wants it, and
-     the fit scale above then fills the screen exactly. */
+  /* Real fullscreen, so the game can own the whole monitor. F2 rather than F
+     (interact) or F11 (the browser's own toggle). */
   function toggleFullscreen() {
     const el = document.documentElement;
     if (!document.fullscreenElement) {
@@ -62,19 +69,17 @@ window.DS = window.DS || {};
   }
 
   function init() {
-    cv = document.getElementById('game');
-    cv.width = C.W * C.RS;
-    cv.height = C.H * C.RS;
-    cx = cv.getContext('2d', { alpha: true });
-    cx.imageSmoothingEnabled = false;
+    // The 3D renderer owns the only canvas now. It has to come up first, because
+    // the screen layer draws through its WebGL context.
+    if (DS.R3D && DS.R3D.init) DS.R3D.init();
+    cv = (DS.R3D && DS.R3D.canvas) || null;
+    if (DS.UI3) DS.UI3.init(DS.R3D && DS.R3D.gl);
     window.addEventListener('resize', resize);
     window.addEventListener('keydown', function (e) {
       if (e.code === 'F2') { e.preventDefault(); toggleFullscreen(); }
     });
-    // Fullscreen swaps the viewport out from under us; re-fit when it lands.
     document.addEventListener('fullscreenchange', resize);
     resize();
-    if (DS.R3D && DS.R3D.init) DS.R3D.init();
   }
 
   // --- camera ---------------------------------------------------------------
@@ -93,18 +98,15 @@ window.DS = window.DS || {};
     shakeAmount = Math.max(shakeAmount, amount);
   }
 
-  /* Camera punch: a brief push past 1.0 that eases back. Applied as a canvas
-     transform around the screen centre, so every world draw inherits it and
-     the HUD is unaffected once uiMode() resets the transform. */
   let zoomLevel = 1, zoomTarget = 1;
-  let flashFrames = 0, flashMax = 1, flashColor = '#ffffff';
+  let flashFrames = 0, flashMax = 1, flashColorLight = 0xffffff;
 
   function punch(amount) {
     zoomLevel = Math.max(zoomLevel, 1 + amount);
   }
 
   function flash(color, frames) {
-    flashColor = color || '#ffffff';
+    flashColorLight = DS.UI3 ? DS.UI3.hexOf(color || '#ffffff') : 0xffffff;
     flashFrames = flashMax = frames || 6;
   }
 
@@ -122,29 +124,34 @@ window.DS = window.DS || {};
     zoomLevel = DS.M.approach(zoomLevel, zoomTarget, 0.012);
     if (zoomLevel < 1.0005) zoomLevel = 1;
 
-    cx.setTransform(C.RS, 0, 0, C.RS, 0, 0);
-    if (zoomLevel !== 1) {
-      cx.translate(C.W / 2, C.H / 2);
-      cx.scale(zoomLevel, zoomLevel);
-      cx.translate(-C.W / 2, -C.H / 2);
+    if (DS.UI3) {
+      DS.UI3.setSpace('world');
+      DS.UI3.begin();
     }
   }
 
-  // Drop back to screen space for the HUD, menus and the lighting composite.
+  // Drop back to screen space for the HUD, menus and the overlay.
   function uiMode() {
-    cx.setTransform(C.RS, 0, 0, C.RS, 0, 0);
+    if (DS.UI3) DS.UI3.setSpace('ui');
   }
 
   function drawFlash() {
     if (flashFrames <= 0) return;
     flashFrames--;
-    const alpha = (flashFrames / flashMax) * 0.5;
-    cx.save();
-    cx.setTransform(C.RS, 0, 0, C.RS, 0, 0);
-    cx.globalAlpha = alpha;
-    cx.fillStyle = flashColor;
-    cx.fillRect(0, 0, C.W, C.H);
-    cx.restore();
+    if (!DS.UI3) return;
+    DS.UI3.post.flashColor = flashColorLight;
+    DS.UI3.post.flash = (flashFrames / flashMax) * 0.5;
+  }
+
+  /* Flush the screen layer and the full-window overlay. Called once at the end
+     of a frame, after the world has been drawn and every DS.R call has been
+     queued. */
+  function present(time) {
+    if (DS.UI3 && DS.UI3.ready) DS.UI3.render(time);
+    /* The inventory doll draws on top of the panels rather than into a hole in
+       them: with no 2D canvas there is no rectangle to erase, and a scissored
+       pass after the UI lands in exactly the same slot. */
+    if (DS.R3D && DS.R3D.renderDoll) DS.R3D.renderDoll();
   }
 
   function toScreenX(worldX) {
@@ -161,15 +168,8 @@ window.DS = window.DS || {};
   // --- primitives -----------------------------------------------------------
 
   function clear(color) {
-    if (DS.R3D && DS.R3D.isEnabled) {
-      cx.save();
-      cx.setTransform(1, 0, 0, 1, 0, 0);
-      cx.clearRect(0, 0, cv.width, cv.height);
-      cx.restore();
-    } else {
-      cx.fillStyle = color || '#0d0b12';
-      cx.fillRect(0, 0, C.W, C.H);
-    }
+    /* The world pass clears the canvas; nothing to do here, kept so callers
+       that used to clear the 2D overlay still read correctly. */
   }
 
   // Logical width/height of a sprite; 1x art has no uw and blits as before.
@@ -177,104 +177,105 @@ window.DS = window.DS || {};
   function uh(img) { return img.uh == null ? img.height : img.uh; }
 
   function spr(img, x, y) {
-    if (!img) return;
-    cx.drawImage(img, Math.round(x) - offX, Math.round(y) - offY, uw(img), uh(img));
+    if (!img || !DS.UI3) return;
+    DS.UI3.quad(DS.UI3.texFor(img), toScreenX(x), toScreenY(y),
+                uw(img) * zoomLevel, uh(img) * zoomLevel,
+                0, 1, 1, 0, '#ffffff', 1);
   }
 
   function sprS(img, x, y) {
-    if (!img) return;
-    cx.drawImage(img, Math.round(x), Math.round(y), uw(img), uh(img));
+    if (!img || !DS.UI3) return;
+    DS.UI3.quad(DS.UI3.texFor(img), Math.round(x), Math.round(y),
+                uw(img), uh(img), 0, 1, 1, 0, '#ffffff', 1);
   }
 
-  // Screen-space alpha blit — used by HUD panels, which never scroll.
   function sprAlphaS(img, x, y, alpha) {
-    if (!img) return;
-    const prev = cx.globalAlpha;
-    cx.globalAlpha = alpha;
-    cx.drawImage(img, Math.round(x), Math.round(y), uw(img), uh(img));
-    cx.globalAlpha = prev;
+    if (!img || !DS.UI3) return;
+    DS.UI3.quad(DS.UI3.texFor(img), Math.round(x), Math.round(y),
+                uw(img), uh(img), 0, 1, 1, 0, '#ffffff', alpha);
   }
 
   function sprAlpha(img, x, y, alpha) {
-    if (!img) return;
-    const prev = cx.globalAlpha;
-    cx.globalAlpha = alpha;
-    cx.drawImage(img, Math.round(x) - offX, Math.round(y) - offY, uw(img), uh(img));
-    cx.globalAlpha = prev;
+    if (!img || !DS.UI3) return;
+    DS.UI3.quad(DS.UI3.texFor(img), toScreenX(x), toScreenY(y),
+                uw(img) * zoomLevel, uh(img) * zoomLevel,
+                0, 1, 1, 0, '#ffffff', alpha);
   }
 
-  /* Draw a sprite rotated about a pivot given in sprite-local pixels.
-     Used for weapon swings — the only place the game needs a transform. */
+  /* A sprite rotated about a pivot given in sprite-local pixels. */
   function sprRot(img, x, y, angle, flip, pivotX, pivotY) {
-    if (!img) return;
-    const px = pivotX == null ? uw(img) / 2 : pivotX;
-    const py = pivotY == null ? uh(img) / 2 : pivotY;
-
-    cx.save();
-    cx.translate(Math.round(x) - offX, Math.round(y) - offY);
-    if (flip) cx.scale(-1, 1);
-    cx.rotate(angle);
-    cx.drawImage(img, -px, -py, uw(img), uh(img));
-    cx.restore();
+    if (!img || !DS.UI3) return;
+    const w = uw(img) * zoomLevel, h = uh(img) * zoomLevel;
+    const px = (pivotX == null ? uw(img) / 2 : pivotX) * zoomLevel;
+    const py = (pivotY == null ? uh(img) / 2 : pivotY) * zoomLevel;
+    const sx = toScreenX(x), sy = toScreenY(y);
+    DS.UI3.quadAt(DS.UI3.texFor(img), sx - px, sy - py, w, h,
+                  0, 1, 1, 0, '#ffffff', 1, angle, flip, false, px, py);
   }
 
   function sprScaled(img, x, y, scaleX, scaleY, flip, pivotX, pivotY) {
-    if (!img) return;
-    const px = pivotX == null ? uw(img) / 2 : pivotX;
-    const py = pivotY == null ? uh(img) : pivotY;
-    cx.save();
-    cx.translate(Math.round(x) - offX, Math.round(y) - offY);
-    if (flip) cx.scale(-1, 1);
-    cx.scale(scaleX || 1, scaleY || 1);
-    cx.drawImage(img, -px, -py, uw(img), uh(img));
-    cx.restore();
+    if (!img || !DS.UI3) return;
+    const w = uw(img) * zoomLevel * (scaleX || 1);
+    const h = uh(img) * zoomLevel * (scaleY || 1);
+    const px = (pivotX == null ? uw(img) / 2 : pivotX) * zoomLevel;
+    const py = (pivotY == null ? uh(img) : pivotY) * zoomLevel;
+    DS.UI3.quadAt(DS.UI3.texFor(img), toScreenX(x) - px, toScreenY(y) - py, w, h,
+                  0, 1, 1, 0, '#ffffff', 1, 0, flip, false, px, py);
   }
 
-  /* Stroked arc in world space — the swing trails follow the weapon through
-     its rotation, which no sprite can do on its own. */
+  /* Stroked arc in world space — swing trails. Approximated with quads along
+     the arc, which is what the 2D stroker did anyway. */
   function arc(x, y, radius, from, to, color, width, flip) {
-    cx.save();
-    cx.translate(Math.round(x) - offX, Math.round(y) - offY);
-    if (flip) cx.scale(-1, 1);
-    cx.beginPath();
-    cx.strokeStyle = color;
-    cx.lineWidth = width || 2;
-    cx.lineCap = 'round';
-    // Angles here are measured the same way the weapon sprite is rotated:
-    // 0 points up, positive sweeps forward.
-    cx.arc(0, 0, radius, from - Math.PI / 2, to - Math.PI / 2);
-    cx.stroke();
-    cx.restore();
+    if (!DS.UI3) return;
+    const cx = toScreenX(x), cy = toScreenY(y);
+    const r = radius * zoomLevel;
+    const w = Math.max(1, width || 2) * zoomLevel;
+    const steps = 12;
+    const span = to - from;
+    const dir = flip ? -1 : 1;
+    for (let i = 0; i < steps; i++) {
+      const a0 = from + span * (i / steps);
+      const a1 = from + span * ((i + 1) / steps);
+      const x0 = cx + Math.sin(a0) * r * dir, y0 = cy - Math.cos(a0) * r;
+      const x1 = cx + Math.sin(a1) * r * dir, y1 = cy - Math.cos(a1) * r;
+      seg(x0, y0, x1, y1, w, color);
+    }
+  }
+
+  function seg(x0, y0, x1, y1, w, color) {
+    const dx = x1 - x0, dy = y1 - y0;
+    const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+    const ang = Math.atan2(dy, dx);
+    DS.UI3.quadAt(DS.UI3.white(), x0, y0 - w / 2, len, w,
+                  0, 1, 1, 0, color, 1, ang, false, false, 0, w / 2);
   }
 
   function line(x1, y1, x2, y2, color, width) {
-    cx.save();
-    cx.beginPath();
-    cx.strokeStyle = color;
-    cx.lineWidth = width || 1;
-    cx.moveTo(Math.round(x1) - offX, Math.round(y1) - offY);
-    cx.lineTo(Math.round(x2) - offX, Math.round(y2) - offY);
-    cx.stroke();
-    cx.restore();
+    if (!DS.UI3) return;
+    seg(toScreenX(x1), toScreenY(y1), toScreenX(x2), toScreenY(y2),
+        Math.max(1, width || 1) * zoomLevel, color);
+  }
+
+  function fillQuad(x, y, w, h, color, alpha) {
+    if (!DS.UI3) return;
+    DS.UI3.quad(DS.UI3.white(), x, y, w, h, 0, 1, 1, 0, color, alpha == null ? 1 : alpha);
   }
 
   function rect(x, y, w, h, color) {
-    cx.fillStyle = color;
-    cx.fillRect(Math.round(x) - offX, Math.round(y) - offY, Math.round(w), Math.round(h));
+    fillQuad(toScreenX(x), toScreenY(y), Math.round(w) * zoomLevel,
+             Math.round(h) * zoomLevel, color);
   }
 
   function rectS(x, y, w, h, color) {
-    cx.fillStyle = color;
-    cx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    fillQuad(Math.round(x), Math.round(y), Math.round(w), Math.round(h), color);
   }
 
   function frameS(x, y, w, h, color) {
-    cx.fillStyle = color;
     x = Math.round(x); y = Math.round(y); w = Math.round(w); h = Math.round(h);
-    cx.fillRect(x, y, w, 1);
-    cx.fillRect(x, y + h - 1, w, 1);
-    cx.fillRect(x, y, 1, h);
-    cx.fillRect(x + w - 1, y, 1, h);
+    fillQuad(x, y, w, 1, color);
+    fillQuad(x, y + h - 1, w, 1, color);
+    fillQuad(x, y, 1, h, color);
+    fillQuad(x + w - 1, y, 1, h, color);
   }
 
   // A filled panel with a border, used by every menu and overlay.
@@ -284,74 +285,31 @@ window.DS = window.DS || {};
   }
 
   function fade(alpha, color) {
-    cx.fillStyle = color || '#0d0b12';
-    const prev = cx.globalAlpha;
-    cx.globalAlpha = DS.M.clamp(alpha, 0, 1);
-    cx.fillRect(0, 0, C.W, C.H);
-    cx.globalAlpha = prev;
+    if (!DS.UI3) return;
+    DS.UI3.post.fade = DS.M.clamp(alpha, 0, 1);
+    if (color) DS.UI3.post.fadeColor = DS.UI3.hexOf(color);
   }
 
   // --- text -----------------------------------------------------------------
 
-  const GW = Art.GLYPH_W, GH = Art.GLYPH_H, GAP = Art.GLYPH_GAP;
-
-  /* Text is drawn from the doubled font when the render scale can actually
-     show it: a 10x14 glyph stepped at half a logical unit occupies the same
-     5x7 logical cell, so textWidth and every layout built on it are unchanged
-     while the letterforms gain real detail. At RS 1 a half unit would be a
-     blurry half pixel, so the original face is used instead.
-
-     Only the 5x7 prose face is doubled. The 3x5 micro face used for key caps
-     is not: its letters are only three pixels wide, so M, N, V and W are built
-     from single-pixel diagonals that the doubling rounds into blobs -- SHIFT
-     came out reading as SHIFY. Legibility on a key cap beats crispness. */
-  const HD_TEXT = (C.RS || 1) >= 2 && !!Art.GLYPHS_HD;
-  const HGW = GW * 2, HGH = GH * 2;
-
   function textWidth(str, s) {
     s = s || 1;
+    if (str == null) return 0;
+    str = String(str);
     if (!str.length) return 0;
-    return (str.length * (GW + GAP) - GAP) * s;
+    return (str.length * (5 + 1) - 1) * s;
   }
 
   function textS(str, x, y, color, s) {
-    s = s || 1;
-    cx.fillStyle = color || '#d8d5e8';
-    str = String(str).toUpperCase();
-    let px = Math.round(x);
-    const py = Math.round(y);
-
-    const hd = HD_TEXT;
-    const step = hd ? s / 2 : s;
-    const rows = hd ? HGH : GH;
-    const cols = hd ? HGW : GW;
-
-    for (let i = 0; i < str.length; i++) {
-      const table = hd ? Art.GLYPHS_HD : Art.GLYPHS;
-      const glyph = table[str[i]] || Art.GLYPHS[str[i]];
-      if (glyph) {
-        const gRows = glyph.length, gCols = gRows === rows ? cols : GW;
-        const gStep = gRows === rows ? step : s;
-        for (let row = 0; row < gRows; row++) {
-          const bits = glyph[row];
-          if (!bits) continue;
-          for (let col = 0; col < gCols; col++) {
-            if (bits & (1 << (gCols - 1 - col))) {
-              cx.fillRect(px + col * gStep, py + row * gStep, gStep, gStep);
-            }
-          }
-        }
-      }
-      px += (GW + GAP) * s;
-    }
+    if (!DS.UI3) return;
+    DS.UI3.text(str, Math.round(x), Math.round(y), color || '#d8d5e8', s || 1, 'BODY', false);
   }
 
   // Same text drawn one pixel down-right in near-black first, for legibility
   // over busy dungeon tiles.
   function textShadowS(str, x, y, color, s) {
-    s = s || 1;
-    textS(str, x + s, y + s, 'rgba(13,11,18,0.85)', s);
-    textS(str, x, y, color, s);
+    if (!DS.UI3) return;
+    DS.UI3.text(str, Math.round(x), Math.round(y), color || '#d8d5e8', s || 1, 'BODY', true);
   }
 
   function textCenterS(str, cxPos, y, color, s) {
@@ -362,42 +320,35 @@ window.DS = window.DS || {};
     textShadowS(str, rightX - textWidth(str, s), y, color, s);
   }
 
-  // --- micro text -----------------------------------------------------------
+  /* The heading face: a serif cut of the prose face at twice the detail, drawn
+     with the same logical metrics as the old scale-N prose text. */
+  function textTitle(str, x, y, color, s) {
+    if (!DS.UI3) return;
+    DS.UI3.text(str, Math.round(x), Math.round(y), color || '#d8d5e8', (s || 1) / 2, 'TITLE', true);
+  }
 
-  const SW = Art.SMALL_W, SH = Art.SMALL_H, SGAP = Art.SMALL_GAP;
+  function textTitleCenter(str, cxPos, y, color, s) {
+    s = s || 1;
+    const w = (String(str == null ? '' : str).length * 6 - 1) * s;
+    textTitle(str, cxPos - w / 2, y, color, s);
+  }
+
+  // --- micro text -----------------------------------------------------------
 
   function textSmallWidth(str) {
     if (str == null) return 0;
     str = String(str);
     if (!str.length) return 0;
-    return str.length * (SW + SGAP) - SGAP;
+    return str.length * (3 + 1) - 1;
   }
 
   function textSmallS(str, x, y, color) {
-    cx.fillStyle = color || '#d8d5e8';
-    str = String(str).toUpperCase();
-    let px = Math.round(x);
-    const py = Math.round(y);
-
-    for (let i = 0; i < str.length; i++) {
-      const glyph = Art.SMALL[str[i]];
-      if (glyph) {
-        for (let row = 0; row < SH; row++) {
-          const bits = glyph[row];
-          if (!bits) continue;
-          for (let col = 0; col < SW; col++) {
-            if (bits & (1 << (SW - 1 - col))) cx.fillRect(px + col, py + row, 1, 1);
-          }
-        }
-      }
-      px += SW + SGAP;
-    }
+    if (!DS.UI3) return;
+    DS.UI3.text(str, Math.round(x), Math.round(y), color || '#d8d5e8', 1, 'MICRO', false);
   }
 
   // --- key hints ------------------------------------------------------------
 
-  /* A key cap: a small pixel button with a lit top edge and a dropped shadow,
-     so a control reads as a thing you press rather than as more prose. */
   const CAP_H = 7;
 
   function keycap(label, x, y, accent) {
@@ -442,6 +393,24 @@ window.DS = window.DS || {};
 
   // --- bars -----------------------------------------------------------------
 
+  /* A soft light bloom. Was a canvas radial gradient per draw site (camp fire,
+     torches, the intro's single torch, skills); now one tinted quad off the
+     shared radial texture. */
+  function glow(x, y, radius, color, alpha, screenSpace) {
+    if (!DS.UI3) return;
+    const cx = screenSpace ? x : toScreenX(x);
+    const cy = screenSpace ? y : toScreenY(y);
+    const r = radius * (screenSpace ? 1 : zoomLevel);
+    DS.UI3.quad(DS.UI3.radial(), cx - r, cy - r, r * 2, r * 2,
+                0, 1, 1, 0, color, alpha == null ? 1 : alpha);
+  }
+
+  function textAlphaS(str, cxPos, y, color, s, alpha) {
+    if (!DS.UI3) return;
+    DS.UI3.text(str, Math.round(cxPos - textWidth(str, s) / 2), Math.round(y),
+                color, s || 1, 'BODY', true, alpha);
+  }
+
   function barS(x, y, w, h, pct, fg, bg, border) {
     pct = DS.M.clamp(pct, 0, 1);
     rectS(x, y, w, h, bg || '#2a2740');
@@ -449,60 +418,27 @@ window.DS = window.DS || {};
     if (border !== false) frameS(x, y, w, h, '#0d0b12');
   }
 
+  /* A bar with a lit top edge and a shadow under it, so the new HUD reads as
+     carved metal instead of as two flat rectangles. */
+  function barRPG(x, y, w, h, pct, fg, bg) {
+    pct = DS.M.clamp(pct, 0, 1);
+    rectS(x - 1, y - 1, w + 2, h + 2, 'rgba(6,5,10,0.85)');
+    rectS(x, y, w, h, bg || '#241f36');
+    const inner = Math.max(0, Math.round((w - 2) * pct));
+    if (inner > 0) {
+      rectS(x + 1, y + 1, inner, h - 2, fg);
+      rectS(x + 1, y + 1, inner, 1, 'rgba(255,255,255,0.35)');
+    }
+    frameS(x, y, w, h, '#6f6a90');
+  }
+
   // --- background -----------------------------------------------------------
 
-  const BG_TINTS = [
-    ['#171325', '#0d0b12'],
-    ['#141c26', '#0b0d12'],
-    ['#1d1420', '#120b12'],
-    ['#101f1c', '#0a1210'],
-    ['#22161a', '#120a0c'],
-    ['#1a1030', '#0c0818']
-  ];
+  /* The dungeon's own backdrop is Three.js geometry now (renderer3d), so there
+     is nothing to paint behind the world. Kept so callers read the same. */
+  function background(depthOrBiome) { }
 
-  /* Three baked parallax layers per biome — see src/art/backdrop.js. The sky
-     is fixed, the mid architecture drifts at a quarter of camera speed and the
-     near silhouette at three quarters, which is what sells the depth. */
-  function background(depthOrBiome) {
-    if (DS.R3D && DS.R3D.isEnabled) {
-      // Clear the 2D overlay each frame so sprites don't ghost and
-      // the Three.js canvas behind remains visible through transparent areas.
-      cx.save();
-      cx.setTransform(1, 0, 0, 1, 0, 0);
-      cx.clearRect(0, 0, cv.width, cv.height);
-      cx.restore();
-      return;
-    }
-    const biome = (depthOrBiome && depthOrBiome.sky)
-      ? depthOrBiome
-      : DS.Biomes.forDepth(depthOrBiome || 1);
-    const L = DS.Backdrop.layersFor(biome);
-
-    cx.drawImage(L.sky, 0, 0, C.W, C.H);
-    scrollLayer(L.mid, 0.25);
-
-    /* The backdrop sits behind the darkness layer, so without its own veil the
-       player's torch would light up scenery that is supposedly rooms away. This
-       keeps the far layers reading as depth rather than as wallpaper. */
-    cx.fillStyle = 'rgba(6,5,12,0.55)';
-    cx.fillRect(0, 0, C.W, C.H);
-
-    scrollLayer(L.near, 0.7);
-    cx.fillStyle = 'rgba(6,5,12,0.30)';
-    cx.fillRect(0, 0, C.W, C.H);
-  }
-
-  /* Blit a 640-wide looping layer twice so the wrap point is always covered.
-     The layer canvas is baked at C.RS resolution, so it is blitted to its
-     LOGICAL size the same way sprites are. */
-  function scrollLayer(layer, factor) {
-    const w = DS.Backdrop.W;
-    const h = DS.Backdrop.H;
-    let shift = (offX * factor) % w;
-    if (shift < 0) shift += w;
-    cx.drawImage(layer, -shift, 0, w, h);
-    if (w - shift < C.W) cx.drawImage(layer, w - shift, 0, w, h);
-  }
+  function scrollLayer(layer, factor) { }
 
   // Screen pixels back to world pixels — the exact inverse of toScreenX/Y, so
   // an aim reticle drawn in UI space points at the world tile under it.
@@ -514,9 +450,30 @@ window.DS = window.DS || {};
     return (screenY - C.H / 2) / zoomLevel + C.H / 2 + offY;
   }
 
+  function uiScale() { return scale; }
+
+  /* A browser pointer position in logical game pixels. The canvas fills the
+     window now and the 16:9 play frame is letterboxed inside it, so a bare
+     client->canvas ratio would put the reticle on the wrong tile whenever the
+     window is not exactly 16:9 (which is most of the time). */
+  function pointerToGame(clientX, clientY) {
+    if (!cv) return null;
+    const rect = cv.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const v = DS.UI3 && DS.UI3.view;
+    const vx = v ? v.x : 0, vy = v ? v.y : 0;
+    const vw = v ? v.w : rect.width, vh = v ? v.h : rect.height;
+    const px = (clientX - rect.left) - vx;
+    const py = (clientY - rect.top) - vy;
+    return {
+      x: DS.M.clamp(px / vw * C.W, 0, C.W),
+      y: DS.M.clamp(py / vh * C.H, 0, C.H)
+    };
+  }
+
   DS.R = {
     init: init,
-    get ctx() { return cx; },
+    get ctx() { return null; },
     get canvas() { return cv; },
     cam: cam,
     setCam: setCam,
@@ -525,6 +482,7 @@ window.DS = window.DS || {};
     punch: punch,
     flash: flash,
     drawFlash: drawFlash,
+    present: present,
     uiMode: uiMode,
     zoom: function () { return zoomLevel; },
     toScreenX: toScreenX,
@@ -554,7 +512,12 @@ window.DS = window.DS || {};
     textCenter: textCenterS,
     textRight: textRightS,
     textWidth: textWidth,
+    textTitle: textTitle,
+    textTitleCenter: textTitleCenter,
     bar: barS,
+    barRPG: barRPG,
+    glow: glow,
+    textCenterAlpha: textAlphaS,
     textSmall: textSmallS,
     textSmallWidth: textSmallWidth,
     keycap: keycap,
@@ -563,6 +526,8 @@ window.DS = window.DS || {};
     hintsWidth: hintsWidth,
     toggleFullscreen: toggleFullscreen,
     fitScale: fitScale,
+    uiScale: uiScale,
+    pointerToGame: pointerToGame,
     CAP_H: CAP_H
   };
 })(window.DS);

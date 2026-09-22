@@ -89,20 +89,19 @@ window.DS = window.DS || {};
 
   window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-  /* Pointer position in canvas pixels. The canvas is a fixed 320x180 buffer
-     stretched by an integer CSS scale, so the client rect is all we need to
-     map a browser coordinate back into game space. hasMouse stays false until
-     the pointer actually moves, so a pad or keyboard player never gets an
-     aim reticle they did not ask for. */
+  /* Pointer position in logical game pixels. The mapping lives in the renderer
+     (DS.R.pointerToGame) because the play frame is now letterboxed inside a
+     window-sized canvas -- a plain client->canvas ratio drifts as soon as the
+     window is not 16:9. hasMouse stays false until the pointer actually moves,
+     so a pad or keyboard player never gets an aim reticle they did not ask
+     for. */
   const mouse = { x: C.W / 2, y: C.H / 2, seen: false };
 
   function trackPointer(e) {
-    const cv = DS.R && DS.R.canvas;
-    if (!cv) return;
-    const rect = cv.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    mouse.x = M.clamp((e.clientX - rect.left) / rect.width * C.W, 0, C.W);
-    mouse.y = M.clamp((e.clientY - rect.top) / rect.height * C.H, 0, C.H);
+    const p = DS.R && DS.R.pointerToGame && DS.R.pointerToGame(e.clientX, e.clientY);
+    if (!p) return;
+    mouse.x = p.x;
+    mouse.y = p.y;
     mouse.seen = true;
   }
 

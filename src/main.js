@@ -79,6 +79,11 @@ window.DS = window.DS || {};
 
     DS.Audio.update();
     current.draw();
+
+    /* Flush the screen layer. Every screen queues its HUD, panels and world
+       FX through DS.R while it draws; this is where those quads reach the
+       GPU, after the world pass and before the post overlay. */
+    DS.R.present(now * 0.001);
   }
 
   function boot() {

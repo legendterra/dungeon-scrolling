@@ -1,48 +1,53 @@
-/* Dynamic lighting. The dungeon is painted with a darkness layer each frame,
-   then holes are punched in it wherever something glows. Torches finally
-   matter, and every projectile, skill and explosion lights the room. */
+/* Where the light is.
+
+   This module used to DRAW the darkness: a black rectangle over the finished
+   frame with light-shaped holes punched out of it (a 20-ray visibility polygon
+   per light, clipped, then a radial gradient erased from the veil). On the 2D
+   canvas that was the whole look of the dungeon -- and it is also how the dark
+   room became a black screen, because the veil ramped to 0.94 as you crossed its
+   threshold and the 2D canvas sat *on top* of the WebGL scene, so it dimmed the
+   3D rift along with everything else.
+
+   Now the lights are real: this module says WHERE the light is, and
+   renderer3d turns that list into pooled Three.js point lights with decay,
+   distance and shadows. There is no veil left to paint, so nothing can ever
+   composite the frame to black again.
+
+   `render()` only asks the post pass to pull the frame down a little, which
+   keeps a floor's mood without hiding it. */
+
 window.DS = window.DS || {};
 
 (function (DS) {
   'use strict';
 
-  const C = DS.C;
+  const M = DS.M;
 
-  let layer = null, lx = null;
   const lights = [];
-
-  function ensure() {
-    if (layer) return;
-    layer = DS.Art.makeCanvas(C.W * C.RS, C.H * C.RS, C.RS);
-    lx = layer.getContext('2d');
-  }
 
   function begin() { lights.length = 0; }
 
-  /* World-space light. `soft` lights fade at the rim; `color` adds a warm
-     additive wash on top of the cut-out. */
+  /* World-space light. `soft` lights fade at the rim; `color` tints the 3D
+     point light this entry turns into. */
   function add(x, y, radius, strength, color) {
     lights.push({ x: x, y: y, r: radius, s: strength == null ? 1 : strength, c: color || null });
   }
 
+  /* Every emitter on the floor, in world pixels. The 3D rig and the props both
+     read this one list, so a torch can never light the scene and not itself. */
   function collect(g) {
     const biome = g.biome;
     const p = g.player;
 
     /* Inside the black room the hero carries only a guttering ember, and the
        torches in the room are dead (game.js strips their decor). The room's own
-       light is the rift, which the 3D scene renders as a real back light; here
-       it is punched into the veil so the 2D darkness agrees with it. */
+       light is the rift, which the 3D scene renders as a real back light. */
     const lairDepth = (g.lair && DS.Lair) ? DS.Lair.depthIn(g, g.lair) : 0;
 
     if (p && !p.dead) {
-      // The player's own light pulses gently and flares while a skill runs.
       const pulse = 1 + Math.sin(g.frames * 0.05) * 0.04;
       const boost = p.routine ? 1.35 : p.charging ? 1.15 : 1;
-      // In the black room that lamp shrinks to arm's length.
-      const carry = 1 - lairDepth * 0.62;
-      // Two passes: a wide soft falloff plus a tight bright core, so the hero
-      // stays clearly readable even at the new darkness levels.
+      const carry = 1 - lairDepth * 0.55;
       add(DS.Ent.centerX(p), DS.Ent.centerY(p),
           biome.lightRadius * pulse * boost * carry, 1, biome.light);
       add(DS.Ent.centerX(p), DS.Ent.centerY(p),
@@ -71,7 +76,6 @@ window.DS = window.DS || {};
 
     for (let i = 0; i < g.projectiles.length; i++) {
       const pr = g.projectiles[i];
-      // Boss projectiles use element names ('dark') that are not player elements.
       const element = pr.element && DS.Weapons.ELEMENTS[pr.element];
       const color = element ? element.color : pr.friendly ? '#f2c14e' : '#c86ee0';
       add(DS.Ent.centerX(pr), DS.Ent.centerY(pr), 22, 0.8, color);
@@ -92,93 +96,32 @@ window.DS = window.DS || {};
       if (e.isBoss) add(DS.Ent.centerX(e), DS.Ent.centerY(e), 54, 0.8, '#c86ee0');
       else if (e.tier === 'miniboss') add(DS.Ent.centerX(e), DS.Ent.centerY(e), 40, 0.7, '#c0303c');
       else if (e.tier === 'elite') add(DS.Ent.centerX(e), DS.Ent.centerY(e), 30, 0.6, '#e8743b');
-      // A winding-up enemy lights itself, which doubles as an extra tell.
       if (e.attackState === 'wind') add(DS.Ent.centerX(e), DS.Ent.centerY(e), 26, 0.9, '#c0303c');
     }
 
     if (g.shrine && !g.shrine.used) {
       add(g.shrine.x + 8, g.shrine.y + 8, 46, 1, '#a8e4ff');
     }
+
+    return lights;
   }
 
+  /* The post pass's share of the mood. Never more than 0.4: the dungeon is
+     meant to be dark, not unreadable, and the background is the light source. */
   function render(g) {
-    /* In 3D mode the transparent 2D canvas sits ABOVE the WebGL canvas, so
-       this same darkness veil also dims the Three.js scene; the torch cut-outs
-       land on the same decor spots the 3D torch lights glow at, so the two
-       layers fuse. 3D already carries some mood of its own, so the veil is
-       softened slightly rather than doubled at full strength. */
-    const is3D = !!(DS.R3D && DS.R3D.isEnabled);
-    ensure();
-    const R = DS.R;
-    let darkness = DS.Modifiers.darknessFor(g) * (is3D ? 0.45 : 1);
-    /* The black room pulls the veil up to near-total as you walk in, blended by
-       how deep inside you are so crossing the threshold is a dimming, not a
-       cut to black. */
+    if (!DS.UI3) return;
+    let dark = DS.Modifiers.darknessFor(g) * 0.5;
     if (g.lair && DS.Lair) {
       const d = DS.Lair.depthIn(g, g.lair);
-      if (d > 0) darkness = darkness + (0.94 - darkness) * d;
+      if (d > 0) dark = dark + (0.30 - dark) * d;
     }
-    if (darkness <= 0.01) return;
-
-    // Must clear first: without this the list accumulates across frames and the
-    // additive pass stacks the same torch hundreds of times into pure white.
-    begin();
-    collect(g);
-
-    lx.setTransform(C.RS, 0, 0, C.RS, 0, 0);
-    lx.globalCompositeOperation = 'source-over';
-    lx.clearRect(0, 0, C.W, C.H);
-    lx.fillStyle = 'rgba(6,5,10,' + darkness + ')';
-    lx.fillRect(0, 0, C.W, C.H);
-
-    // Cut the lit areas out of the darkness.
-    lx.globalCompositeOperation = 'destination-out';
-    for (let i = 0; i < lights.length; i++) {
-      const l = lights[i];
-      const sx = R.toScreenX(l.x), sy = R.toScreenY(l.y);
-      const r = l.r * R.zoom();
-      if (sx + r < 0 || sx - r > C.W || sy + r < 0 || sy - r > C.H) continue;
-
-      const grd = lx.createRadialGradient(sx, sy, 0, sx, sy, r);
-      grd.addColorStop(0, 'rgba(0,0,0,' + l.s + ')');
-      grd.addColorStop(0.55, 'rgba(0,0,0,' + (l.s * 0.55) + ')');
-      grd.addColorStop(1, 'rgba(0,0,0,0)');
-      lx.fillStyle = grd;
-      lx.fillRect(sx - r, sy - r, r * 2, r * 2);
+    if (dark > 0.01) {
+      DS.UI3.post.darken = Math.max(DS.UI3.post.darken, M.clamp(dark, 0, 0.4));
     }
-
-    R.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    R.ctx.drawImage(layer, 0, 0);
-    R.ctx.setTransform(C.RS, 0, 0, C.RS, 0, 0);
-
-    /* A faint coloured wash so light sources read as warm rather than as holes.
-       Kept very low and tight: 'lighter' accumulates, and a dozen overlapping
-       torches at a higher alpha blow the whole screen out to white. */
-    const cx = R.ctx;
-    cx.save();
-    cx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < lights.length; i++) {
-      const l = lights[i];
-      if (!l.c) continue;
-      const sx = R.toScreenX(l.x), sy = R.toScreenY(l.y);
-      const r = l.r * R.zoom() * 0.42;
-      if (sx + r < 0 || sx - r > C.W || sy + r < 0 || sy - r > C.H) continue;
-      const grd = cx.createRadialGradient(sx, sy, 0, sx, sy, r);
-      grd.addColorStop(0, tint(l.c, 0.085 * l.s));
-      grd.addColorStop(0.6, tint(l.c, 0.028 * l.s));
-      grd.addColorStop(1, 'rgba(0,0,0,0)');
-      cx.fillStyle = grd;
-      cx.fillRect(sx - r, sy - r, r * 2, r * 2);
-    }
-    cx.restore();
   }
 
-  function tint(hex, alpha) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(3) + ')';
-  }
+  /* The 3D renderer borrows this list to place its own point lights. */
+  function sources() { return lights; }
 
-  DS.Light = { begin: begin, add: add, render: render };
+  DS.Light = { begin: begin, add: add, collect: collect, render: render, sources: sources };
 })(window.DS);
