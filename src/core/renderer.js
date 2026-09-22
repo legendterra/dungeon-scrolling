@@ -34,18 +34,13 @@ window.DS = window.DS || {};
   let shakeAmount = 0, shakeX = 0, shakeY = 0;
   let offX = 0, offY = 0; // rounded camera offset used for this frame
 
-  /* How much the logical 320x180 frame is blown up. Two candidates: the scale
-     that fills the window, and the largest whole multiple of RS that fits. The
-     even one wins while it wastes little of the window. */
-  const FIT_SLACK = 0.08;
-
+  /* One owner: the screen layer decides the play frame's scale, because the
+     world, the UI and the pointer all have to agree on how big a logical unit
+     is (see ui3/screen.js fitScale). This is the read-only view of it, kept so
+     probes, the debug overlay and the pointer keep working. */
   function fitScale() {
-    const sx = window.innerWidth / C.W;
-    const sy = window.innerHeight / C.H;
-    const fill = Math.max(0.5, Math.min(sx, sy));
-    const even = Math.floor(fill / C.RS) * C.RS;
-    if (even >= C.RS && even / fill >= 1 - FIT_SLACK) return even;
-    return fill;
+    if (DS.UI3 && DS.UI3.fitScale) return DS.UI3.fitScale();
+    return 1;
   }
 
   function resize() {
@@ -75,6 +70,22 @@ window.DS = window.DS || {};
     cv = (DS.R3D && DS.R3D.canvas) || null;
     if (DS.UI3) DS.UI3.init(DS.R3D && DS.R3D.gl);
     window.addEventListener('resize', resize);
+    /* The game, not the host page, owns the keyboard. Without this the canvas is
+       never the focused element, so a host that manages its own focus order can
+       keep Tab (bag) and Escape (menu) for itself. Focusing on the canvas puts
+       the page in charge of those keys, and re-focusing on every press brings
+       the keyboard back if the player clicked a host control in between. */
+    if (cv) {
+      cv.setAttribute('tabindex', '0');
+      const grabKeys = function () {
+        if (document.activeElement === cv) return;
+        try { cv.focus({ preventScroll: true }); } catch (err) { cv.focus(); }
+      };
+      window.addEventListener('pointerdown', grabKeys);
+      window.addEventListener('mousedown', grabKeys);
+      window.addEventListener('touchstart', grabKeys);
+      grabKeys();
+    }
     window.addEventListener('keydown', function (e) {
       if (e.code === 'F2') { e.preventDefault(); toggleFullscreen(); }
     });
@@ -148,10 +159,6 @@ window.DS = window.DS || {};
      queued. */
   function present(time) {
     if (DS.UI3 && DS.UI3.ready) DS.UI3.render(time);
-    /* The inventory doll draws on top of the panels rather than into a hole in
-       them: with no 2D canvas there is no rectangle to erase, and a scissored
-       pass after the UI lands in exactly the same slot. */
-    if (DS.R3D && DS.R3D.renderDoll) DS.R3D.renderDoll();
   }
 
   function toScreenX(worldX) {
@@ -261,6 +268,14 @@ window.DS = window.DS || {};
     DS.UI3.quad(DS.UI3.white(), x, y, w, h, 0, 1, 1, 0, color, alpha == null ? 1 : alpha);
   }
 
+  /* fillQuad, but guaranteed to land over everything else this frame — the
+     pointer, which is drawn last but shares the white batch with the earliest
+     panel and so would otherwise sort underneath the text. */
+  function topQuad(x, y, w, h, color, alpha) {
+    if (!DS.UI3) return;
+    DS.UI3.topQuad(DS.UI3.white(), x, y, w, h, color, alpha == null ? 1 : alpha);
+  }
+
   function rect(x, y, w, h, color) {
     fillQuad(toScreenX(x), toScreenY(y), Math.round(w) * zoomLevel,
              Math.round(h) * zoomLevel, color);
@@ -284,10 +299,25 @@ window.DS = window.DS || {};
     frameS(x, y, w, h, border || '#514c72');
   }
 
+  /* A fade over the finished frame: it covers whatever the caller draws after
+     it. That is what a cutscene's open-on-black, the death screen and the
+     floor-entry wipe want. */
   function fade(alpha, color) {
     if (!DS.UI3) return;
     DS.UI3.post.fade = DS.M.clamp(alpha, 0, 1);
     if (color) DS.UI3.post.fadeColor = DS.UI3.hexOf(color);
+  }
+
+  /* A full-screen panel dimming the room behind it -- the bag, the shop, the
+     enchanter, the shrine, the profile. It dims what has already been drawn
+     (the world) and leaves the panel, its text and the doll at full
+     brightness. Using fade() for this is what turned the bag and the profile
+     into near-black screens after the 3D migration: the fade is a post pass, so
+     it dimmed the panel that called it. */
+  function dimBehind(alpha, color) {
+    if (!DS.UI3) return;
+    DS.UI3.post.dim = DS.M.clamp(alpha, 0, 1);
+    if (color) DS.UI3.post.dimColor = DS.UI3.hexOf(color);
   }
 
   // --- text -----------------------------------------------------------------
@@ -345,6 +375,14 @@ window.DS = window.DS || {};
   function textSmallS(str, x, y, color) {
     if (!DS.UI3) return;
     DS.UI3.text(str, Math.round(x), Math.round(y), color || '#d8d5e8', 1, 'MICRO', false);
+  }
+
+  function textSmallCenterS(str, cxPos, y, color) {
+    textSmallS(str, Math.round(cxPos - textSmallWidth(str) / 2), y, color);
+  }
+
+  function textSmallRightS(str, rightX, y, color) {
+    textSmallS(str, Math.round(rightX - textSmallWidth(str)), y, color);
   }
 
   // --- key hints ------------------------------------------------------------
@@ -450,7 +488,7 @@ window.DS = window.DS || {};
     return (screenY - C.H / 2) / zoomLevel + C.H / 2 + offY;
   }
 
-  function uiScale() { return scale; }
+  function uiScale() { return (DS.UI3 && DS.UI3.view) ? DS.UI3.view.scale : scale; }
 
   /* A browser pointer position in logical game pixels. The canvas fills the
      window now and the 16:9 play frame is letterboxed inside it, so a bare
@@ -492,6 +530,8 @@ window.DS = window.DS || {};
     begin: begin,
     camOffsetX: camOffsetX,
     camOffsetY: camOffsetY,
+    fillQuad: fillQuad,
+    topQuad: topQuad,
     clear: clear,
     background: background,
     spr: spr,
@@ -507,6 +547,7 @@ window.DS = window.DS || {};
     frameS: frameS,
     panelS: panelS,
     fade: fade,
+    dimBehind: dimBehind,
     text: textShadowS,
     textPlain: textS,
     textCenter: textCenterS,
@@ -519,6 +560,8 @@ window.DS = window.DS || {};
     glow: glow,
     textCenterAlpha: textAlphaS,
     textSmall: textSmallS,
+    textSmallCenter: textSmallCenterS,
+    textSmallRight: textSmallRightS,
     textSmallWidth: textSmallWidth,
     keycap: keycap,
     hints: hints,

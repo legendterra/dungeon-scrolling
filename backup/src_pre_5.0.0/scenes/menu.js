@@ -199,7 +199,12 @@ window.DS = window.DS || {};
   }
 
   function glowS(R, x, y, radius, color) {
-    R.glow(x, y, radius, color, 1, true);
+    const cx = R.ctx;
+    const grd = cx.createRadialGradient(x, y, 0, x, y, radius);
+    grd.addColorStop(0, color);
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    cx.fillStyle = grd;
+    cx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
   }
 
   /* The title sits over the trees on the left, clear of the fire, with a dark
@@ -403,7 +408,7 @@ window.DS = window.DS || {};
 
     const chosen = W.WEAPONS[LOADOUT[state.pick]];
     R.textCenter(chosen.blurb.toUpperCase(), C.W / 2, C.H - 26, '#a8e4ff');
-    R.hintsCenter([['ENTER', 'DESCEND'], ['ESC/P', 'BACK'], ['F2', 'FULLSCREEN']],
+    R.hintsCenter([['ENTER', 'DESCEND'], ['ESC', 'BACK'], ['F2', 'FULLSCREEN']],
                   C.W / 2, C.H - 14, MUTED, GOLD);
     DS.Ptr.cursor();
   }
@@ -430,7 +435,7 @@ window.DS = window.DS || {};
     for (let i = 0; i < lines.length; i++) {
       R.text(lines[i], 18, 60 + i * 8, i >= lines.length - 1 ? '#c0303c' : INK);
     }
-    R.hintsCenter([['ESC/P', 'BACK'], ['CLICK', 'ANYWHERE']], C.W / 2, C.H - 14, MUTED, GOLD);
+    R.hintsCenter([['ESC', 'BACK'], ['CLICK', 'ANYWHERE']], C.W / 2, C.H - 14, MUTED, GOLD);
     DS.Ptr.cursor();
   }
 
@@ -460,7 +465,7 @@ window.DS = window.DS || {};
                    C.W / 2, 136, GOLD);
     }
 
-    R.hintsCenter([['ESC/P', 'BACK'], ['CLICK', 'ANYWHERE']], C.W / 2, C.H - 14, MUTED, GOLD);
+    R.hintsCenter([['ESC', 'BACK'], ['CLICK', 'ANYWHERE']], C.W / 2, C.H - 14, MUTED, GOLD);
     DS.Ptr.cursor();
   }
 
@@ -558,7 +563,7 @@ window.DS = window.DS || {};
             R.textSmall(labels[i], r.x + r.w / 2 - R.textSmallWidth(labels[i]) / 2,
                         r.y + 4, on ? '#ffffff' : MUTED);
           }
-          R.hintsCenter([['ENTER', 'RUN AGAIN'], ['ESC/P', 'MENU']],
+          R.hintsCenter([['ENTER', 'RUN AGAIN'], ['ESC', 'MENU']],
                         C.W / 2, C.H - 10, MUTED, GOLD);
         }
 

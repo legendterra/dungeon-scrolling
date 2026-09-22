@@ -173,8 +173,22 @@ window.DS = window.DS || {};
        room that is already a gauntlet is how a fair fight becomes a coin
        flip. */
     if (kind !== 'safe' && kind !== 'trial') {
-      g.modifier = DS.Modifiers.roll(g.rng, g.depth);
+      g.modifier = DS.Modifiers.roll(g.rng, g.depth, level);
+      if (g.modifier && g.modifier.noTorches) {
+        g.map.decor = g.map.decor.filter(function (d) { return d.kind !== 'torch'; });
+      }
     }
+    /* The Black Room: one chamber per floor where the torches are dead and the
+       only light is a rift in the far wall (see world/lair.js). Decided here so
+       the lighting, the 3D back light and the banner all read the same zone. */
+    g.lair = DS.Lair ? DS.Lair.maybe(g, kind) : null;
+    if (g.lair) {
+      g.map.decor = g.map.decor.filter(function (d) {
+        const tx = Math.floor(d.x / C.TILE);
+        return !(d.kind === 'torch' && tx >= g.lair.x0 && tx <= g.lair.x1);
+      });
+    }
+
     const spawns = level.spawns;
     g.doorPos = spawns.door;
     g.tablePos = spawns.table;
@@ -282,8 +296,27 @@ window.DS = window.DS || {};
     corridor: null
   };
 
+  /* The black room's door cue. It fires once, the first time the player is
+     actually inside the zone rather than on the banner they read before. */
+  function updateLair(g) {
+    if (!g.lair || !DS.Lair) return;
+    const inside = DS.Lair.inside(g, g.lair);
+    if (inside && !g.lairSeen) {
+      g.lairSeen = true;
+      g.showBanner('THE LIGHT DIES HERE', 'SOMETHING BURNS BEHIND YOU', '#ffe8b0');
+      DS.Audio.play('locked');
+    }
+  }
+
   function announce(g, level) {
     if (level.kind === 'trial') return;    // the trial announces itself
+
+    /* The black room is announced on entry instead (see updateLair). It would be
+       spent on the arrival banner, which the player reads before walking in. */
+    if (g.lair && !level.flavor) {
+      g.showBanner('DEPTH ' + g.depth, g.biome.name, '#d8d5e8');
+      return;
+    }
 
     const flavor = FLAVOR_TEXT[level.flavor];
     if (flavor) {
@@ -738,6 +771,7 @@ window.DS = window.DS || {};
     DS.Player.update(g, g.player);
     DS.Water.update(g);
     DS.Trial.update(g);
+    updateLair(g);
     checkBossTrigger(g);
 
     for (let i = 0; i < g.enemies.length; i++) {
@@ -873,25 +907,16 @@ window.DS = window.DS || {};
 
     if (g.debug) drawDebug(g);
 
-    /* No darkness pass. There is deliberately nothing here that dims the whole
-       frame: the room you are standing in is lit by its own lights (the torches
-       on the wall, the lamp the hero carries, the sky behind it) and that is the
-       whole of it. See the note at the top of systems/lighting.js. */
+    // Darkness is composited in screen space, over the finished world.
+    DS.Light.render(g);
     R.uiMode();
     DS.Modifiers.drawAtmosphere(g);
     R.drawFlash();
 
-    /* A modal owns the screen. The HUD, the banner and the reticle used to keep
-       drawing underneath it, and because a panel is 90% opaque rather than
-       solid, the floor banner and the vitals bled straight through the bag --
-       the panel read as a smear of overlapping text. One screen at a time. */
-    if (g.modal) {
-      UI.drawModal(g);
-    } else {
-      UI.hud(g);
-      UI.drawBanner(g);
-      UI.reticle(g);
-    }
+    UI.hud(g);
+    UI.drawBanner(g);
+    UI.drawModal(g);
+    UI.reticle(g);
     if (g.paused) DS.Profile.draw(g);
 
     if (g.fadeIn > 0) R.fade(g.fadeIn / 26);

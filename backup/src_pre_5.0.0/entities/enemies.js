@@ -299,23 +299,6 @@ window.DS = window.DS || {};
 
   // --- update ---------------------------------------------------------------
 
-  /* Detection is a RANGE you can read on screen, not "as far as the sprite
-     renders". The authored sight values run up to 260px on a frame that is 320
-     wide, so on their own a monster noticed the player the instant its tile
-     scrolled in and a floor opened as a chase. */
-  const SIGHT_SCALE = 0.55;
-
-  /* And noticing takes a beat. This is how long a monster locks on after the
-     player first enters its sight: a blink of stance change before it commits,
-     which is the player's window to back out of the room. A boss barely
-     bothers (the fight is the point); a plain walker gives you about half a
-     second. */
-  function noticeFrames(e) {
-    if (e.isBoss) return 10;
-    if (e.tier === 'elite' || e.tier === 'miniboss') return 16;
-    return 26;
-  }
-
   function update(g, e) {
     e.frame++;
     if (e.invuln > 0) e.invuln--;
@@ -335,28 +318,16 @@ window.DS = window.DS || {};
        dives or pounces from outside the window - the fight always starts with
        both parties on screen. */
     e.awake = Ent.onScreen(e, 20);
-    const inSight = player && !player.dead &&
-                    dist < e.cfg.sight * SIGHT_SCALE && e.awake;
+    const sees = player && !player.dead && dist < e.cfg.sight && e.awake;
 
-    if (e.state === 'CHASE') {
-      e.notice = 0;
-      // The grace timer keeps a chaser hunting for a moment after the player
-      // breaks range or line, so a fight does not reset every time you blink.
-      if (inSight) e.stateTimer = 90;
-      else if (e.stateTimer > 0) e.stateTimer--;
-      else e.state = 'PATROL';
-    } else if (inSight) {
-      e.notice = (e.notice || 0) + 1;
-      if (e.notice >= noticeFrames(e)) {
-        e.state = 'CHASE';
-        e.stateTimer = 90;
-        e.notice = 0;
-      }
+    if (sees) {
+      e.state = 'CHASE';
+      e.stateTimer = 90;
+    } else if (e.stateTimer > 0) {
+      e.stateTimer--;
     } else {
-      e.notice = 0;
       e.state = 'PATROL';
     }
-    const sees = e.state === 'CHASE';
 
     /* Frozen, rooted or shocked enemies are out of the fight entirely — they
        cannot move, turn, or continue a wind-up. This is what makes crowd

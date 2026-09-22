@@ -181,7 +181,7 @@ window.DS = window.DS || {};
     const R = DS.R;
     const state = g.profile || { tab: 0, cursor: 0, action: 0 };
 
-    R.dimBehind(0.86);
+    R.fade(0.86);
 
     /* Tabs are chips, not banners: 8px tall with micro type. The old 12px
        bars ate a tenth of a 180px screen before any content was drawn. */
@@ -201,7 +201,7 @@ window.DS = window.DS || {};
     else if (state.tab === 1) drawStats(g);
     else drawRun(g, state);
 
-    R.hintsCenter([['CLICK', 'A TAB'], ['ESC/P', 'CLOSE']], C.W / 2, C.H - 9, MUTED, CYAN);
+    R.hintsCenter([['CLICK', 'A TAB'], ['ESC', 'CLOSE']], C.W / 2, C.H - 9, MUTED, CYAN);
     DS.Ptr.cursor();
   }
 

@@ -22,26 +22,22 @@ window.DS = window.DS || {};
     skill:    ['KeyE', 'PAD3'],
     ult:      ['KeyX', 'PAD11'],
     swap:     ['KeyQ', 'PAD4', 'PAD6'],
-    /* Tab and Escape are the two keys a host page wants for itself (focus
-       order, close-this-panel). B and P are the same actions on keys nobody
-       else claims, so the bag and the menu stay reachable even when the
-       surrounding shell eats the first binding. */
-    bag:      ['Tab', 'KeyB'],
+    bag:      ['Tab'],
     reroll:   ['KeyR', 'PAD8'],
-    pause:    ['Escape', 'KeyP', 'PAD9'],
+    pause:    ['Escape', 'PAD9'],
     /* Enter confirms, everywhere. Space used to as well, which meant the key
        that jumps also picked menu entries - fine for a prototype, wrong for a
        game, and confusing the moment a screen shows a hint. */
     confirm:  ['Enter', 'NumpadEnter', 'PAD0'],
     // The left mouse button as a plain UI click, separate from attacking.
     click:    ['MOUSE0'],
-    back:     ['Escape', 'KeyP', 'Backspace', 'PAD1'],
+    back:     ['Escape', 'Backspace', 'PAD1'],
     debug:    ['F1']
   };
 
   // Keys the browser would otherwise act on (scrolling, focus cycling, quick find).
   const SWALLOW = new Set([
-    'Space', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+    'Space', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
     'Backspace', 'F1', 'Slash', 'Quote'
   ]);
 
@@ -55,42 +51,19 @@ window.DS = window.DS || {};
 
   // --- keyboard -------------------------------------------------------------
 
-  /* Keys are read on the way *down* the tree (capture), not on the way back up.
-     A game embedded in a host -- the editor preview panel, an iframe, a desktop
-     shell -- puts its own bubble listeners on window, and Tab / Escape are
-     exactly the keys it wants: Tab walks its focus order, Escape closes its
-     panel. Whoever runs first wins, and bubble order put the game second, so
-     both keys did nothing. Capture makes the game first, and stopping the event
-     there means the host never sees a press the game has already used.
-
-     A press with Ctrl / Cmd / Alt is left alone, so browser shortcuts
-     (Ctrl+Tab, Cmd+R, Alt+F4) still belong to the browser. */
-  function onKeyDown(e) {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (SWALLOW.has(e.code)) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    }
+  window.addEventListener('keydown', function (e) {
+    if (SWALLOW.has(e.code)) e.preventDefault();
     if (e.repeat) return;
     down.add(e.code);
     pressed.add(e.code);
     anyPressedFlag = true;
     if (DS.Audio) DS.Audio.unlock();
-  }
+  });
 
-  function onKeyUp(e) {
-    // Escape closes host panels on keyup in some shells, so this side is guarded
-    // as well; otherwise the game's menu and the shell's panel fight per press.
-    if (SWALLOW.has(e.code)) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    }
+  window.addEventListener('keyup', function (e) {
     down.delete(e.code);
     released.add(e.code);
-  }
-
-  window.addEventListener('keydown', onKeyDown, true);
-  window.addEventListener('keyup', onKeyUp, true);
+  });
 
   // Held keys would otherwise stick when the window loses focus mid-press.
   window.addEventListener('blur', function () {
@@ -116,19 +89,20 @@ window.DS = window.DS || {};
 
   window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-  /* Pointer position in logical game pixels. The mapping lives in the renderer
-     (DS.R.pointerToGame) because the play frame is now letterboxed inside a
-     window-sized canvas -- a plain client->canvas ratio drifts as soon as the
-     window is not 16:9. hasMouse stays false until the pointer actually moves,
-     so a pad or keyboard player never gets an aim reticle they did not ask
-     for. */
+  /* Pointer position in canvas pixels. The canvas is a fixed 320x180 buffer
+     stretched by an integer CSS scale, so the client rect is all we need to
+     map a browser coordinate back into game space. hasMouse stays false until
+     the pointer actually moves, so a pad or keyboard player never gets an
+     aim reticle they did not ask for. */
   const mouse = { x: C.W / 2, y: C.H / 2, seen: false };
 
   function trackPointer(e) {
-    const p = DS.R && DS.R.pointerToGame && DS.R.pointerToGame(e.clientX, e.clientY);
-    if (!p) return;
-    mouse.x = p.x;
-    mouse.y = p.y;
+    const cv = DS.R && DS.R.canvas;
+    if (!cv) return;
+    const rect = cv.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    mouse.x = M.clamp((e.clientX - rect.left) / rect.width * C.W, 0, C.W);
+    mouse.y = M.clamp((e.clientY - rect.top) / rect.height * C.H, 0, C.H);
     mouse.seen = true;
   }
 

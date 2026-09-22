@@ -37,6 +37,11 @@ window.DS = window.DS || {};
      layout does not depend on the window's aspect. */
   const view = { x: 0, y: 0, w: C.W, h: C.H, scale: 1 };
 
+  /* The smallest whole multiple of the logical frame the play area ever uses.
+     Below it the frame would be smaller than the 2D art was authored for, so a
+     genuinely tiny window falls back to a fractional fill instead. */
+  const MIN_SCALE = C.RS;
+
   // --- colours --------------------------------------------------------------
 
   const colorCache = new Map();
@@ -212,11 +217,35 @@ window.DS = window.DS || {};
   const order = [];              // textures in first-use order this frame
   let space = 'world';
 
+  /* Scenes that draw INSIDE the play frame but behind the UI: the menu's camp
+     diorama and the profile's doll. The caller owns them; this list only says
+     when. Cleared at the end of every render, exactly like post.*, so a screen
+     that forgets its scene cannot leak it into the next frame. */
+  const prePasses = [];
+
+  function addPrePass(scene3d, camera3d) {
+    if (scene3d && camera3d) prePasses.push({ scene: scene3d, camera: camera3d });
+  }
+
+  /* A quad that must land over everything else this frame, whatever order its
+     texture was first used in (the pointer, which is drawn last by the loop but
+     shared the white batch with the earliest panel). */
+  let topFlag = false;
+  const TOP_ORDER = 100000;
+
+  function topQuad(tex, x, y, w, h, color, alpha) {
+    topFlag = true;
+    quad(tex, x, y, w, h, 0, 1, 1, 0, color == null ? '#ffffff' : color,
+         alpha == null ? 1 : alpha);
+    topFlag = false;
+  }
+
   function batchFor(tex) {
     let b = batches.get(tex);
     if (!b) {
       b = {
-        tex: tex, pos: [], uv: [], col: [], idx: [], mesh: null, order: 0
+        tex: tex, pos: [], uv: [], col: [], idx: [], mesh: null, order: 0,
+        top: false
       };
       batches.set(tex, b);
     }
@@ -226,6 +255,7 @@ window.DS = window.DS || {};
   function resetBatches() {
     batches.forEach(function (b) {
       b.pos.length = 0; b.uv.length = 0; b.col.length = 0; b.idx.length = 0;
+      b.top = false;
       if (b.mesh) b.mesh.visible = false;
     });
     order.length = 0;
@@ -262,6 +292,7 @@ window.DS = window.DS || {};
 
     const b = batchFor(tex || white());
     if (b.pos.length === 0) { b.order = order.length; order.push(b.tex); }
+    if (topFlag) b.top = true;
 
     const x0 = x, y0 = y, x1 = x + w, y1 = y + h;
     let cxs = [x0, x1, x1, x0];
@@ -330,7 +361,7 @@ window.DS = window.DS || {};
         uiScene.add(mesh);
       }
       mesh.visible = true;
-      mesh.renderOrder = i;
+      mesh.renderOrder = b.top ? TOP_ORDER + i : i;
       upload(mesh.geometry, b);
     }
   }
@@ -395,7 +426,9 @@ window.DS = window.DS || {};
     fadeColor: 0x0d0b12, fade: 0,
     flashColor: 0xffffff, flash: 0,
     tintColor: 0x000000, tint: 0,
-    vignette: 0, grain: 0, darken: 0
+    vignette: 0, grain: 0, darken: 0,
+    // Not a post effect: this one is drawn between the world and the UI.
+    dimColor: 0x0d0b12, dim: 0
   };
 
   function buildPost() {
@@ -441,6 +474,31 @@ window.DS = window.DS || {};
     postScene.add(q);
   }
 
+  /* The behind-the-panel dim. `fade` is a post pass -- it paints over whatever
+     was drawn after the call, which is what a cutscene's open-on-black and the
+     death screen need. A panel wants the opposite: the room behind it quiet,
+     the panel itself bright. In the 2D canvas that was a fillRect at the call
+     site, so it dimmed only what had already been drawn. This is that, as its
+     own small pass rendered between the world and the UI. */
+  let dimScene = null, dimMat = null;
+
+  function buildDim() {
+    dimScene = new THREE.Scene();
+    dimMat = new THREE.MeshBasicMaterial({
+      color: post.dimColor, transparent: true, opacity: 0,
+      depthTest: false, depthWrite: false, toneMapped: false, fog: false,
+      // The UI camera mirrors Y (top = 0, bottom = C.H), which reverses the
+      // winding, so a front-facing plane reads as back-facing and gets culled.
+      // Every UI batch sets this for the same reason.
+      side: THREE.DoubleSide
+    });
+    const q = new THREE.Mesh(new THREE.PlaneGeometry(C.W, C.H), dimMat);
+    // The UI camera has y growing downward from (0, 0) at the top left.
+    q.position.set(C.W / 2, C.H / 2, 0);
+    q.frustumCulled = false;
+    dimScene.add(q);
+  }
+
   // --- lifecycle ------------------------------------------------------------
 
   function init(gl) {
@@ -454,6 +512,7 @@ window.DS = window.DS || {};
     uiCam = new THREE.OrthographicCamera(0, C.W, 0, C.H, -100, 100);
 
     buildPost();
+    buildDim();
     if (DS.Font3) {
       bakeFace('MICRO', DS.Font3.MICRO, DS.Font3.MICRO_W, DS.Font3.MICRO_H, 1);
       bakeFace('BODY', DS.Font3.BODY, DS.Font3.BODY_W, DS.Font3.BODY_H, 1);
@@ -464,15 +523,27 @@ window.DS = window.DS || {};
     return true;
   }
 
-  /* The world fills the window; the UI keeps the game's logical frame at an
-     integer-ish scale, centred, which is what the old fitScale/fullscreen code
-     produced for the 2D canvas. */
+  /* The ONE place the play frame's scale is decided. The window is filled by the
+     largest whole multiple of the logical frame that fits, so every art pixel
+     lands on the same number of screen pixels and text stays crisp; the 2D art
+     is authored at RS detail, so multiples of RS are the crisp ones. A window
+     too small for MIN_SCALE gets a fractional fill rather than a frame smaller
+     than the art it holds.
+
+     Everything else reads this: the world's play viewport (renderer3d),
+     DS.R.fitScale, and the pointer, which is sized in screen pixels and so has
+     to know how big a logical unit is. Nobody recomputes it. */
+  function fitScale() {
+    const fill = Math.max(0.5, Math.min(window.innerWidth / C.W,
+                                        window.innerHeight / C.H));
+    const whole = Math.floor(fill / C.RS) * C.RS;
+    return whole >= MIN_SCALE ? whole : fill;
+  }
+
   function resize() {
     if (!renderer) return;
     const W = window.innerWidth, H = window.innerHeight;
-    const fill = Math.max(0.5, Math.min(W / C.W, H / C.H));
-    const even = Math.floor(fill / C.RS) * C.RS;
-    const scale = (even >= C.RS && even / fill >= 0.92) ? even : fill;
+    const scale = fitScale();
     view.scale = scale;
     view.w = Math.round(C.W * scale);
     view.h = Math.round(C.H * scale);
@@ -494,6 +565,19 @@ window.DS = window.DS || {};
     renderer.setViewport(view.x, H - (view.y + view.h), view.w, view.h);
     renderer.setScissor(view.x, H - (view.y + view.h), view.w, view.h);
     renderer.clearDepth();
+    /* 3D content that belongs inside the play frame but behind the UI: the
+       menu's camp diorama and the profile's doll. Rendered after the depth
+       clear so they float in the frame instead of z-fighting the world. */
+    for (let i = 0; i < prePasses.length; i++) {
+      renderer.render(prePasses[i].scene, prePasses[i].camera);
+    }
+    /* Between the world and the UI: the room behind a panel goes quiet while
+       the panel keeps its own brightness (see DS.R.dimBehind). */
+    if (post.dim > 0) {
+      dimMat.color.setHex(post.dimColor);
+      dimMat.opacity = post.dim;
+      renderer.render(dimScene, uiCam);
+    }
     renderer.render(uiScene, uiCam);
 
     // The overlay covers the whole window, so a fade hides whatever the world
@@ -518,7 +602,8 @@ window.DS = window.DS || {};
     renderer.autoClear = true;
 
     post.fade = 0; post.flash = 0; post.tint = 0;
-    post.vignette = 0; post.grain = 0; post.darken = 0;
+    post.vignette = 0; post.grain = 0; post.darken = 0; post.dim = 0;
+    prePasses.length = 0;
   }
 
   // --- text -----------------------------------------------------------------
@@ -615,6 +700,9 @@ window.DS = window.DS || {};
     get view() { return view; },
     begin: begin,
     render: render,
+    fitScale: fitScale,
+    addPrePass: addPrePass,
+    topQuad: topQuad,
     quad: quad,
     /* quad() with an explicit pivot, for the few call sites that rotate a
        sprite about a point that is not its centre (weapon swings, trails). */

@@ -1,4 +1,4 @@
-/* Where the light is.
+/* Where the light is. Nothing here darkens anything.
 
    This module used to DRAW the darkness: a black rectangle over the finished
    frame with light-shaped holes punched out of it (a 20-ray visibility polygon
@@ -6,15 +6,18 @@
    canvas that was the whole look of the dungeon -- and it is also how the dark
    room became a black screen, because the veil ramped to 0.94 as you crossed its
    threshold and the 2D canvas sat *on top* of the WebGL scene, so it dimmed the
-   3D rift along with everything else.
+   3D scenery along with everything else.
 
-   Now the lights are real: this module says WHERE the light is, and
-   renderer3d turns that list into pooled Three.js point lights with decay,
-   distance and shadows. There is no veil left to paint, so nothing can ever
-   composite the frame to black again.
+   Now the lights are real: this module says WHERE the light is, and renderer3d
+   turns that list into pooled Three.js point lights with decay and distance.
 
-   `render()` only asks the post pass to pull the frame down a little, which
-   keeps a floor's mood without hiding it. */
+   There is deliberately no frame-wide darkness left in the game. The last two
+   survivors were the "pitch dark room" (a floor zone that killed every torch on
+   the way in) and the DARKNESS floor modifier (the same trick for a whole
+   floor); both read as the screen suddenly going black mid-run, which is a bug
+   to a player and not a mood, so both are gone and this module no longer has a
+   render() at all. A room is as dark as its own torches make it, and that is
+   the only rule. */
 
 window.DS = window.DS || {};
 
@@ -39,25 +42,13 @@ window.DS = window.DS || {};
     const biome = g.biome;
     const p = g.player;
 
-    /* Inside the black room the hero carries only a guttering ember, and the
-       torches in the room are dead (game.js strips their decor). The room's own
-       light is the rift, which the 3D scene renders as a real back light. */
-    const lairDepth = (g.lair && DS.Lair) ? DS.Lair.depthIn(g, g.lair) : 0;
-
     if (p && !p.dead) {
       const pulse = 1 + Math.sin(g.frames * 0.05) * 0.04;
       const boost = p.routine ? 1.35 : p.charging ? 1.15 : 1;
-      const carry = 1 - lairDepth * 0.55;
       add(DS.Ent.centerX(p), DS.Ent.centerY(p),
-          biome.lightRadius * pulse * boost * carry, 1, biome.light);
+          biome.lightRadius * pulse * boost, 1, biome.light);
       add(DS.Ent.centerX(p), DS.Ent.centerY(p),
-          biome.lightRadius * 0.42 * boost * carry, 1, biome.light);
-    }
-
-    if (lairDepth > 0) {
-      const lx = g.lair.riftX, ly = g.lair.riftY;
-      add(lx, ly, 96 * lairDepth, 1, '#ffe8b0');
-      add(lx, ly, 46 * lairDepth, 1, '#fff2cc');
+          biome.lightRadius * 0.42 * boost, 1, biome.light);
     }
 
     for (let i = 0; i < g.map.decor.length; i++) {
@@ -106,22 +97,8 @@ window.DS = window.DS || {};
     return lights;
   }
 
-  /* The post pass's share of the mood. Never more than 0.4: the dungeon is
-     meant to be dark, not unreadable, and the background is the light source. */
-  function render(g) {
-    if (!DS.UI3) return;
-    let dark = DS.Modifiers.darknessFor(g) * 0.5;
-    if (g.lair && DS.Lair) {
-      const d = DS.Lair.depthIn(g, g.lair);
-      if (d > 0) dark = dark + (0.30 - dark) * d;
-    }
-    if (dark > 0.01) {
-      DS.UI3.post.darken = Math.max(DS.UI3.post.darken, M.clamp(dark, 0, 0.4));
-    }
-  }
-
   /* The 3D renderer borrows this list to place its own point lights. */
   function sources() { return lights; }
 
-  DS.Light = { begin: begin, add: add, collect: collect, render: render, sources: sources };
+  DS.Light = { begin: begin, add: add, collect: collect, sources: sources };
 })(window.DS);

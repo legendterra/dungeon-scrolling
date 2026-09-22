@@ -28,49 +28,14 @@ window.DS = window.DS || {};
   let ambientLight = null;
   let hemiLight = null;
   let dirLight = null;
-  let fillLight = null;
-  let activeTheme = null;           // the THEMES row in force this floor
 
-  /* Emitters, not lights: { group, smooth } read each frame to point the pool. */
   let torchLights = [];
-  let flamePool = [];
-  let elemLightPool = [];
   let flameSprites = [];
 
   let dungeonGroup = null;
   let shadowGroup = null;
   let propsGroup = null;
   let themeGroup = null;
-
-  /* --- backdrop life -------------------------------------------------------
-
-     Building the horizon out of geometry fixed its parallax and left it
-     motionless, and a motionless horizon reads as a painting no matter how
-     many bands it has. Three cheap motions fix that without touching the
-     ladder: the air drifts, the near bands breathe, and the sky carries
-     something crossing it. All three are rebuilt with the theme. */
-  let backdropAir = [];    // mist / ember motes with their own drift and spin
-  let backdropSway = [];   // bands that sway about their own base
-  let backdropLife = [];   // silhouettes crossing the sky
-
-  /* Which band kinds move, and how much. A tree sways, a column does not; a
-     cloud slides, a mountain does not. Amplitude is scaled down with distance
-     inside the build, so the far rungs stay nearly still and the near ones
-     carry the motion -- the same aerial perspective the values already use. */
-  const SWAY_KINDS = {
-    trees:   { amp: 0.018, spd: 0.62 },
-    reeds:   { amp: 0.030, spd: 1.05 },
-    bones:   { amp: 0.009, spd: 0.48 },
-    columns: { amp: 0.005, spd: 0.38 },
-    spires:  { amp: 0.006, spd: 0.44 },
-    arches:  { amp: 0.004, spd: 0.34 },
-    crystals:{ amp: 0.014, spd: 0.85 },
-    ice:     { amp: 0.010, spd: 0.52 },
-    rubble:  { amp: 0.004, spd: 0.70 }
-  };
-  /* Clouds are the one band that should travel rather than lean, so they get a
-     drift instead of a sway. */
-  const CLOUD_DRIFT = 0.55;
 
   let flameTex = null;
   let portalTex = null;
@@ -100,7 +65,7 @@ window.DS = window.DS || {};
   let pickupMeshes = [];
   let gateMeshes = [];
   let leverMeshes = [];
-  let brazierMeshes = [];   // trial hall braziers: { group, flame, ref, smooth }
+  let brazierMeshes = [];   // trial hall braziers: { group, flame, light, ref }
   let ropeMeshes = [];      // 3D ropes: { x0,y0,x1,y1 (units), group }
   let elemPuddles = [];     // per-enemy status puddles: { mesh, key }
   let elemFields = [];      // ground field plates: { mesh, key }
@@ -125,55 +90,6 @@ window.DS = window.DS || {};
   const CAM_DIST = 26;
   const FOV = 39.5;
   const TILT_ANGLE = 0.12; // ~7 degrees
-
-  /* --- the camera rig --------------------------------------------------------
-
-     The view used to be one hardcoded side-on shot: yaw 0, pitch 7 degrees.
-     Voxel models and a 3D backdrop behind a camera with no angle at all is why
-     the world read as a painted wall with toys in front of it, so the rig is
-     now four numbers and a preset list.
-
-     preset.yaw is the turn toward the level (0 = straight side-on, 60 degrees =
-     the three-quarter RPG shot), preset.pitch the downward tilt. There is a
-     real trade-off here and it is MEASURED, not guessed: a yaw of A degrees
-     shows cos(A) of the level's width, so 40 degrees keeps 77% of the play
-     field while 60 degrees keeps 50% -- and a turned rig also slides the level
-     diagonally on screen, which a side-on platformer cannot afford: a ledge
-     stops being a horizontal line and the frame stops agreeing with the physics
-     under the player's feet. So the DEFAULT is 0/7 -- the straight shot the
-     game has always had -- and the angled presets stay one keypress away (F6)
-     for looking at a room, never as the state the game boots into. Gameplay
-     physics are untouched either way. */
-  const CAM_PRESETS = [
-    { key: 'left',  label: 'SIDE 0/7',     yaw: 0,    pitch: 0.12, dist: 26, fov: 39.5 },
-    { key: 'foot',  label: 'THREE-Q 40/24', yaw: 0.70, pitch: 0.42, dist: 26, fov: 39.5 },
-    { key: 'wide',  label: 'STEEP 60/35',  yaw: 1.05, pitch: 0.61, dist: 24, fov: 42 },
-    { key: 'film',  label: 'FILM 20/16',   yaw: 0.35, pitch: 0.28, dist: 30, fov: 36 }
-  ];
-  /* The view ships STRAIGHT, and that is deliberate: the dungeon is a side-on
-     platformer, so a turned camera slides the whole level diagonally and the
-     frame stops agreeing with the physics the player is reading -- ledges look
-     slanted, a wall you can stand on reads as a slope, and the level itself
-     looks broken. SIDE 0/7 is exactly the shot the game has always had
-     (CAM_DIST 26, FOV 39.5, 7 degrees down), and it is the default.
-     The other presets are one keypress away for looking at a room, but nothing
-     slanted is ever restored on boot: the pick is not persisted, so a fresh
-     launch cannot come up crooked. */
-  const camRig = { yaw: 0, pitch: 0.12, dist: 26, fov: 39.5, preset: 0, show: 0 };
-
-  function applyCameraPreset(i) {
-    const p = CAM_PRESETS[M.clamp(i, 0, CAM_PRESETS.length - 1)];
-    camRig.preset = M.clamp(i, 0, CAM_PRESETS.length - 1);
-    camRig.yaw = p.yaw;
-    camRig.pitch = p.pitch;
-    camRig.dist = p.dist;
-    camRig.fov = p.fov;
-    camRig.show = 240;                 // frames the readout stays up
-    if (camera) {
-      camera.fov = camRig.fov;
-      camera.updateProjectionMatrix();
-    }
-  }
 
   /* --- the depth ladder -----------------------------------------------------
 
@@ -217,81 +133,8 @@ window.DS = window.DS || {};
     flooded:  { fog: 0x08161f, ambient: 0x3a6a86, hemiSky: 0x4c8cb0, hemiGround: 0x102028, dir: 0x8fd8ff, dirI: 0.44 },
     volcanic: { fog: 0x1a0a06, ambient: 0x7a3a28, hemiSky: 0x9a4a2c, hemiGround: 0x241008, dir: 0xff7a3c, dirI: 0.58 }
   };
-  /* --- the light rig, in four numbers -------------------------------------
-
-     The previous pass lit the dungeon with a big ambient and a level hemi and
-     left the key weak, which is the one combination that cannot look like
-     anything: with no direction in the light, every face of a block receives
-     almost the same amount, so a rock, a wall and the sky behind them all land
-     on the same pale grey -- the frame reads washed out and flat, and at the
-     top of the ambient range it literally glares.
-
-     So the budget is inverted: a strong KEY (directional, per theme, boosted by
-     KEY_GAIN) that gives every block a lit face and a dark face, a small
-     AMBIENT to keep the dark faces from going to pure black, and a low HEMI for
-     the sky-ground gradient. Sun/ambient/hemi is the classic outdoor ratio and
-     it is why the frame suddenly has depth: value difference IS depth here. */
-  /* Lit by its lamps, not by the sky.
-
-     The frame used to run on a large ambient plus a near-daylight key (0.55 and
-     up to ~1.0). That flattens every block to the same value, and it is why a
-     floor read as "terang benderang" whatever the theme was: the light was not
-     coming from anywhere in the room. The fill is now small enough that the
-     torches and the hero's lamp are what you see by, and updateLighting scales
-     it per depth -- open surface floors take more, the flooded halls and the
-     volcanic deep take almost none and live on their fires. */
-  /* Where the light COMES FROM, measured rather than assumed. The previous
-     numbers failed a simple test: a torch is a 1.2 point light at distance 10
-     with decay 2, which at its own 4-unit falloff lands around 0.55 -- and the
-     flat ambient was 0.55. A lamp exactly as strong as the fill is not a lamp,
-     it is a slightly warmer fill, so nothing in the frame could read as lit by
-     the fire and every floor came out evenly bright whatever it contained.
-
-     The budget now has three tiers and a rule: the FLAT floor (ambient) is the
-     smallest number in the rig; the SKY (hemisphere + the moon behind you) is
-     what washes a room from the background; and the FIRE (torch, brazier, the
-     lamp the hero carries) is two to four times the ambient, so it wins inside
-     its own radius and the floor visibly belongs to the lamps you can see. */
-  const AMBIENT_I = 0.12;
-  const HEMI_I = 0.24;
-  const KEY_GAIN = 0.34;
-  /* The two lamps that matter: what the hero carries, and what a torch throws. */
-  const LAMP_I = 1.85;
-  const TORCH_I = 2.30;
-
-  /* --- the light pools: a FIXED count, always ---------------------------------
-
-     Every torch, brazier and elemental patch used to bring its own Three.js
-     point light, so a floor with eleven torches ran fourteen point lights and a
-     fire skill added more on top of that. Two things follow from a light count
-     that grows while you play, and both are the same report:
-
-       1. Three.js bakes the light count into each material's shader, so every
-          new emitter recompiles every world material. That is the hitch.
-       2. Past the driver's uniform budget the program fails to link, three.js
-          keeps the failed program and the affected materials draw BLACK. That
-          is the screen that goes dark the moment a fire skill lands on a
-          torch-heavy floor.
-
-     So the lights are pooled and the pool is created once, at boot, and never
-     added to or taken from. Each frame the nearest emitters are pointed at the
-     pool entries. A floor with twenty torches costs exactly what a floor with
-     one costs, and the count cannot drift into the failure case mid-fight. */
-  const FLAME_LIGHTS = 4;        // torches and braziers
-  const ELEM_LIGHTS = 2;         // burning patches, poison vents, fire rigs
-
-  /* How a body is staged on this stage: standing still it faces the camera, so
-     you see the face, the eyes and the weapon in hand; walking it turns side-on
-     -- 72 degrees, not a flat 90, which keeps a sliver of the face and reads as
-     a stride instead of a paper cut-out. The left/right mirror below turns the
-     same angle into a left turn or a right turn, so one number serves both. */
-  const IDLE_YAW = 0;
-  const WALK_YAW = 1.26;
-  /* Night sky, not daylight. Everything the backdrop draws is scaled by this
-     before it reaches the screen, because the sky used to bottom out at the
-     hemisphere colour at FULL brightness -- a pale grey band across the middle
-     of the frame that read as overexposure and drowned the horizon in it. */
-  const SKY_GAIN = 0.28;
+  const AMBIENT_I = 1.35;
+  const HEMI_I = 0.55;
   const FOG_DENSITY = 0.008;
 
   function createTexture(cv) {
@@ -817,69 +660,21 @@ window.DS = window.DS || {};
      ash field. Separate from ScreenParticleManager, which drifts with the
      camera: this belongs to the horizon, so it is strung over the near half of
      the ladder and anchored to the same ground line as the bands. */
-  /* Motes that MOVE. The spec now carries a rise (a plume going up) and a
-     drift (a bank of mist sliding sideways); both default to a slow sideways
-     wander so even a spec authored without either still has air in it. */
   function backdropMotes(spec, WU, anchorY, rng) {
     const n = bandCount(spec, WU);
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(n * 3);
-    const vel = new Float32Array(n * 3);
-    const rise = spec.rise != null ? spec.rise : 0;
-    const drift = spec.drift != null ? spec.drift : 0.35;
     for (let i = 0; i < n; i++) {
       pos[i * 3 + 0] = rng.float(-0.05, 1.05) * WU;
       pos[i * 3 + 1] = anchorY + rng.float(0.5, 14);
       pos[i * 3 + 2] = rng.float(-34, -4);
-      vel[i * 3 + 0] = drift * rng.float(0.6, 1.4);
-      vel[i * 3 + 1] = rise * rng.float(0.5, 1.5);
-      vel[i * 3 + 2] = 0;
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
       color: spec.col || 0xffffff, size: spec.size, transparent: true,
       opacity: spec.alpha, blending: THREE.AdditiveBlending, depthWrite: false
     });
-    const pts = new THREE.Points(geo, mat);
-    backdropAir.push({
-      pts: pts, vel: vel, spanX: WU * 1.25, topY: anchorY + 16,
-      botY: anchorY, pulse: spec.pulse != null ? spec.pulse : 0.18
-    });
-    return pts;
-  }
-
-  /* A flock, as silhouettes. Deliberately the cheapest possible bird: two
-     wing plates on a body, flown across the far sky at the ladder's outer
-     depth and lit by nothing, so the eye reads only a shape crossing a lit
-     background -- which is exactly what makes a still horizon feel alive. */
-  function buildSkyLife(parent, rec, WU, anchorY, rng) {
-    const n = 3 + Math.floor(rng.float(0, 3));
-    /* A silhouette is the theme's own ground colour taken down, so a bird on a
-       pale shore sky and a bird over a volcanic ash field are the same shape in
-       the same place and still belong to their own palette. */
-    const col = new THREE.Color(rec.ground != null ? rec.ground : 0x101018).multiplyScalar(0.6);
-    const mat = new THREE.MeshBasicMaterial({ color: col, fog: false });
-    const bodyGeo = new THREE.BoxGeometry(0.5, 0.16, 0.2);
-    const wingGeo = new THREE.BoxGeometry(0.42, 0.07, 0.18);
-    for (let i = 0; i < n; i++) {
-      const b = new THREE.Group();
-      const body = new THREE.Mesh(bodyGeo, mat);
-      b.add(body);
-      const lw = new THREE.Mesh(wingGeo, mat);
-      lw.position.set(-0.32, 0, 0);
-      const rw = new THREE.Mesh(wingGeo, mat);
-      rw.position.set(0.32, 0, 0);
-      b.add(lw); b.add(rw);
-      b.position.set(rng.float(0, WU), anchorY + rng.float(9, 17), rng.float(-40, -26));
-      b.scale.setScalar(rng.float(0.7, 1.15));
-      backdropLife.push({
-        obj: b, lw: lw, rw: rw,
-        speed: rng.float(1.6, 3.1) * (rng.chance(0.5) ? 1 : -1),
-        flap: rng.float(6.5, 9.5), phase: rng.float(0, 6.28),
-        bob: rng.float(0.25, 0.6), spanX: WU * 1.2
-      });
-      parent.add(b);
-    }
+    return new THREE.Points(geo, mat);
   }
 
   /* A sky is not a backdrop painting: it is the far shell of the world, and the
@@ -922,11 +717,6 @@ window.DS = window.DS || {};
   }
 
   function buildBackdrop(themeName, w, h, anchorY) {
-    /* Every motion list belongs to the theme that built it. */
-    backdropAir = [];
-    backdropSway = [];
-    backdropLife = [];
-
     const rec = BACKDROP_RECIPE[themeName] || BACKDROP_RECIPE.forest;
     const theme = THEMES[themeName] || THEMES.forest;
     const WU = w * 16 * P2U;
@@ -941,12 +731,8 @@ window.DS = window.DS || {};
        BRIGHTER than the sky behind it, which is exactly the washed-out, inverted
        horizon this rework exists to kill. Silhouettes must sit below the haze. */
     const hazeHex = mixHex(mixHex(theme.fog, theme.hemiSky, 0.15 + 0.95 * glow), 0xffffff, 0.08);
-    /* The sky is scaled down as a whole (SKY_GAIN) so the horizon haze is a
-       night value and the banded landforms in front of it can still be darker
-       than it -- the order that makes aerial perspective read. */
-    const skyHaze = new THREE.Color(hazeHex).multiplyScalar(SKY_GAIN);
-    const bandHaze = new THREE.Color(hazeHex).multiplyScalar(0.45 * SKY_GAIN + 0.16);
-    const topHex = new THREE.Color(mixHex(theme.fog, 0x000000, 0.35)).multiplyScalar(SKY_GAIN);
+    const bandHaze = new THREE.Color(hazeHex).multiplyScalar(0.45);
+    const topHex = mixHex(theme.fog, 0x000000, 0.35);
     scene.background = new THREE.Color(topHex);
 
     /* --- the sky rig -------------------------------------------------------
@@ -957,14 +743,9 @@ window.DS = window.DS || {};
     skyRig = new THREE.Group();
     skyRig.position.set(WU * 0.5, 0, BACKDROP_SKY_Z);
 
-    const skyCss = function (col, k) {
-      return '#' + (k === 1 ? col : col.clone().multiplyScalar(k)).getHexString();
-    };
     const skyMat = new THREE.MeshBasicMaterial({
-      map: makeSkyTexture(skyCss(new THREE.Color(topHex), 1),
-                          skyCss(new THREE.Color(mixHex(theme.fog, theme.hemiSky, 0.18 * glow)), SKY_GAIN),
-                          skyCss(new THREE.Color(mixHex(theme.fog, theme.hemiSky, 0.52 * glow)), SKY_GAIN),
-                          '#' + skyHaze.getHexString()),
+      map: makeSkyTexture(topHex, mixHex(theme.fog, theme.hemiSky, 0.18 * glow),
+                          mixHex(theme.fog, theme.hemiSky, 0.52 * glow), hazeHex),
       fog: false, depthWrite: false
     });
     const sky = new THREE.Mesh(new THREE.PlaneGeometry(WU * 3, SKY_H + SKY_DROP), skyMat);
@@ -1072,20 +853,6 @@ window.DS = window.DS || {};
         layerGroup.add(instancedShards(o.shards, mat, geo, !isCrystal, 0.4));
       }
       group.add(layerGroup);
-      const sway = SWAY_KINDS[L.kind];
-      if (sway) {
-        backdropSway.push({
-          obj: layerGroup, base: layerGroup.position.x,
-          amp: sway.amp * (1 - far * 0.65), spd: sway.spd,
-          phase: rng.float(0, 6.28)
-        });
-      } else if (L.kind === 'clouds') {
-        backdropSway.push({
-          obj: layerGroup, base: layerGroup.position.x,
-          amp: 0, spd: 0.2, phase: rng.float(0, 6.28),
-          drift: CLOUD_DRIFT * (1 - far * 0.5), spanX: WU * 1.2
-        });
-      }
     }
 
     /* An underground theme gets a roof: one long slab with teeth under it, which
@@ -1117,56 +884,7 @@ window.DS = window.DS || {};
     if (rec.mist) { const m = backdropMotes(rec.mist, WU, anchorY, rng); m.frustumCulled = false; group.add(m); }
     if (rec.ember) { const m = backdropMotes(rec.ember, WU, anchorY, rng); m.frustumCulled = false; group.add(m); }
 
-    /* Living silhouettes belong to a sky. An underground theme has a roof over
-       its head (rec.ceiling), so it keeps the drifting air instead and gets no
-       flock -- birds under a stone ceiling would be the one thing that breaks
-       the read of the room. */
-    if (!rec.ceiling) buildSkyLife(group, rec, WU, anchorY, rng);
-
     return group;
-  }
-
-  /* One step of every backdrop motion. Called once a frame with the render
-     clock so the horizon keeps its own time (the bands are not simulated). */
-  function updateBackdropLife(time, dt) {
-    const step = dt > 0 && dt < 0.1 ? dt : 0.016;
-
-    for (let i = 0; i < backdropAir.length; i++) {
-      const a = backdropAir[i];
-      const pos = a.pts.geometry.attributes.position.array;
-      for (let j = 0; j < pos.length; j += 3) {
-        pos[j]     += a.vel[j]     * step;
-        pos[j + 1] += a.vel[j + 1] * step;
-        if (a.vel[j] > 0 && pos[j] > a.spanX) pos[j] = -a.spanX * 0.05;
-        else if (a.vel[j] < 0 && pos[j] < -a.spanX * 0.05) pos[j] = a.spanX;
-        if (a.vel[j + 1] > 0 && pos[j + 1] > a.topY) pos[j + 1] = a.botY;
-      }
-      a.pts.geometry.attributes.position.needsUpdate = true;
-      /* A slow swell in the opacity, so a bank of mist reads as air rather
-         than as a fixed scattering of dots. */
-      a.pts.material.opacity = a.pts.material.opacity * (1 - a.pulse * step * 2)
-        + a.pulse * (1 + Math.sin(time * 0.6 + i) * 0.5) * step * 2;
-    }
-
-    for (let i = 0; i < backdropSway.length; i++) {
-      const s = backdropSway[i];
-      if (s.amp) s.obj.rotation.z = Math.sin(time * s.spd + s.phase) * s.amp;
-      if (s.drift) {
-        s.obj.position.x += s.drift * step;
-        if (s.obj.position.x > s.base + s.spanX * 0.5) s.obj.position.x = s.base - s.spanX * 0.5;
-      }
-    }
-
-    for (let i = 0; i < backdropLife.length; i++) {
-      const b = backdropLife[i];
-      b.obj.position.x += b.speed * step;
-      if (b.speed > 0 && b.obj.position.x > b.spanX) b.obj.position.x = -b.spanX * 0.15;
-      else if (b.speed < 0 && b.obj.position.x < -b.spanX * 0.15) b.obj.position.x = b.spanX;
-      b.obj.position.y += Math.sin(time * b.bob + b.phase) * 0.004;
-      const flap = Math.sin(time * b.flap + b.phase) * 0.55;
-      b.lw.rotation.z = flap;
-      b.rw.rotation.z = -flap;
-    }
   }
 
   function makeFlameTexture() {
@@ -1359,7 +1077,8 @@ window.DS = window.DS || {};
 
   let screenParticleManager = null;
   let waterSurfaceMesh = null;      // the lit surface of every pool, animated
-  let backLight = null;             // the moon: light from behind everything
+  let riftLight = null;             // the black room's back light
+  let backLight = null;             // weak rim key, behind everything
   let waterCrestMesh = null;        // the bright line where water meets air
 
   function init() {
@@ -1369,7 +1088,15 @@ window.DS = window.DS || {};
     if (!canvas) {
       canvas = document.createElement('canvas');
       canvas.id = 'game3d';
-      document.body.appendChild(canvas);
+      canvas.style.position = 'absolute';
+      canvas.style.left = '50%';
+      canvas.style.top = '50%';
+      canvas.style.transform = 'translate(-50%, -50%)';
+      canvas.style.pointerEvents = 'none';
+      canvas.style.zIndex = '1';
+      const game2d = document.getElementById('game');
+      if (game2d && game2d.parentNode) game2d.parentNode.insertBefore(canvas, game2d);
+      else document.body.appendChild(canvas);
     }
 
     try {
@@ -1380,30 +1107,6 @@ window.DS = window.DS || {};
         powerPreference: 'high-performance'
       });
       renderer.setPixelRatio(window.devicePixelRatio || 1);
-      /* Filmic response and linear-correct output: without these, every
-         material the scene lights is a Lambert face whose highlights clip to
-         white and whose shadows sit on one flat value. */
-      renderer.outputEncoding = THREE.sRGBEncoding;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      /* ACES compresses the highlights, which would otherwise read as a darker
-         frame than the linear one it replaced; the exposure lifts it back. */
-      renderer.toneMappingExposure = 0.95;
-      /* F6 cycles the camera preset (see the rig above). */
-      window.addEventListener('keydown', function (e) {
-        if (e.code === 'F6') {
-          e.preventDefault();
-          applyCameraPreset((camRig.preset + 1) % CAM_PRESETS.length);
-        } else if (e.code === 'F7') {
-          e.preventDefault();
-          applyCameraPreset(0);   // back to the shipped side-on shot
-        }
-      });
-      /* Straight side-on, always. `ds.cameraPreset` is cleared rather than
-         read: an older build saved the angled preset, and restoring it is what
-         made a returning player's game come up crooked. */
-      try { localStorage.removeItem('ds.cameraPreset'); } catch (e) { /* private mode */ }
-      applyCameraPreset(0);
-      camRig.show = 0;   // the readout is for F6, not for boot
     } catch (err) {
       console.warn('WebGL init failed:', err);
       return false;
@@ -1420,45 +1123,20 @@ window.DS = window.DS || {};
     hemiLight = new THREE.HemisphereLight(THEMES.forest.hemiSky, THEMES.forest.hemiGround, HEMI_I);
     scene.add(hemiLight);
 
-    dirLight = new THREE.DirectionalLight(THEMES.forest.dir, THEMES.forest.dirI * KEY_GAIN);
+    dirLight = new THREE.DirectionalLight(THEMES.forest.dir, THEMES.forest.dirI);
     dirLight.position.set(15, 30, 25);
     scene.add(dirLight);
 
-    playerLight = new THREE.PointLight(0xffe2a0, LAMP_I, 12, 1.4);
+    playerLight = new THREE.PointLight(0xffe2a0, 0.55, 11, 1.4);
 
-    /* The back light. It used to be a 0.16 nudge that only kept a monster from
-       matching the wall behind it; with voxel models and a lit backdrop, light
-       coming from BEHIND is what gives every block two visible faces, so it is
-       a real light now -- the moon behind the dungeon, and the reason a monster
-       reads as a silhouette against the horizon. */
-    backLight = new THREE.DirectionalLight(0x9fb0d0, 0.42);
+    /* The rim key. Never bright enough to read as a light source of its own;
+       it exists so a monster in front of a wall is not the same value as the
+       wall. */
+    backLight = new THREE.DirectionalLight(0x9fb0d0, 0.16);
     backLight.position.set(-12, 18, -26);
     scene.add(backLight);
-
-    /* A soft fill from the camera side, so front faces are read rather than
-       guessed. Deliberately weaker than the back light: the volume cue is the
-       value difference between them. */
-    fillLight = new THREE.DirectionalLight(0xbfd4ff, 0.18);
-    fillLight.position.set(6, 8, 22);
-    scene.add(fillLight);
     playerLight.position.set(0, 0, 1.2);
     scene.add(playerLight);
-
-    /* The pools. Created here once and never added to again -- see the note on
-       FLAME_LIGHTS. Intensity 0 is still a light as far as the shader is
-       concerned, which is exactly what makes the count stable. */
-    for (let i = 0; i < FLAME_LIGHTS; i++) {
-      const l = new THREE.PointLight(0xff9e38, 0, 11, 2.0);
-      l.position.set(0, -999, 0.3);
-      scene.add(l);
-      flamePool.push(l);
-    }
-    for (let i = 0; i < ELEM_LIGHTS; i++) {
-      const l = new THREE.PointLight(0xffffff, 0, 5.5, 2.0);
-      l.position.set(0, -999, 0.3);
-      scene.add(l);
-      elemLightPool.push(l);
-    }
 
     dungeonGroup = new THREE.Group();
     scene.add(dungeonGroup);
@@ -1562,36 +1240,16 @@ window.DS = window.DS || {};
 
   function resize() {
     if (!renderer || !canvas) return;
-    /* One canvas fills the window, and the 16:9 play frame is letterboxed inside
-       it (see playViewport). The world is projected at the PLAY FRAME's aspect,
-       never the window's: the level, the aiming, the jump arcs and the HUD were
-       all authored for 320x180, and a window-shaped projection is what made the
-       game and its own UI disagree -- the world stretched to the window while
-       the HUD sat in a letterboxed band, so the reticle, the bars and the level
-       stopped lining up on anything but an exactly 16:9 screen. */
-    const w = window.innerWidth || (DS.C.W * (DS.C.RS || 2));
-    const h = window.innerHeight || (DS.C.H * (DS.C.RS || 2));
-    renderer.setSize(w, h, false);
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
-    camera.aspect = DS.C.W / DS.C.H;
-    camera.updateProjectionMatrix();
-  }
-
-  /* The play frame in device pixels: the same centred 16:9 rectangle the screen
-     layer draws into (ui3/screen.js computes it in CSS pixels), so the world and
-     its HUD share one coordinate system. */
-  function playViewport() {
-    const el = renderer.domElement;
-    const v = DS.UI3 && DS.UI3.view;
-    if (!v) return { x: 0, y: 0, w: el.width, h: el.height };
-    const dpr = el.width / Math.max(1, el.clientWidth || el.width);
-    return {
-      x: Math.round(v.x * dpr),
-      y: Math.round(el.height - (v.y + v.h) * dpr),
-      w: Math.max(1, Math.round(v.w * dpr)),
-      h: Math.max(1, Math.round(v.h * dpr))
-    };
+    const game2d = document.getElementById('game');
+    if (game2d) {
+      canvas.style.width = game2d.style.width;
+      canvas.style.height = game2d.style.height;
+      const w = parseInt(game2d.style.width, 10) || (DS.C.W * (DS.C.RS || 2));
+      const h = parseInt(game2d.style.height, 10) || (DS.C.H * (DS.C.RS || 2));
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
   }
 
   /* Frees a subtree. It has to recurse: the backdrop is a group of groups, and
@@ -1671,15 +1329,15 @@ window.DS = window.DS || {};
      architecture is built in loadLevel(). */
   function setupTheme(themeName, w, h, biome, anchorY) {
     const t = THEMES[themeName] || THEMES.forest;
-    activeTheme = t;
 
     scene.fog = new THREE.FogExp2(t.fog, FOG_DENSITY);
     ambientLight.color.setHex(t.ambient);
     ambientLight.intensity = AMBIENT_I;
     hemiLight.color.setHex(t.hemiSky);
     hemiLight.groundColor.setHex(t.hemiGround);
-    hemiLight.intensity = HEMI_I;      dirLight.color.setHex(t.dir);
-      dirLight.intensity = t.dirI * KEY_GAIN;
+    hemiLight.intensity = HEMI_I;
+    dirLight.color.setHex(t.dir);
+    dirLight.intensity = t.dirI;
     dirLight.position.set(15, 30, 25);
 
     /* A second, weak key from BEHIND. Everything in the game was lit from the
@@ -1688,12 +1346,8 @@ window.DS = window.DS || {};
        from the walls behind them. */
     if (backLight) {
       backLight.color.setHex(t.hemiSky);
-      backLight.intensity = 0.42;
+      backLight.intensity = 0.16;
       backLight.position.set(-12, 18, -26);
-    }
-    if (fillLight) {
-      fillLight.color.setHex(t.ambient);
-      fillLight.intensity = 0.18;
     }
 
     disposeGroup(themeGroup);
@@ -1821,18 +1475,18 @@ window.DS = window.DS || {};
     flame.scale.set(0.9, 1.2, 1.1);
     group.add(flame);
 
-    /* No light of its own. It registers as an EMITTER: `smooth` is its live
-       intensity, and the shared pool lights whichever emitters are nearest the
-       player (see FLAME_LIGHTS). */
+    const light = new THREE.PointLight(0xff9e38, 0.55, 10, 2.0);
+    light.position.set(0, 0.08 + segH * 3 + 0.5, 0.3);
+    scene.add(light);
     group.position.set(x, y, 0.2);
     propsGroup.add(group);
     return {
       sprite: flame,
       seed: Math.random() * 20,
-      baseIntensity: TORCH_I,
+      light: light,
+      baseIntensity: 0.55,
       flickerOffset: Math.random() * 20,
-      smooth: TORCH_I,
-      lift: 0.08 + segH * 3 + 0.5,     // where the fire actually is, in the group
+      smooth: 0.55,
       group: group
     };
   }
@@ -1863,11 +1517,15 @@ window.DS = window.DS || {};
     flame.visible = false;
     group.add(flame);
 
+    const light = new THREE.PointLight(0xff9e38, 0, 9, 2.0);
+    light.position.set(0, 1.75, 0.3);
+    scene.add(light);
+
     // b.y marks the top of an 18px-tall brazier, so its floor line is y + 18.
     const bottom = (b.y || 0) + 18;
     const floor = groundAnchor(map, b.x, bottom);    group.position.set(b.x * P2U, -floor * P2U, 0.2);
     propsGroup.add(group);
-    return { group, flame, coalMat, ref: b, smooth: 0, lift: 1.75 };
+    return { group, flame, light, coalMat, ref: b, smooth: 0 };
   }
 
   // --- puzzle hardware in 3D: gate bars, lever, crates -----------------------
@@ -2246,6 +1904,7 @@ window.DS = window.DS || {};
   function loadLevel(map, biome, g) {
     waterSurfaceMesh = null;
     waterCrestMesh = null;
+    if (riftLight) { scene.remove(riftLight); riftLight = null; }
     if (!enabled || !dungeonGroup) return;
 
     disposeGroup(dungeonGroup);
@@ -2255,6 +1914,7 @@ window.DS = window.DS || {};
     clearActors();
     gateMeshes = [];
     leverMeshes = [];
+    brazierMeshes.forEach(function (bm) { if (bm.light) scene.remove(bm.light); });
     brazierMeshes = [];
     crateMeshes = [];
     ropeMeshes = [];
@@ -2268,7 +1928,8 @@ window.DS = window.DS || {};
     shrineMesh = null;
     if (fxGroup) fxGroup.children.length = 0;
 
-    torchLights = [];   // the pool they point at outlives the level, by design
+    torchLights.forEach(tl => scene.remove(tl.light));
+    torchLights = [];
 
     flameSprites.forEach(fs => scene.remove(fs.sprite));
     flameSprites = [];
@@ -2486,6 +2147,46 @@ window.DS = window.DS || {};
       }
     }
 
+    /* THE RIFT: the black room's one light source, and it stands BEHIND the
+       actors. That placement is the whole effect — a light in front makes flat
+       lit shapes, a light behind makes rims and silhouettes, which is what
+       makes the black room read as a place rather than as a dark level. */
+    if (g && g.lair) {
+      const lx = g.lair.riftX * P2U;
+      const ly = -(g.lair.riftY) * P2U;
+
+      const riftMat = new THREE.MeshBasicMaterial({
+        color: 0xfff2cc, transparent: true, opacity: 0.92, fog: false
+      });
+      const rift = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 5.4), riftMat);
+      rift.position.set(lx, ly + 1.4, -3.4);
+      themeGroup.add(rift);
+
+      const halo = makeGlowSprite(0xffd9a0, 12);
+      halo.position.set(lx, ly + 1.4, -3.3);
+      halo.material.opacity = 0.55;
+      themeGroup.add(halo);
+
+      /* Shafts: three slabs of light leaning down to the floor, so the rift
+         reads as depth rather than as a bright rectangle pasted on the wall. */
+      const shaftMat = new THREE.MeshBasicMaterial({
+        color: 0xffe8b0, transparent: true, opacity: 0.10,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false
+      });
+      for (let i = -1; i <= 1; i++) {
+        const shaft = new THREE.Mesh(new THREE.PlaneGeometry(1.5 + i * 0.1, 11), shaftMat);
+        shaft.position.set(lx + i * 1.9, ly - 3.0, -2.9);
+        shaft.rotation.z = i * 0.16;
+        themeGroup.add(shaft);
+      }
+
+      /* The light itself. distance keeps it a room light instead of a floor
+         light, and it sits behind the actors on purpose. */
+      riftLight = new THREE.PointLight(0xffd8a8, 2.4, 34, 1.6);
+      riftLight.position.set(lx, ly + 2.0, -2.4);
+      scene.add(riftLight);
+    }
+
     /* WATER, as a volume instead of a decal.
 
        It used to be a flat per-tile rect painted on the 2D overlay — and since
@@ -2685,6 +2386,129 @@ window.DS = window.DS || {};
     return mesh;
   }
 
+  /* --- the armory: a live 3D doll for the inventory --------------------------
+
+     The 2D canvas sits ON TOP of the WebGL one, so the bag screen leaves the
+     doll's slot transparent (ui.js punches it out) and this renders into that
+     hole with a second, scissored pass on the same renderer: no second WebGL
+     context, no canvas copies. The model is the same voxel hero the dungeon
+     uses, wearing the equipped armour and holding BOTH equipped weapons, lit
+     for a portrait and turning slowly so the armour reads as real geometry.
+     Rebuilt whenever the loadout changes, so equipping a helm shows up at
+     once. */
+  let armoryScene = null;
+  let armoryCam = null;
+  let armoryModel = null;
+  let armoryKey = '';
+
+  function ensureArmory() {
+    if (armoryScene) return;
+    armoryScene = new THREE.Scene();
+    /* Framed to hold the whole chibi AND a weapon raised over the shoulder:
+       ~2.6 units of height at the model, so the doll sits in the window with
+       air around it instead of touching all four edges. */
+    armoryCam = new THREE.PerspectiveCamera(32, 0.56, 0.1, 40);
+    armoryCam.position.set(0, 1.5, 4.6);
+    armoryCam.lookAt(0, 1.0, 0);
+
+    armoryScene.add(new THREE.AmbientLight(0xa9a2d0, 1.1));
+    const key = new THREE.DirectionalLight(0xfff0cc, 1.45);
+    key.position.set(1.8, 3.0, 2.6);
+    armoryScene.add(key);
+    const rim = new THREE.DirectionalLight(0x4fb3e0, 0.9);
+    rim.position.set(-2.2, 1.5, -1.8);
+    armoryScene.add(rim);
+    const bounce = new THREE.PointLight(0x8a84a8, 0.55, 8);
+    bounce.position.set(0, 0.3, 1.4);
+    armoryScene.add(bounce);
+  }
+
+  /* Main hand first (the active slot), then the off hand — the same pair the
+     world model holds, so the doll cannot drift out of sync with the hero. */
+  function armoryHands(inv) {
+    const eq = inv.equipped || [];
+    const active = inv.active || 0;
+    return [eq[active] || null, eq[1 - active] || null];
+  }
+
+  function armoryLoadoutKey(p) {
+    const inv = p.inv || {};
+    const armor = DS.Paperdoll ? DS.Paperdoll.keyFor(inv.armor) : '';
+    const hands = armoryHands(inv);
+    const a = hands[0], b = hands[1];
+    return [armor, inv.active || 0,
+            a ? a.type + ':' + a.rarity : '-',
+            b ? b.type + ':' + b.rarity : '-'].join('|');
+  }
+
+  function refreshArmory(g) {
+    const p = g.player;
+    if (!p || !p.inv || !DS.Voxel || !armoryScene) return;
+    const key = armoryLoadoutKey(p);
+    if (armoryModel && key === armoryKey) return;
+    armoryKey = key;
+
+    if (armoryModel) {
+      armoryScene.remove(armoryModel.root);
+      disposeModel(armoryModel);
+      armoryModel = null;
+    }
+    armoryModel = DS.Voxel.build('hero', { armor: p.inv.armor });
+    if (!armoryModel) return;
+    const hands = armoryHands(p.inv);
+    gripWeapon(armoryModel.armR, hands[0], false);
+    gripWeapon(armoryModel.armL, hands[1], true);
+
+    // Idle stance: arms slightly out so the gear is not hidden against the body.
+    if (armoryModel.armR) armoryModel.armR.rotation.z = -0.14;
+    if (armoryModel.armL) armoryModel.armL.rotation.z = 0.14;
+    armoryScene.add(armoryModel.root);
+  }
+
+  function renderArmory(g, rect) {
+    if (!renderer || !armoryScene || !armoryModel || !rect) return;
+    const el = renderer.domElement;
+    const kx = el.width / DS.C.W;
+    const ky = el.height / DS.C.H;
+    const sx = Math.round(rect.x * kx);
+    const sy = Math.round(el.height - (rect.y + rect.h) * ky);
+    const sw = Math.max(1, Math.round(rect.w * kx));
+    const sh = Math.max(1, Math.round(rect.h * ky));
+
+    /* A slow turn, pivoting around the model's own feet, so the armour reads as
+       geometry and every slot is visible from some angle. */
+    const t = g.frames * 0.02;
+    armoryModel.root.rotation.y = Math.sin(t * 0.55) * 0.32;
+    if (armoryModel.torso && armoryModel.torsoY0 != null) {
+      armoryModel.torso.position.y = armoryModel.torsoY0 + Math.sin(t * 1.6) * 0.012;
+    }
+    if (armoryModel.head && armoryModel.headY0 != null) {
+      armoryModel.head.rotation.z = Math.sin(t * 0.9) * 0.03;
+    }
+
+    const prevAuto = renderer.autoClear;
+    const prevClear = new THREE.Color();
+    renderer.getClearColor(prevClear);
+    const prevAlpha = renderer.getClearAlpha();
+
+    renderer.autoClear = false;
+    renderer.setScissorTest(true);
+    renderer.setScissor(sx, sy, sw, sh);
+    renderer.setViewport(sx, sy, sw, sh);
+    // Clear only the doll's slot, to the panel's own colour.
+    renderer.setClearColor(0x12101c, 1);
+    renderer.clear(true, true, false);
+
+    armoryCam.aspect = sw / sh;
+    armoryCam.updateProjectionMatrix();
+    renderer.render(armoryScene, armoryCam);
+
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, el.width, el.height);
+    renderer.setClearColor(prevClear, prevAlpha);
+    renderer.autoClear = prevAuto;
+  }
+
   function ensureHero(g) {
     const p = g.player;
     if (!p || !DS.Voxel) return;
@@ -2828,21 +2652,15 @@ window.DS = window.DS || {};
     // Origin sits at the FEET, not the hitbox top: the model stands on the
     // floor line and death topples it around its heels, not mid-air.
     m.root.position.set((p.x + p.w * 0.5) * P2U, (-p.y - p.h) * P2U, 0.3);
-    /* Facing: the model is MIRRORED left or right (like the 2D sprites this game
-       was built on) and turned by the staged angle above -- camera-facing when
-       still, side-on while walking. Mirroring keeps the face on the camera and
-       makes left and right different (the sword hand swaps, the shoulder
-       leads). */
-    /* The walk turn is SIGNED by the direction of travel. Scaling the root by
-       -1 flips the model's own X axis -- which hand leads, which way the fringe
-       parts -- but it does not flip where the face points, because the face is
-       on +Z and a mirror about X leaves +Z where it was. So the mirror alone
-       gave both directions the same yaw and a hero walking LEFT showed a
-       right-facing profile. The mirror is still the mirror; the sign of the
-       yaw is what aims the face. */
-    const moving = Math.abs(p.vx || 0) > 0.35;
-    const walkSign = (p.facing || 1) < 0 ? -1 : 1;
-    let targetRy = moving ? WALK_YAW * walkSign : IDLE_YAW;
+    /* Facing, the way a side-scroller reads it: the model is MIRRORED left or
+       right (like the 2D sprites this game was built on) and only leans a
+       little toward the direction of travel. It used to be turned ±66° instead,
+       which presented the character three-quarter to the camera — the face was
+       half-lost and at a glance it looked like it was facing away. Mirroring
+       keeps the face on the camera while still making left and right different
+       (the sword hand swaps, the shoulder leads). */
+    const lean = p.facing < 0 ? -0.22 : 0.22;
+    let targetRy = lean;
     // The mirror itself. Nothing else writes root.scale on the hero, so a
     // straight assignment per frame is safe (the enemy path has to multiply,
     // because it still sets its own scalar for rank size).
@@ -2954,12 +2772,10 @@ window.DS = window.DS || {};
     const baseY = -(e.flying ? e.y + e.h : groundY);
 
     model.root.position.set(cx * P2U, baseY * P2U, 0.3);
-    // Same staging as the hero: mirror the model left/right, face the camera
-    // when still, turn side-on while walking.
-    /* Same signed turn as the hero: the mirror flips the model, the yaw aims
-       it (see poseHero). */
-    const moving = Math.abs(e.vx || 0) > 0.06;
-    const targetRy = moving ? WALK_YAW * ((e.facing || 1) < 0 ? -1 : 1) : IDLE_YAW;
+    // Same treatment as the hero: mirror the model left/right, lean into the
+    // walk. A monster faces the camera and aims sideways, which is the read a
+    // side-scroller needs — and it keeps the face, the eyes and the tells.
+    const targetRy = e.facing < 0 ? -0.22 : 0.22;
     let dRy = targetRy - model.root.rotation.y;
     while (dRy > Math.PI) dRy -= Math.PI * 2;
     while (dRy < -Math.PI) dRy += Math.PI * 2;
@@ -3106,6 +2922,8 @@ window.DS = window.DS || {};
      recycling a fire rig as an ice rig would just be a rebuilt rig. */
   let elemPool = {};
   let liveRigs = [];
+  let elemLights = [];
+  const MAX_ELEM_LIGHTS = 5;
 
   function glowMat(color, opacity) {
     return new THREE.MeshBasicMaterial({
@@ -3120,19 +2938,11 @@ window.DS = window.DS || {};
     const parts = [];
     function rnd(a, b) { return a + Math.random() * (b - a); }
 
-    /* Every element starts with a patch on the floor for the effect to come OUT
-       of, so the ground visibly reacts instead of being decorated.
-
-       It used to be a near-black disc at half opacity, scaled to the field's
-       radius -- which is a dark blob the size of the skill, painted on the
-       floor, every single time an elemental skill landed. That reads as the
-       ground going black where the effect hit (and as a puddle for every
-       element, including the ones that are not wet). It is a GLOW in the
-       element's own colour now: the floor lights up where the element burns,
-       which is what the effect is supposed to say in the first place. */
+    /* Every element starts with a scar on the floor: something for the effect
+       to come OUT of, so the ground visibly reacts instead of being decorated. */
     const scar = new THREE.Mesh(
       new THREE.CylinderGeometry(0.58, 0.58, 0.03, 12),
-      glowMat(rec.core, 0.30)
+      new THREE.MeshLambertMaterial({ color: 0x17131f, transparent: true, opacity: 0.5 })
     );
     scar.position.y = 0.015;
     group.add(scar);
@@ -3191,11 +3001,17 @@ window.DS = window.DS || {};
       });
     }
 
-    /* Fire, ice, lightning and poison glow their own patch of floor. The rig
-       does not own a light: `glow` is what it wants, and the fixed element
-       pool lights the nearest few patches (see ELEM_LIGHTS), so a churning
-       fight cannot grow the scene's light count. */
-    const rig = { group: group, parts: parts, element: el, rec: rec, glow: 0, fade: 1, key: null };
+    const rig = { group: group, parts: parts, element: el, rec: rec, light: null, fade: 1, key: null };
+
+    /* Fire, ice, lightning and poison glow their own patch of floor. The count
+       is capped so a churning fight cannot drown the scene in point lights. */
+    if (rec.light && elemLights.length < MAX_ELEM_LIGHTS) {
+      const l = new THREE.PointLight(rec.light, 0.5, 5.5, 2.0);
+      l.position.set(0, 0.6, 0.3);
+      group.add(l);
+      rig.light = l;
+      elemLights.push(l);
+    }
 
     fxGroup.add(group);
     return rig;
@@ -3247,7 +3063,7 @@ window.DS = window.DS || {};
       const wob = Math.sin(t * p.speed * 2 + p.phase);
 
       if (p.kind === 'scar') {
-        mesh.material.opacity = 0.30 * fade;
+        mesh.material.opacity = 0.5 * fade;
       } else if (p.kind === 'jets') {
         mesh.scale.y = 0.75 + 0.35 * (wob * 0.5 + 0.5);
         mesh.material.opacity = (0.55 + 0.3 * (wob * 0.5 + 0.5)) * fade;
@@ -3279,9 +3095,7 @@ window.DS = window.DS || {};
         mesh.material.opacity = 0.5 * fade;
       }
     }
-    rig.glow = rec && rec.light
-      ? (0.35 + 0.2 * (Math.sin(t * 3 + rig.parts[0].phase) * 0.5 + 0.5)) * fade
-      : 0;
+    if (rig.light) rig.light.intensity = (0.35 + 0.2 * (Math.sin(t * 3 + rig.parts[0].phase) * 0.5 + 0.5)) * fade;
   }
 
   function animateLiveRigs(t) {
@@ -3318,40 +3132,6 @@ window.DS = window.DS || {};
     }
 
     animateLiveRigs(time || 0);
-
-    /* The element pool, pointed at the closest lit patches. Constant count,
-       like the flame pool: two lights exist from boot and are only ever moved
-       and re-coloured (see FLAME_LIGHTS for why that matters). */
-    const p2 = g.player;
-    const px = p2 ? (p2.x + p2.w * 0.5) * P2U : 0;
-    const py = p2 ? -(p2.y + p2.h) * P2U : 0;
-    for (let i = 0; i < elemLightPool.length; i++) {
-      const l = elemLightPool[i];
-      l.intensity = 0;
-      l.position.set(0, -999, 0.3);
-      let bestI = -1, bestD = Infinity;
-      for (let j = 0; j < liveRigs.length; j++) {
-        const rig = liveRigs[j];
-        if (!rig.rec || !rig.rec.light || rig.glow <= 0.02) continue;
-        const gp = rig.group.position;
-        const dx = gp.x - px, dy = gp.y - py;
-        const d2 = dx * dx + dy * dy;
-        let taken = false;
-        for (let k = 0; k < i; k++) {
-          if (elemLightPool[k].userData.rig === rig) { taken = true; break; }
-        }
-        if (!taken && d2 < bestD) { bestD = d2; bestI = j; }
-      }
-      if (bestI >= 0) {
-        const rig = liveRigs[bestI];
-        l.userData.rig = rig;
-        l.position.set(rig.group.position.x, rig.group.position.y + 0.6, 0.3);
-        l.color.setHex(rig.rec.light);
-        l.intensity = rig.glow;
-      } else {
-        l.userData.rig = null;
-      }
-    }
   }
 
   /* Skill FX on the floor, in 3D: a short-lived ring of glowing voxel shards
@@ -3476,11 +3256,10 @@ window.DS = window.DS || {};
     for (let i = liveRigs.length - 1; i >= 0; i--) releaseRig(liveRigs[i]);
     elemFields = [];
     elemPuddles = [];
-    for (let i = 0; i < elemLightPool.length; i++) {
-      elemLightPool[i].intensity = 0;
-      elemLightPool[i].userData.rig = null;
-      elemLightPool[i].position.set(0, -999, 0.3);
+    for (let i = elemLights.length - 1; i >= 0; i--) {
+      if (elemLights[i].parent) elemLights[i].parent.remove(elemLights[i]);
     }
+    elemLights = [];
   }
 
   // Lightning: a jagged additive strip from a to b, rebuilt while alive.
@@ -3713,7 +3492,7 @@ window.DS = window.DS || {};
       bm.smooth += ((lit ? 1 : 0) - bm.smooth) * 0.12;
       bm.flame.visible = bm.smooth > 0.05;
       bm.flame.scale.set(0.85 + bm.smooth * 0.25, 1.05 + bm.smooth * 0.5, 1);
-      bm.light.intensity = bm.smooth * TORCH_I;
+      bm.light.intensity = bm.smooth * 0.95;
       bm.coalMat.emissive.setRGB(bm.smooth * 0.85, bm.smooth * 0.3, 0);
     }
   }
@@ -3751,75 +3530,8 @@ window.DS = window.DS || {};
     return m;
   }
 
-  /* Scratch for the nearest-flame selection: fixed size, no allocation per
-     frame, because this runs on every frame of every level. */
-  const flameBestD2 = [];
-  const flameBestX = [];
-  const flameBestY = [];
-  const flameBestI = [];
-
-  /* Point the fixed pool at the nearest flames. Pure SELECTION: nothing is
-     created, added or removed, so the light count the shaders were compiled
-     for is the same on a floor with one torch and a floor with twenty, and a
-     fire skill landing mid-fight cannot push the scene over the driver's
-     uniform budget (which is what turned the screen black). */
-  function assignFlameLights(camX, camY) {
-    const n = flamePool.length;
-    if (!n) return;
-    for (let k = 0; k < n; k++) flameBestD2[k] = Infinity;
-
-    /* Two emitter lists, one rule: the closest lit ones win. A brazier's
-       brightness is its own smooth ramp times the torch intensity. */
-    for (let pass = 0; pass < 2; pass++) {
-      const list = pass ? brazierMeshes : torchLights;
-      for (let i = 0; i < list.length; i++) {
-        const e = list[i];
-        const gp = e.group && e.group.position;
-        if (!gp) continue;
-        const lit = pass ? e.smooth * TORCH_I : e.smooth;
-        if (lit <= 0.02) continue;
-        const dx = gp.x - camX;
-        const dy = gp.y + (e.lift || 1.6) - camY;
-        const d2 = dx * dx + dy * dy;
-        let worst = 0;
-        for (let k = 1; k < n; k++) if (flameBestD2[k] > flameBestD2[worst]) worst = k;
-        if (d2 < flameBestD2[worst]) {
-          flameBestD2[worst] = d2;
-          flameBestX[worst] = gp.x;
-          flameBestY[worst] = gp.y + (e.lift || 1.6);
-          flameBestI[worst] = lit;
-        }
-      }
-    }
-
-    for (let k = 0; k < n; k++) {
-      const l = flamePool[k];
-      if (flameBestD2[k] === Infinity) {
-        l.intensity = 0;
-        l.position.set(0, -999, 0.3);
-        continue;
-      }
-      l.position.set(flameBestX[k], flameBestY[k], 0.3);
-      l.intensity = flameBestI[k];
-    }
-  }
-
   function render(g) {
     if (!enabled || !renderer || !camera || !g) return;
-
-    /* Lay the frame out before anything is drawn: wipe the whole window in the
-       theme's own background colour (the letterbox bars are this colour, not
-       yesterday's pixels), then clip the world pass to the 16:9 play frame. */
-    const el = renderer.domElement;
-    const pv = playViewport();
-    renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, el.width, el.height);
-    renderer.setScissor(0, 0, el.width, el.height);
-    renderer.setClearColor(scene.background || 0x000000, 1);
-    renderer.clear(true, true, true);
-    renderer.setScissorTest(true);
-    renderer.setViewport(pv.x, pv.y, pv.w, pv.h);
-    renderer.setScissor(pv.x, pv.y, pv.w, pv.h);
 
     const R = DS.R;
     const camX = R.cam.x * P2U;
@@ -3867,68 +3579,30 @@ window.DS = window.DS || {};
       updateSwingFx();
     }
 
-    /* The rig: orbit the eye around the camera target by (yaw, pitch) at the
-       preset's distance, and always aim back at the target. With yaw at 0 and
-       pitch at 7 degrees this is exactly the shot the game shipped before. */
-    const cp = Math.cos(camRig.pitch);
-    camera.position.set(camX + Math.sin(camRig.yaw) * camRig.dist * cp,
-                        camY + Math.sin(camRig.pitch) * camRig.dist,
-                        Math.cos(camRig.yaw) * camRig.dist * cp);
+    camera.position.x = camX;
+    camera.position.y = camY - CAM_DIST * Math.tan(TILT_ANGLE);
+    camera.position.z = CAM_DIST;
     camera.lookAt(camX, camY, 0);
-    if (camRig.show > 0) camRig.show--;
-
-    const t = activeTheme || THEMES.forest;
-    /* Per-depth mood. `biome.darkness` (0.50 at the shore, 0.72 in the flooded
-       halls and the volcanic deep) was authored for the old 2D veil; here it
-       decides how much of the frame is room air and how much is lamplight. The
-       deeper rungs go dark and torch-lit rather than dark and unreadable: the
-       fill drops while the lamps come UP by the same number. */
-    const mood = M.clamp(((g.biome && g.biome.darkness) - 0.5) / 0.22, 0, 1);
-    /* Deep rungs are darker as a ROOM but not darker to read: the flat fill
-       drops hard (that is the "terang benderang" the floors had) while the sky
-       wash and the lamps rise by the same amount, because a deep floor is lit
-       by its fires and by whatever is behind it, not by nothing. */
-    const fill = 1 - 0.58 * mood;
-    const lamp = 1 + 0.62 * mood;
-    const sky = 1 - 0.20 * mood;
-    if (ambientLight) ambientLight.intensity = AMBIENT_I * fill;
-    if (hemiLight) hemiLight.intensity = HEMI_I * sky;
-    if (dirLight) dirLight.intensity = t.dirI * KEY_GAIN * (1 - 0.50 * mood);
-    if (backLight) {
-      /* The moon behind the room. This is the light the user asked to come
-         from the BACKGROUND, so it does not dim with depth -- it grows. */
-      backLight.intensity = 0.55 + 0.35 * mood;
-      backLight.color.setHex(t.hemiSky);
-    }
 
     /* The sky rides the eye line (see the sky rig in buildBackdrop). */
     if (skyRig) skyRig.position.y = camera.position.y;
-    /* The backdrop ladder is built along -Z, so a turned camera would look past
-       its edge. Turning the theme group with the rig keeps the horizon framed:
-       the bands are rigid, the eye orbits them. */
-    if (themeGroup) themeGroup.rotation.y = camRig.yaw * 0.85;
 
     if (g.player && playerLight) {
       playerLight.position.x = (g.player.x + g.player.w * 0.5) * P2U;
       playerLight.position.y = -(g.player.y + g.player.h * 0.5) * P2U;
-      /* The carried lamp, guttering down to an ember in the black room. It is
-         the readable pool of light in a deep floor, so it grows with the mood. */
-      playerLight.intensity = LAMP_I * lamp * (0.95 + Math.sin(g.frames * 0.035) * 0.05);
+      playerLight.intensity = 0.6 + Math.sin(g.frames * 0.035) * 0.04;
     }
 
-    /* Every flame's own intensity, smoothed. Nothing is written to a light
-       here: the emitters only tell the pool how bright they are, and the pool
-       hands that brightness to the four nearest of them (see FLAME_LIGHTS). */
     for (let i = 0; i < torchLights.length; i++) {
       const tl = torchLights[i];
       const fo = tl.flickerOffset;
-      const rawTarget = (tl.baseIntensity * lamp)
+      const rawTarget = tl.baseIntensity
         + Math.sin(time * 0.71 + fo)         * 0.03
         + Math.sin(time * 1.37 + fo * 0.61) * 0.02
         + Math.sin(time * 2.83 + fo * 1.19) * 0.01;
       tl.smooth = tl.smooth + (rawTarget - tl.smooth) * 0.14;
+      tl.light.intensity = tl.smooth;
     }
-    assignFlameLights(camX, camY);
 
     for (let i = 0; i < flameSprites.length; i++) {
       const fs = flameSprites[i];
@@ -4060,9 +3734,6 @@ window.DS = window.DS || {};
     if (screenParticleManager) {
       screenParticleManager.update(camX, camY, 0.016);
     }
-    /* The horizon keeps its own clock: drifting air, breathing bands and the
-       silhouettes crossing the sky (see updateBackdropLife). */
-    updateBackdropLife(time, 0.016);
 
     /* No parallax scroll to drive any more: the backdrop bands are solid
        geometry at fixed depth, so the camera's own pan produces the parallax. */
@@ -4125,18 +3796,20 @@ window.DS = window.DS || {};
     }
 
     renderer.render(scene, camera);
-    /* Hand the full canvas back for the screen layer and its overlay. */
-    renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, el.width, el.height);
+
+    /* The bag screen leaves a hole where its doll goes; fill it with the live
+       3D model. Runs after the world pass, in its own scissored viewport. */
+    if (g.modal && g.modal.kind === 'bag' && DS.UI && DS.UI.dollRect && DS.Voxel) {
+      const rect = DS.UI.dollRect();
+      ensureArmory();
+      refreshArmory(g);
+      renderArmory(g, rect);
+    }
   }
 
   DS.R3D = {
     init: init,
     resize: resize,
-    /* Camera rig: presets + the live readout the HUD shows. */
-    get rig() { return camRig; },
-    presets: CAM_PRESETS,
-    setPreset: applyCameraPreset,
     loadLevel: loadLevel,
     render: render,
     spawnElemPuddle: spawnElemPuddle,
@@ -4153,14 +3826,6 @@ window.DS = window.DS || {};
     groundAnchor: groundAnchor,
     auditAnchors: auditAnchors,
     get isEnabled() { return enabled; },
-    /* The single WebGL renderer, shared with the screen layer (ui3/screen.js). */
-    get gl() { return renderer; },
-    get canvas() { return canvas; },
-    get camera() { return camera; },
-    get lights() {
-      return { ambient: ambientLight, hemi: hemiLight, dir: dirLight,
-               back: backLight, player: playerLight };
-    },
     /* True when gameplay characters are 3D models — every sprite-drawing
        call site keys off this so the 2D canvas draws only FX/UI. */
     get voxels() { return enabled && !!(DS.Voxel); },

@@ -37,9 +37,6 @@ window.DS = window.DS || {};
       DS.Game.loadLevel(g, 'normal');
       setScene({
         g: g,
-        // The aim reticle is the cursor in a run; the loop draws an arrow only
-        // for the screens that ask for one.
-        cursor: 'none',
         update: function () { DS.Game.update(g); },
         draw: function () { DS.Game.draw(g); }
       });
@@ -82,16 +79,6 @@ window.DS = window.DS || {};
 
     DS.Audio.update();
     current.draw();
-
-    /* The pointer, drawn once, here: one owner, so no screen can forget it and
-       none can draw a second one. A scene names the cursor it wants; a run
-       says 'none' because its aim reticle IS the cursor. */
-    DS.Ptr.drawCursor(current.cursor);
-
-    /* Flush the screen layer. Every screen queues its HUD, panels and world
-       FX through DS.R while it draws; this is where those quads reach the
-       GPU, after the world pass and before the post overlay. */
-    DS.R.present(now * 0.001);
   }
 
   function boot() {

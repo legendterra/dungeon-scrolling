@@ -13,7 +13,10 @@
     font-family: ui-monospace, Consolas, monospace;
     -webkit-user-select: none; user-select: none;
   }
-  /* One canvas: the world, the HUD and the menus are all Three.js now. */
+  /* One canvas: the world, the HUD and the menus are all Three.js now.
+     focusable + no outline because the game, not the host page, owns the
+     keyboard: with focus on the canvas, Tab and Escape reach the game instead
+     of walking the host's focus order. */
   canvas#game3d {
     image-rendering: pixelated;
     image-rendering: crisp-edges;
@@ -21,11 +24,15 @@
     position: fixed;
     left: 0;
     top: 0;
+    outline: none;
+    /* One cursor only: the game's own. The pointer is drawn in screen pixels
+       (see src/ui/pointer.js) so it is the same size on every monitor. */
+    cursor: none;
   }
 </style>
 </head>
 <body>
-<canvas id="game3d"></canvas>
+<canvas id="game3d" tabindex="0"></canvas>
 
 <!-- Loaded as classic scripts (not ES modules) so the game runs straight from file:// -->
 <script src="./libs/three.min.js?v=2"></script>
@@ -65,6 +72,9 @@
 <script src="./src/art/fxart.js?v=2"></script>
 <!-- Interface art needs the sprite tables it decorates. -->
 <script src="./src/art/uiart.js?v=2"></script>
+<!-- The 1:1 interface icons the HUD, bag and menus share (and which replace the
+     money pickups' sprites), so this follows the sprite tables. -->
+<script src="./src/art/icons.js?v=2"></script>
 <script src="./src/items/inventory.js?v=2"></script>
 <script src="./src/world/tilemap.js?v=2"></script>
 <script src="./src/systems/reach.js?v=2"></script>
@@ -74,7 +84,6 @@
 <script src="./src/world/puzzle.js?v=2"></script>
 <script src="./src/world/mountain.js?v=2"></script>
 <script src="./src/world/trial.js?v=2"></script>
-<script src="./src/world/lair.js?v=2"></script>
 <script src="./src/entities/base.js?v=2"></script>
 <script src="./src/entities/player.js?t=123"></script>
 <script src="./src/entities/enemies.js?v=2"></script>
@@ -86,10 +95,15 @@
 <script src="./src/entities/bosses.js?v=2"></script>
 <!-- Skills capture DS.Ent / DS.Inv / DS.Weapons at load, so they come last. -->
 <script src="./src/systems/skills.js?v=2"></script>
+<!-- The screen kit: one grid and one set of components behind every menu, HUD
+     panel and profile tab, so no two screens can invent their own layout. -->
+<script src="./src/ui/kit.js?v=2"></script>
 <script src="./src/ui/pointer.js?v=2"></script>
 <script src="./src/ui/ui.js?v=2"></script>
 <script src="./src/ui/profile.js?v=2"></script>
 <script src="./src/scenes/cutscene.js?v=2"></script>
+<!-- The menu's 3D camp. Registered as a pre-pass by the menu scene. -->
+<script src="./src/scenes/camp3d.js?v=2"></script>
 <script src="./src/scenes/menu.js?v=2"></script>
 <script src="./src/scenes/game.js?v=2"></script>
 <script src="./src/main.js?v=2"></script>

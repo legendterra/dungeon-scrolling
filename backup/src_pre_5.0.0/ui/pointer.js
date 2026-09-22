@@ -82,8 +82,6 @@ window.DS = window.DS || {};
 
   /* Screens that draw their own cursor hide the system one, so the pointer is
      the same pixel arrow everywhere instead of an OS arrow over a pixel game. */
-  /* The canvas also carries `cursor: none` in CSS; this is the belt to that
-     brace, for a host that styles the canvas after load. */
   function hideSystemCursor() {
     const cv = DS.R.canvas;
     if (cv && cv.style.cursor !== 'none') cv.style.cursor = 'none';
@@ -105,72 +103,21 @@ window.DS = window.DS || {};
     '.....WW.'
   ];
 
-  /* --- sizing ---------------------------------------------------------------
-
-     The pointer is UI, not world: it has to be the same physical size on every
-     monitor, so its size is stated in SCREEN pixels and converted, never drawn
-     in logical units -- which is how it ended up 48x78 px tall on a 1080p
-     display (the logical frame is blown up 6x there). Two screen pixels per art
-     pixel matches the RS=2 art the whole game is authored at, so the arrow
-     stays sharp at every integer scale. */
-  const CURSOR_PX = 2;
-
-  /* Logical units per art pixel, for anything else that wants to draw at the
-     pointer's scale (the aim reticle in ui.js). */
-  function unit() {
-    const s = (DS.UI3 && DS.UI3.view && DS.UI3.view.scale) || 1;
-    return CURSOR_PX / s;
-  }
-
-  // Height of the pointer in screen pixels -- 26, whatever the window is.
-  function height() { return ARROW.length * CURSOR_PX; }
-
-  /* The arrow, baked once at screen-pixel detail and drawn as ONE quad instead
-     of thirty pixel runs. Cached per edge colour, because the accent is a
-     per-screen choice and the bake is a canvas fill. */
-  const arrowCache = {};
-
-  function arrowCanvas(accent) {
-    const key = accent || '#0d0b12';
-    if (arrowCache[key]) return arrowCache[key];
-    const cols = ARROW[0].length, rows = ARROW.length;
-    const cv = document.createElement('canvas');
-    cv.width = cols * CURSOR_PX;
-    cv.height = rows * CURSOR_PX;
-    const g = cv.getContext('2d');
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const ch = ARROW[row][col];
-        if (ch === '.') continue;
-        g.fillStyle = ch === 'W' ? '#ffffff' : key;
-        g.fillRect(col * CURSOR_PX, row * CURSOR_PX, CURSOR_PX, CURSOR_PX);
-      }
-    }
-    arrowCache[key] = cv;
-    return cv;
-  }
-
   function cursor(accent) {
     if (!active()) return;
-    const U = DS.UI3;
-    if (!U || !U.ready) return;
     hideSystemCursor();
+    const R = DS.R;
+    const px = Math.round(x()), py = Math.round(y());
+    const edge = accent || '#0d0b12';
 
-    const cv = arrowCanvas(accent);
-    const u = unit();
-    /* The art's tip is its top-left pixel, and it is placed unfrounded so the
-       tip sits exactly on the point the game hit-tests. */
-    U.topQuad(U.texFor(cv), x(), y(), cv.width * u, cv.height * u, '#ffffff', 1);
-  }
-
-  /* Every cursor this game has. The loop draws the active one after the scene
-     has drawn itself, so a screen cannot forget it and two cursors can never
-     appear at once. */
-  const CURSORS = { arrow: cursor, none: function () { hideSystemCursor(); } };
-
-  function drawCursor(name) {
-    const fn = CURSORS[name || 'arrow'] || CURSORS.arrow;
-    fn();
+    for (let row = 0; row < ARROW.length; row++) {
+      const line = ARROW[row];
+      for (let col = 0; col < line.length; col++) {
+        const ch = line[col];
+        if (ch === '.') continue;
+        R.rectS(px + col, py + row, 1, 1, ch === 'W' ? '#ffffff' : edge);
+      }
+    }
   }
 
   /* The item riding the cursor during a drag, drawn last so it is over every
@@ -213,10 +160,6 @@ window.DS = window.DS || {};
     clearDrag: clearDrag,
     dragging: dragging,
     cursor: cursor,
-    drawCursor: drawCursor,
-    unit: unit,
-    height: height,
-    CURSOR_PX: CURSOR_PX,
     dragGhost: dragGhost,
     highlight: highlight,
     hideSystemCursor: hideSystemCursor

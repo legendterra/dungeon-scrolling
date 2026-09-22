@@ -76,40 +76,18 @@ window.DS = window.DS || {};
     };
   }
 
-  /* Which room the player is standing in, and how deep inside it are they?
-     0 outside, 1 fully inside.
-
-     The ramp used to be 12 world pixels -- three quarters of a tile -- so the
-     mood swung from normal to black in about a tenth of a second and read as
-     the game glitching rather than as a room you walked into. The margin is a
-     room's approach now (8 tiles), and the threshold has hysteresis: you are
-     "inside" once you are a third of the way in and stop being inside only
-     after backing most of the way out, so standing on the boundary cannot make
-     the room flicker. */
-  const RAMP = 8 * T;        // 128 world px of approach
-  const ENTER = 0.34;
-  const EXIT = 0.16;
-
-  function rawDepth(g, lair) {
+  /* Which room is the player standing in, and how deep inside it are they?
+     0 outside, 1 fully inside — the blend keeps the veil from snapping. */
+  function depthIn(g, lair) {
     if (!lair || !g.player) return 0;
     const px = DS.Ent.centerX(g.player);
     const py = DS.Ent.centerY(g.player);
     if (px < lair.x0 * T || px > (lair.x1 + 1) * T) return 0;
     if (py < lair.y0 * T || py > (lair.y1 + 2) * T) return 0;
+    const margin = 12;
     const dx = Math.min(px - lair.x0 * T, (lair.x1 + 1) * T - px);
     const dy = Math.min(py - lair.y0 * T, (lair.y1 + 2) * T - py);
-    return M.clamp(Math.min(dx, dy) / RAMP, 0, 1);
-  }
-
-  function depthIn(g, lair) {
-    const raw = rawDepth(g, lair);
-    const was = !!g.lairInside;
-    let inside = was;
-    if (!was && raw >= ENTER) inside = true;
-    else if (was && raw <= EXIT) inside = false;
-    g.lairInside = inside;
-    if (!inside) return raw * (EXIT / Math.max(ENTER, 0.0001));
-    return M.clamp(raw, 0, 1);
+    return M.clamp(Math.min(dx, dy) / margin, 0, 1);
   }
 
   function inside(g, lair) {

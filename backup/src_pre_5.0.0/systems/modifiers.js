@@ -13,11 +13,12 @@ window.DS = window.DS || {};
 
   const M = DS.M;
 
-  /* No DARKNESS entry. "No torches burn here" was a floor that stripped every
-     lamp on the way in, and with the room's own lights being the only light
-     there is, it read as the screen cutting out rather than as a rule. A floor
-     can be hard without being unlit; the darkness is gone for good. */
   const LIST = [
+    {
+      key: 'darkness', name: 'DARKNESS', color: '#514c72',
+      desc: 'NO TORCHES BURN HERE',
+      darkness: 0.22, noTorches: true
+    },
     {
       key: 'thickblood', name: 'THICK BLOOD', color: '#c0303c',
       desc: 'EVERYTHING HERE IS HARDER TO KILL',
@@ -67,13 +68,17 @@ window.DS = window.DS || {};
     return 1;
   }
 
-  /* The floor's own shape no longer rules anything out: the only entry that had
-     to be withheld over a pit (DARKNESS, on the grounds that darkness plus a
-     parkour pit is a coin flip rather than difficulty) is gone. */
-  function roll(rng, depth) {
+  /* level.hasPit matters: total darkness plus a parkour pit is not difficulty,
+     it is a coin flip. */
+  function roll(rng, depth, level) {
     if (!rng.chance(chanceFor(depth))) return null;
 
-    return rng.pick(LIST);
+    const hasPit = !!(level && level.map && level.map.pitColumns &&
+                      level.map.pitColumns.length);
+    const pool = LIST.filter(function (m) {
+      return !(m.key === 'darkness' && hasPit);
+    });
+    return rng.pick(pool);
   }
 
   function get(g, field) {
@@ -93,6 +98,12 @@ window.DS = window.DS || {};
   // 0 through depth 3, ramping to 1 at the throne room.
   function horrorFor(depth) {
     return M.clamp((depth - 3) / 7, 0, 1);
+  }
+
+  function darknessFor(g) {
+    let dark = g.biome.darkness + g.horror * 0.26;
+    if (has(g, 'darkness')) dark += g.modifier.darkness;
+    return M.clamp(dark, 0, 0.92);
   }
 
   /* Ambience that only exists deep down: a drip, a whisper, a heartbeat when
@@ -119,19 +130,38 @@ window.DS = window.DS || {};
     if (g.horror > 0.7 && g.frames % 6 === 0) DS.R.shake(0.35);
   }
 
-  /* Atmosphere, as uniforms on the post overlay instead of painted gradients:
-     a vignette that tightens with depth and a light film of grain. Both used to
-     be drawn with a 2D context over the finished frame; the overlay shader runs
-     on the GPU in the same pass that carries the fade and the hit flash. */
-  /* Depth mood, kept deliberately light: a vignette that closes in and a film
-     of grain. This used to step hard enough (0.35 -> 0.80 of a full-frame
-     vignette) that walking into a deeper floor read as the screen dimming on
-     you, which is half of why the dark reports kept coming back. It is a frame
-     at the edges now, not a curtain. */
+  /* Drawn over the finished, lit frame: a vignette that tightens with depth and
+     a light film of grain. */
   function drawAtmosphere(g) {
-    if (g.horror <= 0.01 || !DS.UI3) return;
-    DS.UI3.post.vignette = Math.max(DS.UI3.post.vignette, 0.18 + g.horror * 0.22);
-    if (g.horror > 0.45) DS.UI3.post.grain = Math.max(DS.UI3.post.grain, g.horror * 0.16);
+    if (g.horror <= 0.01) return;
+    const R = DS.R;
+    const cx = R.ctx;
+    const C = DS.C;
+
+    cx.save();
+    cx.setTransform(C.RS, 0, 0, C.RS, 0, 0);
+
+    const inner = C.W * (0.52 - g.horror * 0.16);
+    const grd = cx.createRadialGradient(C.W / 2, C.H / 2, inner,
+                                        C.W / 2, C.H / 2, C.W * 0.78);
+    grd.addColorStop(0, 'rgba(0,0,0,0)');
+    grd.addColorStop(1, 'rgba(4,2,6,' + (0.35 + g.horror * 0.45).toFixed(2) + ')');
+    cx.fillStyle = grd;
+    cx.fillRect(0, 0, C.W, C.H);
+
+    // Grain: a scatter of dark specks reseeded every few frames.
+    if (g.horror > 0.35) {
+      const count = Math.round(g.horror * 90);
+      cx.fillStyle = 'rgba(0,0,0,0.20)';
+      for (let i = 0; i < count; i++) {
+        const seed = (g.frames >> 2) + i * 2654435761;
+        const x = (seed % C.W + C.W) % C.W;
+        const y = ((seed >> 8) % C.H + C.H) % C.H;
+        cx.fillRect(x, y, 1, 1);
+      }
+    }
+
+    cx.restore();
   }
 
   DS.Modifiers = {
@@ -142,6 +172,7 @@ window.DS = window.DS || {};
     has: has,
     mult: mult,
     horrorFor: horrorFor,
+    darknessFor: darknessFor,
     ambience: ambience,
     drawAtmosphere: drawAtmosphere
   };
