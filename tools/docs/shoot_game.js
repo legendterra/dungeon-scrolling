@@ -2,6 +2,13 @@
 /* Capture the game's screens for the documentation, without a human.
  *
  *   node tools/docs/shoot_game.js [base-url] [--only name,name]
+ *                                  [--out DIR] [--size WxH] [--probe]
+ *
+ * --out defaults to docs/img (where the chapters look for the figures), --size
+ * sets the browser window (default 1600x900), and --probe prints how the game
+ * maps that window: the scale of the play frame, its rectangle, and the gutter
+ * it leaves. Unknown flags are an error rather than silently ignored -- an
+ * argument that does nothing is how a run overwrites the wrong figures.
  *
  * The game is played the way the player plays it: real key presses go through
  * the browser's input pipeline, and only the things a player cannot do instantly
@@ -15,11 +22,12 @@
 
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const cdp = require('./cdp');
 
 const ROOT = path.dirname(path.dirname(__dirname));
-const IMG = path.join(ROOT, 'docs', 'img');
+const DEFAULT_IMG = path.join(ROOT, 'docs', 'img');
 
 const ENTER = ['Enter', 'Enter', 13];
 const UP = ['ArrowUp', 'ArrowUp', 38];
@@ -96,16 +104,63 @@ const steps = [
              DS.Scenes.gameOver(g, true); return 'cleared'; })()`, settle: 1400 }
 ];
 
+/* One value after a flag; the flag itself, or nothing at all, is a usage error. */
+function value(args, flag) {
+  const i = args.indexOf(flag);
+  if (i < 0) return null;
+  const v = args[i + 1];
+  if (v === undefined || v.startsWith('--')) throw new Error(flag + ' needs a value');
+  return v;
+}
+
+function parseSize(text) {
+  const m = /^(\d+)x(\d+)$/.exec(text || '');
+  if (!m) throw new Error('--size wants WxH, for example 1920x1080');
+  return { width: Number(m[1]), height: Number(m[2]) };
+}
+
+/* How the game maps the window onto its logical 16:9 frame. Printed by --probe,
+   and the numbers the document's UI chapter quotes. */
+const VIEW_PROBE = '(() => {' +
+  '  const v = DS.UI3.view;' +
+  '  const cv = (DS.R && DS.R.canvas) || document.querySelector("canvas");' +
+  '  const r = cv.getBoundingClientRect();' +
+  '  const W = window.innerWidth, H = window.innerHeight;' +
+  '  return {' +
+  '    window: [W, H], dpr: window.devicePixelRatio,' +
+  '    canvasCss: [Math.round(r.width), Math.round(r.height)],' +
+  '    buffer: [cv.width, cv.height],' +
+  '    frame: [v.x, v.y, v.w, v.h], scale: +v.scale.toFixed(3),' +
+  '    gutter: [v.x, v.y, W - (v.x + v.w), H - (v.y + v.h)] };' +
+  '})()';
+
 async function main() {
   const args = process.argv.slice(2);
+  let img = DEFAULT_IMG, size = { width: 1600, height: 900 }, probe = false, only = null;
+  try {
+    const out = value(args, '--out');
+    if (out) img = path.resolve(ROOT, out);
+    if (args.indexOf('--size') >= 0) size = parseSize(value(args, '--size'));
+    probe = args.indexOf('--probe') >= 0;
+    const onlyArg = value(args, '--only');
+    only = onlyArg ? onlyArg.split(',') : null;
+  } catch (err) {
+    console.error('shoot: ' + err.message);
+    return 2;
+  }
   const base = args.find((a) => a.startsWith('http')) || 'http://127.0.0.1:8123/index.html';
-  const onlyIdx = args.indexOf('--only');
-  const only = onlyIdx >= 0 ? args[onlyIdx + 1].split(',') : null;
   const list = only ? steps.filter((s) => only.indexOf(s.name) >= 0) : steps;
+  const known = ['--out', '--size', '--probe', '--only'];
+  for (const a of args) {
+    if (a.startsWith('--') && known.indexOf(a) < 0) {
+      console.error('shoot: unknown flag ' + a + ' (known: ' + known.join(', ') + ')');
+      return 2;
+    }
+  }
 
   let chrome;
   try {
-    chrome = await cdp.launch({ url: base, width: 1600, height: 900 });
+    chrome = await cdp.launch({ url: base, width: size.width, height: size.height });
   } catch (err) {
     console.error('shoot: ' + err.message);
     return 2;
@@ -121,6 +176,15 @@ async function main() {
     const boot = await session.eval('({ ready: !!(DS.R3D && DS.R3D.isEnabled), scene: DS.currentScene ? "yes" : "no" })');
     console.log('boot: ' + JSON.stringify(boot));
 
+    if (probe) {
+      await session.key(ENTER[0], ENTER[1], ENTER[2]);   // past the title card
+      await cdp.sleep(1200);
+      console.log('view: ' + JSON.stringify(await session.eval(VIEW_PROBE)));
+      await chrome.close();
+      return 0;
+    }
+    fs.mkdirSync(img, { recursive: true });
+
     for (const step of list) {
       if (step.waitFor) await waitFor(session, step.waitFor, 20000);
       if (step.eval) {
@@ -132,7 +196,7 @@ async function main() {
         await cdp.sleep(160);
       }
       await cdp.sleep(step.settle || 800);
-      const file = path.join(IMG, step.name + '.png');
+      const file = path.join(img, step.name + '.png');
       const bytes = await session.shoot(file);
       report.push({ name: step.name, kb: Math.round(bytes / 1024), caption: step.caption });
       console.log('shot ' + step.name + '.png (' + Math.round(bytes / 1024) + ' KB)');
