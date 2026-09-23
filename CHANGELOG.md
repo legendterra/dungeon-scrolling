@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v5.1.0] - 2026-09 - The Book, And A Site That Ships Only The Game
+
+### Added
+- **The Game Design & Technical Bible** (`docs/`, `dist/`): nine chapters built from a read-only audit of all 57 source files (29,004 lines) — the render/UI foundation and its scale rule, the three bitmap faces, every screen and the four HUD clusters with their exact coordinates, the player and its sixteen actions, weapons/rarity/affixes/armor/chests/shop/enchant/shrine, the twelve skills and the eight elements with their twenty-eight reactions, the full bestiary with rank scaling and the three bosses, the world generator with the biome ladder and the difficulty curve per depth, the renderer's light rig, and a **numbered issue register** (BUG-001..BUG-020) so the next pass can work from a list instead of re-reading the codebase. Output: `dist/Dungeon-Scrolling-GDD-v5.1.0.docx` (Word, 19 figures) and `.pdf` (52 pages).
+- **A documentation toolchain with no dependencies** (`tools/docs/`): `mdparse.py` parses the chapters once and two renderers consume it — `build_docx.py` writes a real .docx out of Python's stdlib (cover, TOC field, four heading levels, shaded code blocks, grid tables, embedded PNGs, footer page numbers) and `build_html.py` writes the print sheet; `cdp.js` + `build_pdf.js` print it through headless Chrome's DevTools Protocol over a hand-rolled WebSocket, because `Word.Application` Automation hangs on this machine (Office is installed but never activated) — that dead end is documented in `build_pdf.ps1` so nobody tries it twice.
+- **`check_docx.py`**: validates the generated .docx the way Word's loader does — property elements in schema order, every style/numbering/relationship/content-type reference resolvable — so a hand-written OOXML package can be trusted without the Word that would normally open it.
+- **`shoot_game.js`**: captures the document's 19 figures by driving the real game in headless Chrome (real key presses for the menu flow, the debug handles only for what a player cannot jump to instantly), and in doing so exercises the whole loop — menu, help, records, loadout, intro, seven depths, combat, bag, three profile tabs, death, cleared — with **0 console errors**.
+
+### Changed
+- **Only the game is published now** (`.assetsignore`): the Cloudflare Worker's assets directory is the project root, and it had been uploading the development tooling with it — `tools/` (Python art generators and the level solver), `prompts/`, `assets/` (18 MB of concept art and 127 development screenshots), `docs/`, `dist/`, every `*.md`, `devserver.py`, `.codex/` and `wrangler.jsonc` itself. The ignore list now leaves `index.html`, `libs/` and `src/` — about 1.3 MB — and nothing else.
+
+### Fixed
+- **The PDF printed without a single figure** (`build_html.py`): figure `src` was written relative to the project root while the sheet lives in `dist/`, so every image resolved to `dist/docs/img/...` and failed silently — the probe reported 19 broken images while the PDF looked merely text-heavy. The paths are relative to the sheet now, and the probe's `brokenImages` is 0.
+- **The layout probe measured the wrong page** (`build_pdf.js --probe`): it compared element widths against A4 inside a 1400px-wide window and reported the cover, the titles and all 62 tables as overflow. It now emulates print media at A4 width first, and reports `overflow: []` against a real 790px body.
+
+---
+
 ## [v5.0.0] - 2026-09 - One Renderer: The 2D Canvas Is Gone
 
 ### Changed

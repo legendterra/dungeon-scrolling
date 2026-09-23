@@ -1,7 +1,41 @@
-node_modules/
+# What the Cloudflare Worker must NOT publish.
+#
+# wrangler.jsonc points `assets.directory` at the project root, so without this
+# list the Worker uploads the whole development checkout: the Python art tools,
+# the prompts, 18 MB of concept art and development screenshots, the markdown
+# documentation and this repository's own configuration. What a player needs is
+# three things -- index.html, libs/ and src/ -- and that is all that is left
+# after these rules (~1.3 MB instead of ~21 MB).
+#
+# Verify with: npx wrangler deploy --dry-run
+
+# Version control and agents
 .git/
+.github/
+.gitignore
+.agents/
 .claude/
+.codex/
 .freebuff/
+.wrangler/
+.mcp.json
+skills-lock.json
+.assetsignore
+
+# Development-only content
 backup/
+docs/
+dist/
+prompts/
+tools/
+assets/
+node_modules/
+
+# Repository paperwork: no markdown, no build scripts, no host config
+*.md
+*.py
 *.log
-*.err
+*.log.err
+package.json
+package-lock.json
+wrangler.jsonc
