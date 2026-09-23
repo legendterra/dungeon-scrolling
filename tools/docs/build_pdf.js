@@ -39,14 +39,21 @@ const PROBE = `(() => {
   const mm = 96 / 25.4;
   const pageW = 210 * mm;
   const out = { pageW: Math.round(pageW), bodyW: document.body.scrollWidth,
-    docH: document.documentElement.scrollHeight, pages: 0, overflow: [],
+    docH: document.documentElement.scrollHeight, pagesEstimate: 0, overflow: [],
     chapters: document.querySelectorAll('h1').length,
     headings: document.querySelectorAll('h1,h2,h3,h4').length,
     tables: document.querySelectorAll('table').length,
     figures: document.querySelectorAll('figure').length,
     brokenImages: [...document.images].filter(i => !i.naturalWidth).length,
     tocEntries: document.querySelectorAll('.toc li').length };
-  out.pages = Math.round(out.docH / (297 * mm));
+  /* A lower bound, not the page count: it divides the document by the page box,
+     but the printed page is the box minus printToPDF's 0.55in top and 0.62in
+     bottom margin, and it cannot see the gaps that page-break-avoid rules leave
+     around headings, tables and figures. The probe said 43 while the printed PDF
+     held 52 pages, so the real number is the /Count in the file:
+       python -c "import re;print(re.findall(rb'/Count (\\d+)',open('dist/x.pdf','rb').read()))" */
+  const contentH = (11.69 - 0.55 - 0.62) * 96;
+  out.pagesEstimate = Math.round(out.docH / contentH);
   for (const el of document.querySelectorAll('body *')) {
     const r = el.getBoundingClientRect();
     if (r.width > pageW + 1) out.overflow.push(el.tagName + '.' + (el.className || '') + ' w=' + Math.round(r.width));
