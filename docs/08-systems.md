@@ -67,6 +67,23 @@ Intensitas obor punya animasi hidup: tiap obor menyimpan `baseIntensity` dan
 > pool diarahkan ke obor/patch terdekat dari pemain, dan jumlah lampu yang dilihat
 > shader **tidak pernah berubah**. Lampu tambahan tidak lagi mengubah apa pun.
 
+> **Iterasi kedua dari bug yang sama (v5.2.1).** Pool tetap menyelesaikan jumlah
+> lampu, tapi tidak isinya. `buildElemRig()` membuat objek rig tanpa properti
+> `phase`, sementara `animateRig()` menghitung
+> `Math.sin(t * 3 + rig.parts[0].phase)` — dan `parts[0]` adalah cakram scar yang
+> memang tidak punya `phase`. Hasilnya `Math.sin(NaN)` = `NaN`, `rig.glow` = `NaN`,
+> dan `NaN` itu ditulis ke `elemLightPool[i].intensity`. Satu `PointLight`
+> berintensitas `NaN` meracuni **seluruh** shading material yang terkena lampu,
+> jadi yang terlihat bukan frame yang redup tapi frame yang hitam. Terukur pada
+> depth 4: frame mean 36-40 turun ke 19-21 dan bagian gelap naik dari 51% ke
+> 70-78%, persis seperti laporan "kalau ngeluarkan skill elemental layar jadi
+> gelap". Ini hanya muncul pada tiga elemen yang benar-benar membawa lampu (fire,
+> lightning, poison). Perbaikannya di sumber (rig membawa `phase` sendiri) plus dua
+> pagar: glow dijaga `Number.isFinite`, dan pool menolak menulis ke lampu kalau
+> posisi grup atau glow bukan angka berhingga. Dijaga `npm run qa:lights`, yang
+> memeriksa (a) setiap intensitas lampu berhingga setelah tiap elemen mendarat dan
+> (b) frame tidak bertambah gelap saat satu patch terbakar.
+
 ## 8.3 Latar belakang 3D (backdrop)
 
 `[CODE]` `src/core/renderer3d.js:924` (`buildBackdrop`)
@@ -140,6 +157,54 @@ siluetnya blocky, bukan low-poly halus.
   dilarang, dan laporannya menyebut nama prop-nya. Gerbang ini diekspos di
   `DS.R3D` supaya pass QA headless bisa memastikan hasilnya kosong untuk setiap
   kedalaman dan seed tanpa mengambil satu screenshot pun.
+
+### 8.6.1 Aturan yang sama untuk yang MENGGANTUNG (v5.2.1)
+
+`auditAnchors` mengukur jarak kaki prop dari permukaan di bawahnya. Untuk tali dan
+tangga pertanyaan itu salah: keduanya **memang** tidak menyentuh tanah. Karena itu
+keduanya sengaja tidak masuk `propRegistry()`, dan jawabannya ditulis pada grup
+masing-masing:
+
+| `userData` | Isi |
+|---|---|
+| `hangTop` | tinggi ujung atas rigging, di unit dunia |
+| `hangOn` | `above` / `side` / `below` — dari mana ia diikat |
+| `anchorTile` | `[tx, ty]` tile solid tempat piton menancap |
+| `hangKind` | `rope` / `ladder` |
+
+`anchorFor(map, tx, ty)` mencari tempat menancap dengan urutan yang masuk akal:
+lurus ke atas dulu, lalu sisi kiri/kanan 1-3 tile, lalu beberapa baris ke bawah
+sisi kiri/kanan. `hangHardware()` menggambar piton di tile itu plus lengan yang
+menghubungkannya ke ujung rigging, jadi keduanya terbaca sebagai **satu alat**, dan
+tile yang ditancap dicatat di grup supaya bisa diperiksa terhadap peta.
+
+**Tali** digantung dari bawah pijakan kayu. Sebelumnya ujung atas tali mulai di
+batas tile rope paling atas — 1,02 unit di bawah sisi bawah slab pijakan (slab
+hanya mengisi bagian atas tilenya sendiri) — sehingga setiap tali di bawah pijakan
+mulai di udara dengan celah yang kelihatan. `PLATFORM_UNDER = 0.58` adalah offset
+sisi bawah slab, dan `hang` memakainya saat tile di atas adalah platform (kode 2);
+`group.userData.hangTop` mencatat di mana ujung itu mendarat.
+
+**Tangga** tidak dibangun dari tumpukan slab, karena tumpukan itu tidak ada:
+sebuah pendakian di game ini adalah **rung group** — dua tile platform atau lebih
+yang berjarak **dua baris** di kolom yang sama, diulang sepanjang tebing
+(`CLIMB_STEP = 2` di `systems/reach.js`; generator parkour memakai bentuk yang
+sama). Diukur pada sepuluh lantai: 66 grup, semuanya 2-3 rung berjarak tepat dua
+baris, lebar 1-4 tile. Versi pertama v5.2.1 mencari "run vertikal" tile platform
+yang bersebelahan, dan karena rung tidak pernah bersebelahan, hasilnya nol tangga
+di seluruh dungeon. Sekarang grup dideteksi dari **bentuknya**: lebar tangga
+mengikuti lebar rung (maksimum 4 tile), dua rel vertikal di tepinya, satu rung di
+bawah setiap papan, dan bagian atasnya tepat di sisi bawah papan paling atas.
+Rel hanya dibangun oleh rung **teratas** sebuah grup, dan pengecekannya melihat
+dua baris ke atas — rung berjarak dua baris, jadi tes satu baris menemukan celah di
+antaranya dan setiap rung membangun tangga pendeknya sendiri di atas tangga di
+atasnya (terukur di depth 10: 13 pendakian menjadi 31 tangga yang saling tumpang).
+
+Dijaga `npm run qa:hangs` (`tools/qa/check-hangs.js`), yang berjalan di sepuluh
+kedalaman dan memeriksa tiga klaim sekaligus terhadap hal yang tidak dikontrol
+renderer: (1) bounding box geometrinya sendiri mencapai `hangTop`, (2) tile yang
+ditulis di `anchorTile` benar-benar solid atau platform di peta, (3) tidak ada yang
+`hangOn: 'none'`. Hasil: 63 prop menggantung di sepuluh lantai, semuanya lolos.
 
 ## 8.7 Audio
 
@@ -284,10 +349,10 @@ python tools/docs/build_docx.py
 python tools/docs/build_html.py
 
 # 3. PDF lewat Chrome headless (nol dependensi)
-node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.2.0.html
+node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.2.1.html
 
 # 4. cek tata letak tanpa mencetak (0 overflow, 0 gambar rusak)
-node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.2.0.html --probe
+node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.2.1.html --probe
 ```
 
 > Nama berkas memakai versi dari `docs/meta.json`, jadi ganti versinya di sana

@@ -132,7 +132,7 @@ karena beberapa modul membaca modul lain saat dimuat (bukan saat dipanggil):
 | Per langkah | `Input.poll()` -> `Ptr.beginFrame()` -> `scene.update()` -> `Input.endFrame()` |
 | Sekali per frame | `Audio.update()` -> `scene.draw()` -> `Ptr.drawCursor(scene.cursor)` -> `R.present(time)` |
 | Hook uji | `DS.__paused = true` membekukan update+draw tapi loop tetap hidup; `DS.currentGame`/`DS.currentScene` adalah pegangan debug. |
-| QA berbasis browser | `npm run qa:frame` (skala frame), `qa:menu` (diorama menu vs fallback, dari piksel), `qa:board` (layar nama + ladder offline), `qa:api` (satu run sampai ke D1), `qa:climb` (panjat di fisika asli) |
+| QA berbasis browser | `npm run qa:frame` (skala frame), `qa:menu` (diorama menu vs fallback, dari piksel), `qa:board` (layar nama + ladder offline), `qa:api` (satu run sampai ke D1), `qa:climb` (panjat di fisika asli), `qa:hud` + `qa:paint` (tabel letak HUD dan frame terkompositnya), `qa:lights` (tidak ada lampu `NaN`, frame tidak menggelap saat effect elemental), `qa:hangs` (setiap tali/tangga terikat ke geometri solid) |
 
 Pergantian scene ditunda ke frame berikutnya (`setScene` menyimpan `pending`),
 jadi sebuah scene boleh meminta ganti scene dari dalam `update()`-nya sendiri

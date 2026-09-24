@@ -16,9 +16,9 @@ berarti diukur sambil game berjalan.
 
 ## 9.1 Ringkasan
 
-**Kolom Status** diperbarui pada **v5.2.0** (commit `feat(board)`): `SELESAI` berarti
-perbaikannya sudah ada di kode **dan** sudah diukur/dijalankan lewat tool QA yang
-disebut, bukan sekadar ditulis. Isu yang belum tersentuh tetap `TERBUKA`.
+**Kolom Status** diperbarui pada **v5.2.1**: `SELESAI` berarti perbaikannya sudah
+ada di kode **dan** sudah diukur/dijalankan lewat tool QA yang disebut, bukan
+sekadar ditulis. Isu yang belum tersentuh tetap `TERBUKA`.
 
 | ID | Judul singkat | Area | Tingkat | Bukti | Status (v5.2.0) |
 |---|---|---|---|---|---|
@@ -44,6 +44,9 @@ disebut, bukan sekadar ditulis. Isu yang belum tersentuh tetap `TERBUKA`.
 | BUG-020 | Teks UI hardcoded bahasa Inggris, tidak ada sistem lokalisasi | UI | S3 | CODE | TERBUKA |
 | BUG-021 | Frame main hanya mengisi 29% jendela di layar non-16:9 | UI/skala | S2 | RUNTIME | **SELESAI** v5.2.0 (`fitScale` hybrid, `qa:frame`) |
 | BUG-022 | Lampu per obor tak terbatas: shader gagal link, layar hitam saat skill api | Render | S1 | RUNTIME | **SELESAI** v5.2.0 (pool cahaya tetap 8 titik) |
+| BUG-023 | Layar gelap saat effect elemental keluar (iterasi kedua) | Render | S1 | RUNTIME | **SELESAI** v5.2.1 (satu `intensity` NaN; `qa:lights`) |
+| BUG-024 | Tali dan tangga mengambang, tidak menggantung di bawah pijakan kayu | Render/World | S2 | RUNTIME | **SELESAI** v5.2.1 (`hangTop`/`hangOn`/`anchorTile`, `qa:hangs`) |
+| BUG-025 | HUD tidak proporsional di semua tempat; koordinat hardcoded per klaster | UI | S2 | RUNTIME | **SELESAI** v5.2.1 (`hudBoxes()`, `qa:hud`, `qa:paint`) |
 
 ## 9.2 Detail per isu
 
@@ -259,6 +262,77 @@ skill api".
 light), tiap frame pool diarahkan ke obor/field terdekat dari pemain. Terukur: 9
 obor, 0 obor, dan 12 fire field semuanya tetap `13/8` light. Modul veil kegelapan
 (`systems/lighting.js`) dan modifier `DARKNESS` dihapus.
+
+### BUG-023 - Layar gelap saat effect elemental keluar (S1) - SELESAI v5.2.1
+
+**Bukti:** `[RUNTIME]` depth 4 (RUSTED PRISON), satu run hidup. Baseline frame
+`mean ≈ 36-40`, bagian gelap `≈ 51-57%`. Setelah **satu** fire field di-spawn:
+`mean ≈ 19-21`, bagian gelap `≈ 70-78%` — persis keluhan "ngeluarin effect
+elemental, layar jadi gelap". Uniform post-process (`DS.UI3.post.*`) semuanya 0, jadi
+bukan overlay. Jumlah lampu tetap 8 di kedua keadaan, jadi bukan BUG-022 lagi.
+Diag langsung pada intensitas lampu: `before: non-finite lights = 0/8`, lalu
+`fire non-finite: 1 [{"i":"null","c":"ff7a2a"}]`, `lightning` dan `poison` sama,
+`water` bersih — yaitu tepat tiga elemen yang membawa lampu.
+
+**Akar masalah:** `buildElemRig()` tidak memberi objek rig properti `phase`,
+sementara `animateRig()` menghitung `Math.sin(t * 3 + rig.parts[0].phase)` dan
+`parts[0]` adalah cakram scar yang memang tidak punya `phase`. `Math.sin(NaN)` =
+`NaN` → `rig.glow` = `NaN` → ditulis ke `elemLightPool[i].intensity`. Satu
+`PointLight` berintensitas `NaN` meracuni shading seluruh material yang terkena
+lampu, jadi hasilnya frame hitam, bukan frame redup.
+
+**Perbaikan:** rig membawa `phase` sendiri (`rnd(0, Math.PI * 2)`), glow dijaga
+`Number.isFinite` (fallback 0), dan pool elemen menolak menulis ke lampu kalau
+posisi grup atau glow bukan angka berhingga. Dijaga `npm run qa:lights`
+(`tools/qa/check-lights.js`), yang memeriksa (a) setiap intensitas lampu berhingga
+setelah masing-masing dari 8 elemen mendarat dan (b) frame tidak bertambah gelap
+saat satu patch terbakar. Hasil setelah perbaikan: semua lolos; frame tanpa field
+`{mean 30.26, dark 50.7}` → dengan field `{mean 31.01, dark 50.1}`.
+
+### BUG-024 - Tali dan tangga mengambang (S2) - SELESAI v5.2.1
+
+**Bukti:** `[RUNTIME]` laporan pemain: "ladder dan rope ditempatkan di bawah pijakan
+kayu, jangan ngambang, tapi menggantung". Di kode: ujung atas tali mulai di batas
+tile rope paling atas, yaitu **1,02 unit** di bawah sisi bawah slab pijakan (slab
+hanya mengisi bagian atas tilenya sendiri, lihat `PLATFORM_UNDER`), jadi setiap tali
+di bawah pijakan mulai di udara dengan celah yang terlihat. Dan tangga: deteksi
+"run vertikal tile platform yang bersebelahan" menemukan **nol** grup di sepuluh
+lantai, karena sebuah pendakian di game ini adalah rung berjarak `CLIMB_STEP = 2`
+baris — rung tidak pernah bersebelahan. Terukur setelah diperbaiki: 66 grup
+pendakian, semuanya 2-3 rung berjarak tepat dua baris, lebar 1-4 tile.
+
+**Perbaikan:** `PLATFORM_UNDER = 0.58` (offset sisi bawah slab); tali mulai di
+`tileTop + hang` saat tile di atasnya platform, simpul diukur dari ujung atas tali
+sendiri, plus simpul ikatan permanen di puncak. Tangga dideteksi dari **bentuk**
+rung group (bukan kedekatan tile), lebarnya mengikuti lebar rung (maks 4 tile),
+tingginya dari satu rung di bawah setiap papan, dan bagian atasnya tepat di sisi
+bawah papan paling atas. `anchorFor()` + `hangHardware()` menggambar piton di
+tile solid terdekat (atas → sisi → bawah) plus lengan ke ujung rigging, dan mencatat
+`anchorTile`. Dijaga `npm run qa:hangs` (`tools/qa/check-hangs.js`): 63 prop
+menggantung di sepuluh lantai, semuanya punya bbox yang mencapai `hangTop`
+(toleransi 0,05), anchor di tile solid/platform, dan tidak ada `hangOn: 'none'`.
+
+### BUG-025 - HUD tidak proporsional (S2) - SELESAI v5.2.1
+
+**Bukti:** `[RUNTIME]` pada DEPTH 3 (831x480): pelat mata uang 78 unit dengan baris
+16x16 mengelilingi koin 6x6, dan baris kunci meluber keluar pelatnya sendiri;
+keycap tile skill terpotong tepi bawah frame; bilah boss digambar di `C.H-14`,
+yaitu **di dalam** panel vital, jadi terbaca sebagai coretan merah di atas bilah HP;
+kartu kontrol digambar sebagai pita selebar layar di `y = 96` sehingga menutupi
+banner kedalaman, kolom boon, dan sebagian pelat mata uang pada detik pertama run.
+Setiap angka masuk akal sendiri-sendiri; jumlahnya tidak.
+
+**Perbaikan:** satu tabel letak, `hudBoxes(g)` di `src/ui/ui.js`, dan setiap klaster
+hanya menggambar di dalam kotak yang diserahkan padanya. Dua angka menurunkan
+sisanya: `HUD_GUTTER = 4` dan `HUD_BAND = 27` (satu garis dasar untuk ketiga
+klaster bawah). Baris mata uang turun ke `rowH = 9` dan pelat jadi 40 unit; keycap
+skill dan tangan pindah ke barisnya sendiri di atas tile 18x18; `clipBody`/
+`clipMicro` memotong nama boss dan label tier momentum ke kotaknya. Dijaga
+`npm run qa:hud` (`tools/qa/audit-hud.js`, mengait `DS.UI3.quad` + `DS.UI3.text`
+dan memeriksa 13 kotak plus 288 persegi tergambar untuk keadaan penuh) dan
+`npm run qa:paint` (`tools/qa/check-hud-paint.js`, mengukur frame terkomposit di
+1280x720, 1024x768, 1920x1080 — tile mata uang 160x156 px pada skala 4 menjadi
+240x234 px pada skala 6, tepat 1,5x).
 
 ## 9.3 Fitur yang diminta tetapi belum ada
 
