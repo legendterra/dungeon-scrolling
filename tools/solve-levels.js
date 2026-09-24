@@ -175,8 +175,58 @@ function canFly(map, fromTx, fromRow, dx, dy) {
   return false;
 }
 
+/* A rope is a climbing surface: entities/player.js grabs on contact and rides it
+   at 1.35 px a frame, so the cells near its foot connect to the cells near its
+   head in both directions. This is the ONE rule the solver deliberately reads
+   the same way the generator does -- the tile's meaning belongs to the game, and
+   a model that skipped it would call a rope shaft unfinishable when the hero can
+   climb straight up it. Everything about what a body can DO on the way up, down
+   and across is still this file's own. */
+let ropeGraph = null;
+
+function buildRopeGraph(map) {
+  const graph = new Map();
+  const push = function (key, value) {
+    let list = graph.get(key);
+    if (!list) { list = []; graph.set(key, list); }
+    list.push(value);
+  };
+  for (let tx = 1; tx < map.w - 1; tx++) {
+    let ty = 1;
+    while (ty < map.h - 1) {
+      if (!map.isRope(tx, ty)) { ty++; continue; }
+      const top = ty;
+      while (ty < map.h - 1 && map.isRope(tx, ty)) ty++;
+      const bottom = ty - 1;
+      const feet = [], heads = [];
+      for (let d = -1; d <= 1; d++) {
+        const x = tx + d;
+        if (x < 1 || x >= map.w - 1) continue;
+        for (let row = bottom - 2; row <= bottom + 2; row++) if (standable(map, x, row)) feet.push(x + ',' + row);
+        for (let row = top - 2; row <= top + 2; row++) if (standable(map, x, row)) heads.push(x + ',' + row);
+      }
+      for (let i = 0; i < feet.length; i++) {
+        for (let j = 0; j < heads.length; j++) {
+          if (feet[i] !== heads[j]) { push(feet[i], heads[j]); push(heads[j], feet[i]); }
+        }
+      }
+    }
+  }
+  return graph;
+}
+
 function buildMoveTable(map, fromTx, fromRow) {
   const moves = [];
+
+  if (ropeGraph) {
+    const list = ropeGraph.get(fromTx + ',' + fromRow);
+    if (list) {
+      for (let i = 0; i < list.length; i++) {
+        const c = list[i].split(',');
+        moves.push([Number(c[0]), Number(c[1])]);
+      }
+    }
+  }
   for (let dy = -5; dy <= 3; dy++) {
     for (let dx = -5; dx <= 5; dx++) {
       if (!dx && !dy) continue;
@@ -215,15 +265,18 @@ function solve(map, spawn) {
   while (ty < map.h - 1 && !standable(map, tx, ty)) ty++;
   if (!standable(map, tx, ty) && !map.isWater(tx, ty)) return { ok: false, reason: 'no spawn cell' };
 
+  ropeGraph = buildRopeGraph(map);
   const start = [tx, ty];
   const seen = new Set([tx + ',' + ty]);
   const queue = [start];
+  const edges = [];
   let maxX = tx, front = start;
 
   while (queue.length) {
     const cell = queue.pop();
     const moves = buildMoveTable(map, cell[0], cell[1]);
     for (let i = 0; i < moves.length; i++) {
+      edges.push(cell[0], cell[1], moves[i][0], moves[i][1]);
       const k = moves[i][0] + ',' + moves[i][1];
       if (seen.has(k)) continue;
       seen.add(k);
@@ -231,7 +284,58 @@ function solve(map, spawn) {
     }
     if (cell[0] > maxX || (cell[0] === maxX && cell[1] > front[1])) { maxX = cell[0]; front = cell; }
   }
-  return { ok: true, seen: seen, maxX: maxX, front: front, start: start };
+  return { ok: true, seen: seen, maxX: maxX, front: front, start: start, edges: edges };
+}
+
+/* "Can you get back out of here?", asked by this file's own move model.
+
+   The generator's reach pass answers the same question while it repairs the
+   level, so trusting its count would be asking a test to grade its own work.
+   This walks the flood's edges backwards instead, from the door column to
+   wherever that leads, and whatever the forward flood reached but this did not
+   is a pocket: a spot you can get into and not out of. */
+function escapesOf(reach, doorTx) {
+  const back = new Map();
+  const e = reach.edges || [];
+  for (let i = 0; i < e.length; i += 4) {
+    const key = e[i + 2] + ',' + e[i + 3];
+    let list = back.get(key);
+    if (!list) { list = []; back.set(key, list); }
+    list.push(e[i], e[i + 1]);
+  }
+  const out = new Set();
+  const queue = [];
+  reach.seen.forEach(function (k) {
+    if (Number(k.split(',')[0]) < doorTx) return;
+    out.add(k);
+    const c = k.split(',');
+    queue.push(Number(c[0]), Number(c[1]));
+  });
+  while (queue.length) {
+    const ty = queue.pop(), txx = queue.pop();
+    const list = back.get(txx + ',' + ty);
+    if (!list) continue;
+    for (let i = 0; i < list.length; i += 2) {
+      const k = list[i] + ',' + list[i + 1];
+      if (out.has(k)) continue;
+      out.add(k);
+      queue.push(list[i], list[i + 1]);
+    }
+  }
+  return out;
+}
+
+function pocketsOf(map, reach, doorTx) {
+  const back = escapesOf(reach, doorTx);
+  const out = [];
+  reach.seen.forEach(function (k) {
+    if (back.has(k)) return;
+    const c = k.split(',');
+    const tx = Number(c[0]), ty = Number(c[1]);
+    if (map.isWater(tx, ty) || map.isDeath(tx, ty)) return;
+    out.push(tx + ',' + ty);
+  });
+  return out;
 }
 
 function doorColumn(spawns) {
@@ -302,6 +406,7 @@ function dump(map, reach, spawn, x0, x1) {
       else if (t === DS.TILE.DOOR) line += 'D';
       else if (t === DS.TILE.DEATHSPIKE) line += 'X';
       else if (t === DS.TILE.WATER) line += '~';
+      else if (t === DS.TILE.ROPE) line += '|';
       else line += seen ? '.' : ' ';
     }
     lines.push(line);
@@ -331,10 +436,13 @@ function main() {
   const seeds = Number(process.argv[2]) || 40;
   let total = 0, floors = 0, worst = null, genFails = 0, repairs = 0, rungs = 0, genMs = 0;
   let trapFloors = 0, trapCols = 0, drowned = 0;
+  let pocketFloors = 0, pocketCells = 0, deadRungs = 0, climbRungs = 0, ledgeRungs = 0, ropes = 0;
+  let genPockets = 0, genStuck = 0, genTrapped = 0;
+  let pocketExample = null;
   const t0 = Date.now();
 
   for (let depth = 1; depth <= DS.C.FINAL_DEPTH; depth++) {
-    let fails = 0, noSpawn = 0, first = null;
+    let fails = 0, noSpawn = 0, first = null, pFloors = 0, pCells = 0;
     for (let s = 0; s < seeds; s++) {
       const seed = 1000 + s * 7 + depth * 131;
       const b0 = Date.now();
@@ -349,6 +457,22 @@ function main() {
         if (!level.reach.ok) genFails++;
         repairs += level.reach.repairs || 0;
         rungs += level.reach.rungs || 0;
+        deadRungs += level.reach.deadRungs || 0;
+        climbRungs += level.reach.climbRungs || 0;
+        ledgeRungs += level.reach.ledgeRungs || 0;
+        ropes += level.reach.ropes || 0;
+        genPockets += level.reach.pockets || 0;
+        genStuck += level.reach.stuck || 0;
+        genTrapped += level.reach.trapped || 0;
+      }
+      /* The solver's own pocket count, not the generator's. */
+      if (reach.ok && doorTx != null) {
+        const pockets = pocketsOf(level.map, reach, doorTx);
+        if (pockets.length) {
+          pFloors++; pCells += pockets.length;
+          pocketFloors++; pocketCells += pockets.length;
+          if (!pocketExample) pocketExample = { seed: seed, depth: depth, cells: pockets, level: level, reach: reach };
+        }
       }
       const traps = trapColumns(level.map);
       if (traps.length) { trapFloors++; trapCols += traps.length; }
@@ -360,18 +484,42 @@ function main() {
     }
     if (fails && (!worst || fails > worst.fails)) worst = { depth: depth, fails: fails, first: first };
     console.log('depth ' + String(depth).padStart(2) + '  floors ' + seeds +
-                '  UNREACHABLE EXIT: ' + fails + (noSpawn ? '  (no spawn: ' + noSpawn + ')' : ''));
+                '  UNREACHABLE EXIT: ' + fails + (noSpawn ? '  (no spawn: ' + noSpawn + ')' : '') +
+                '  pocket floors: ' + pFloors + (pCells ? ' (' + pCells + ' cells)' : ''));
   }
 
   console.log('\nTOTAL floors with an unreachable exit: ' + total + ' / ' + floors +
+              '\nTOTAL pockets (can get in, cannot get out): ' + pocketCells +
+              ' cells on ' + pocketFloors + ' floors' +
               '\n  the generator itself gave up on ' + genFails + ' of them,' +
               ' spread ' + (repairs / floors).toFixed(1) + ' repairs and ' +
               (rungs / floors).toFixed(1) + ' rungs per floor' +
+              '\n  of which ' + (climbRungs / floors).toFixed(1) + ' are cliff ladders, ' +
+              (ledgeRungs / floors).toFixed(1) + ' are ledge steps and ' +
+              (ropes / floors).toFixed(1) + ' are ropes hung on tall faces' +
+              '\n  it pruned ' + (deadRungs / floors).toFixed(1) + ' rungs per floor nothing could stand on,' +
+              ' repaired ' + (genPockets / floors).toFixed(1) + ' pockets per floor,' +
+              ' and reported ' + genStuck + ' pockets it could not repair (' + genTrapped + ' cells left)' +
               '\n  ' + trapFloors + ' floors have a column you could fall into and never leave (' +
               trapCols + ' columns; ' + drowned + ' killing floors sit against water)' +
               '\n  (' + ((Date.now() - t0) / floors).toFixed(0) + ' ms per floor, ' +
               (genMs / floors).toFixed(0) + ' of them inside the generator, ' +
               (profilePoints / floors / 1000).toFixed(0) + 'k profile steps per floor)');
+
+  /* The gate: an unreachable exit is a failure. Pockets are reported and gated
+     loosely, because a handful of cells in a corner of a boss floor is a known
+     residue the repair budget stops at, while a regression would be hundreds. */
+  const POCKET_BUDGET = 20;
+  if (pocketCells > POCKET_BUDGET && pocketExample) {
+    console.log('\nPOCKETS LEFT -- the first one, depth ' + pocketExample.depth +
+                ' seed ' + pocketExample.seed + ': ' + pocketExample.cells.slice(0, 8).join(' | '));
+    report(pocketExample.level, pocketExample.seed, pocketExample.depth);
+    process.exitCode = 1;
+  }
+  if (total > 0) {
+    console.log('\nUNREACHABLE EXITS: ' + total + ' -- that is the failure this gate exists for.');
+    process.exitCode = 1;
+  }
 
   const seedArg = Number(process.argv[process.argv.indexOf('--seed') + 1]);
   const depthArg = Number(process.argv[process.argv.indexOf('--depth') + 1]);

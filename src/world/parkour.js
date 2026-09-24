@@ -107,18 +107,25 @@ window.DS = window.DS || {};
   // Horizontal stride between stepping stones: jump plus air jump clears three.
   const HOP = 3;
 
-  /* Floating parkour above the walking surface: short chains you can take
-     instead of the floor, usually toward a chest or over a spike bed. */
+  /* A stepped route above the walking surface: two rows a step and three or four
+     columns apart, starting from the floor itself.
+
+     It used to be a chain of platforms four to seven rows up, with nothing to
+     get onto it -- parkour you could see and not take, which is scenery wearing
+     the shape of a route. Every link is now one hop from the one before, so the
+     chain is a way up to whatever is at the top instead of a decoration over
+     the floor. */
   function decorate(map, rng, fromX, width, row, depth) {
     if (width < 5) return;
-    if (!rng.chance(0.42 + depth * 0.03)) return;
+    if (!rng.chance(0.3 + depth * 0.03)) return;
 
-    const chainRow = Math.max(CEIL_ROW + 1, row - rng.int(4, 7));
     let x = fromX + rng.int(0, 2);
+    let r = Math.max(CEIL_ROW + 2, row - 2);
     const links = rng.int(2, 4);
-    for (let i = 0; i < links && x < fromX + width - 2; i++) {
-      platformRun(map, x, chainRow - (i % 2), rng.int(2, 3));
-      x += rng.int(3, 5);
+    for (let i = 0; i < links && x < fromX + width - 2 && r > CEIL_ROW + 1; i++) {
+      platformRun(map, x, r, rng.int(2, 3));
+      x += rng.int(3, 4);
+      r -= 2;
     }
   }
 
