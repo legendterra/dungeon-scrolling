@@ -25,3 +25,8 @@ Thumbs.db
 
 # Local screenshot dumps from the dev server's POST /__shot bridge
 assets/preview/
+
+# Development-only copies and agent config. Untracked, not deleted: the files
+# stay on disk, they just stop riding along in every clone.
+backup/
+.codex/
