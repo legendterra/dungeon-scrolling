@@ -104,6 +104,7 @@ window.DS = window.DS || {};
   let leverMeshes = [];
   let brazierMeshes = [];   // trial hall braziers: { group, flame, ref, smooth }
   let ropeMeshes = [];      // 3D ropes: { x0,y0,x1,y1 (units), group }
+  let ladderMeshes = [];    // 3D ladders built from vertical runs of platforms
   let elemPuddles = [];     // per-enemy status puddles: { mesh, key }
   let elemFields = [];      // ground field plates: { mesh, key }
   let elemBolts = [];       // lightning bolts: { mesh }
@@ -121,6 +122,12 @@ window.DS = window.DS || {};
   // 1 world pixel = 0.1 Three.js units (1 tile of 16px = 1.6 units)
   const P2U = 0.1;
   const TILE_SIZE = 16 * P2U; // 1.6 units
+
+  /* How far below a platform tile's top edge its slab's underside sits: the
+     slab is 0.35 of a tile tall and hangs 0.3 above the tile's centre (see the
+     platform instances in loadLevel). Anything that hangs from a platform --
+     a rope, a ladder -- has to start exactly here or it starts in mid-air. */
+  const PLATFORM_UNDER = 0.58;
 
   // Camera: a gentle downward tilt so the floor slabs read as 3D, without
   // tipping far enough to shove the walkway off the bottom of the frame.
@@ -1880,6 +1887,68 @@ window.DS = window.DS || {};
     return m;
   }
 
+  /* A bar between two points, in the LOCAL space of the parent. Used for the
+     anchor arms below: a rope has to be tied to something, and the something is
+     usually beside it rather than above it. */
+  function beamBetween(parent, x1, y1, x2, y2, w, material) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(len, w, w), material);
+    m.position.set((x1 + x2) * 0.5, (y1 + y2) * 0.5, 0.02);
+    m.rotation.z = Math.atan2(dy, dx);
+    parent.add(m);
+    return m;
+  }
+
+  /* Where does a hanging thing hang FROM?
+
+     Ropes and ladders are placed by the generator against a FACE -- the rope
+     down a cliff, the ladder up a stack of ledges -- so there is usually
+     nothing directly above them, which is exactly why they read as floating.
+     The physical answer is a piton in the nearest solid thing: straight up
+     first, then the faces beside the head, then a couple of rows down beside
+     it. Returns the tile it bit into, or null when the prop truly stands in
+     open air -- which is a level-design error to report, not to decorate. */
+  function anchorFor(map, tx, ty) {
+    const solidAt = function (x, y) {
+      if (x < 1 || y < 1 || x >= map.w - 1 || y >= map.h - 1) return false;
+      return map.isSolid(x, y) || map.isPlatform(x, y);
+    };
+    if (solidAt(tx, ty - 1)) return { x: tx, y: ty - 1, kind: 'above' };
+    for (let d = 1; d <= 3; d++) {
+      if (solidAt(tx - d, ty)) return { x: tx - d, y: ty, kind: 'side' };
+      if (solidAt(tx + d, ty)) return { x: tx + d, y: ty, kind: 'side' };
+    }
+    for (let dy = 1; dy <= 3; dy++) {
+      for (let d = 0; d <= 3; d++) {
+        if (d === 0) {
+          if (solidAt(tx, ty + dy)) return { x: tx, y: ty + dy, kind: 'below' };
+          continue;
+        }
+        if (solidAt(tx - d, ty + dy)) return { x: tx - d, y: ty + dy, kind: 'below' };
+        if (solidAt(tx + d, ty + dy)) return { x: tx + d, y: ty + dy, kind: 'below' };
+      }
+    }
+    return null;
+  }
+
+  /* The hardware: a piton buried in the solid tile, and an arm from it to the
+     head of the strand, so the two read as one piece of rigging. Drawn in WORLD
+     units (the caller passes world coordinates), so the arm lands where the
+     anchor actually is rather than in the rope group's local space. */
+  function hangHardware(map, tileX, tileY, headX, headY, armMat, pitonMat) {
+    const a = anchorFor(map, tileX, tileY);
+    if (!a) return null;
+    const ax = (a.x * 16 + 8) * P2U;
+    const ay = -(a.y * 16 + 8) * P2U;
+    const group = new THREE.Group();
+    const dir = (headX === ax) ? (tileX >= a.x ? 1 : -1) : Math.sign(headX - ax) || 1;
+    part(group, 0.18, 0.18, 0.18, ax + dir * 0.55, ay, 0.06, pitonMat);
+    beamBetween(group, ax + dir * 0.55, ay, headX, headY, 0.075, armMat);
+    propsGroup.add(group);
+    return a;
+  }
+
   function createGateMesh(gate) {
     const group = new THREE.Group();
     const barMat = new THREE.MeshLambertMaterial({ color: 0x6f6a90 });
@@ -2260,6 +2329,7 @@ window.DS = window.DS || {};
     brazierMeshes = [];
     crateMeshes = [];
     ropeMeshes = [];
+    ladderMeshes = [];
     clearElemRigs();
     elemBolts.forEach(function (eb) { if (eb.mesh.parent) eb.mesh.parent.remove(eb.mesh); });
     elemBolts = [];
@@ -2547,8 +2617,15 @@ window.DS = window.DS || {};
       }
     }
 
-    // Ropes as real 3D geometry: one knotted strand per run of rope tiles.
-    // The mountain shafts live or die by these reading as climbable lines.
+    /* Ropes as real 3D geometry: one knotted strand per run of rope tiles.
+       The mountain shafts live or die by these reading as climbable lines.
+
+       A strand HANGS. It used to start at the boundary of its topmost rope
+       tile, which is 1.02 units below the underside of a wooden platform --
+       the plank slab only fills the top part of its own tile -- so every rope
+       under a platform began in mid-air with a visible gap to the thing it was
+       supposed to be tied to. The strand now runs up to whatever is above it,
+       and it says what that was, so a QA pass can check the claim. */
     if (map.isRope) {
       const ropeMat = new THREE.MeshLambertMaterial({ color: 0xa87848 });
       const ropeDark = new THREE.MeshLambertMaterial({ color: 0x5c3f2a });
@@ -2563,7 +2640,10 @@ window.DS = window.DS || {};
             let y1 = ty;
             while (map.isRope(tx, y1 + 1)) y1++;
             const uW = (x1 - tx + 1) * TILE_SIZE;
-            const uH = (y1 - ty + 1) * TILE_SIZE;
+            const tileTop = -(ty * 16) * P2U;
+            const above = map.get(tx, ty - 1);
+            const hang = above === 2 ? PLATFORM_UNDER : 0;
+            const uH = (y1 - ty + 1) * TILE_SIZE + hang;
             const group = new THREE.Group();
             const cx = ((tx + x1 + 1) * 0.5 * 16) * P2U;
             // Strand: a vertical box column per tile-wide rope.
@@ -2571,14 +2651,24 @@ window.DS = window.DS || {};
             part(group, strandW, uH, strandW, 0, 0, 0, ropeDark);
             // Inner lit core slightly forward so the braid reads in fog.
             part(group, strandW * 0.5, uH * 0.96, strandW * 0.5, 0, 0, strandW * 0.45, ropeMat);
-            // Knots every tile and an anchor block at the top.
+            // Knots every tile, measured down from the strand's own top.
             for (let ky = 0; ky < y1 - ty + 1; ky++) {
-              part(group, strandW * 2.2, 0.09, strandW * 2.2, 0, uH * 0.5 - (ky + 0.5) * TILE_SIZE, 0, ropeMat);
+              part(group, strandW * 2.2, 0.09, strandW * 2.2, 0,
+                   uH * 0.5 - (ky + 0.5) * TILE_SIZE - hang, 0, ropeMat);
             }
-            if (!map.isRope(tx, ty - 1)) {
-              part(group, 0.4, 0.14, 0.4, 0, uH * 0.5 + 0.05, 0, ropeDark);
-            }
-            group.position.set(cx, -(ty * 16) * P2U - uH * 0.5, 0.25);
+            // The knot it is tied off with, at the very top of the strand.
+            part(group, 0.4, 0.14, 0.4, 0, uH * 0.5 - 0.07, 0, ropeDark);
+            group.position.set(cx, tileTop + hang - uH * 0.5, 0.25);
+            const headY = tileTop + hang;
+            /* One anchoring rule for every hanging prop: a piton in the nearest
+               solid face and an arm from it to the strand's head, with the tile
+               it bit into recorded on the group so a QA pass can check the
+               claim against the map instead of trusting this code. */
+            const anchor = hangHardware(map, tx, ty, cx, headY, ropeDark, ropeMat);
+            group.userData.hangTop = headY;
+            group.userData.hangKind = 'rope';
+            group.userData.hangOn = anchor ? anchor.kind : 'none';
+            group.userData.anchorTile = anchor ? [anchor.x, anchor.y] : null;
             propsGroup.add(group);
             ropeMeshes.push({ group: group, x: tx, y0: ty, y1: y1 });
             tx = x1 + 1;
@@ -2587,6 +2677,96 @@ window.DS = window.DS || {};
           }
         }
         ty++;
+      }
+    }
+
+    /* Ladders. A climb in this game is not a column of stacked slabs -- it is a
+       RUNG GROUP: two or more platform tiles placed two rows apart in the same
+       columns, repeated down a face. `systems/reach.js` builds every climb that
+       way (CLIMB_STEP = 2) and the parkour generator copies the shape; measured
+       over the ten floors there are 66 groups and every one of them is 2-3
+       rungs spaced exactly two rows, 1-4 tiles wide. Bare, a group reads as
+       planks hovering in the air -- which is the report this answers. Dressed,
+       it is the way up.
+
+       It has to be detected by SHAPE rather than by adjacency: two rows apart
+       means the tiles never touch, so a "vertical run" test finds nothing at
+       all and the whole dungeon comes out with zero ladders. */
+    if (map.get) {
+      const railMat = new THREE.MeshLambertMaterial({ color: 0x9a7444 });
+      const railDark = new THREE.MeshLambertMaterial({ color: 0x5b452c });
+      const platAt = function (tx, ty) {
+        if (tx < 0 || ty < 0 || tx >= w || ty >= h) return 0;
+        return map.get(tx, ty);
+      };
+      for (let ty = 1; ty < h - 2; ty++) {
+        let tx = 1;
+        while (tx < w - 1) {
+          if (platAt(tx, ty) !== 2) { tx++; continue; }
+          let x1 = tx;
+          while (x1 + 1 < w - 1 && platAt(x1 + 1, ty) === 2) x1++;
+
+          /* Only the top rung of a group builds a ladder, and only when no rung
+             of a wider climb already covers these columns. The check has to
+             look TWO rows up, not one: rungs are two rows apart, so a row test
+             finds the empty gap between them and every rung of every climb
+             builds its own shorter ladder over the one above it. Measured at
+             depth 10 that is 13 climbs becoming 31 overlapping ladders. */
+          let continues = false;
+          for (let x = tx; x <= x1 && !continues; x++) {
+            continues = platAt(x, ty - 1) === 2 || platAt(x, ty - 2) === 2;
+          }
+
+          if (!continues) {
+            const rows = [ty];
+            let row = ty;
+            while (true) {
+              let next = -1;
+              for (let step = 1; step <= 2 && next < 0; step++) {
+                const r = row + step;
+                if (r >= h - 1) break;
+                let hit = false;
+                for (let x = tx; x <= x1 && !hit; x++) hit = platAt(x, r) === 2;
+                if (hit) next = r;
+              }
+              if (next < 0) break;
+              rows.push(next);
+              row = next;
+            }
+
+            if (rows.length >= 2) {
+              const topY = -(rows[0] * 16) * P2U - PLATFORM_UNDER;
+              const botY = -((rows[rows.length - 1] + 1) * 16) * P2U;
+              const group = new THREE.Group();
+              /* The ladder is as wide as the rungs it serves, so it reads as the
+                 framework the planks are bolted to rather than as a pipette
+                 beside a staircase. Capped at four tiles so a long landing does
+                 not become a wall. */
+              const span = Math.min(x1 - tx + 1, 4) * TILE_SIZE;
+              const railX = span * 0.5 - 0.10;
+              const mid = (topY + botY) * 0.5;
+              part(group, 0.06, topY - botY, 0.08, -railX, 0, 0, railDark);
+              part(group, 0.06, topY - botY, 0.08, railX, 0, 0, railDark);
+              /* One rung under each plank, kept BELOW the slab's underside so
+                 the rigging never pokes through the platform it hangs from and
+                 the top of the whole ladder is exactly where the group says. */
+              for (let r = 0; r < rows.length; r++) {
+                const y = -(rows[r] * 16) * P2U - PLATFORM_UNDER - 0.06;
+                part(group, span + 0.12, 0.05, 0.07, 0, y - mid, 0, railMat);
+              }
+              const ladderX = (tx * 16 + (x1 + 1) * 16) * 0.5 * P2U;
+              group.position.set(ladderX, mid, 0.32);
+              const anchor = hangHardware(map, tx, rows[0], ladderX, topY, railDark, railMat);
+              group.userData.hangTop = topY;
+              group.userData.hangKind = 'ladder';
+              group.userData.hangOn = anchor ? anchor.kind : 'none';
+              group.userData.anchorTile = anchor ? [anchor.x, anchor.y] : null;
+              propsGroup.add(group);
+              ladderMeshes.push({ group: group, x: tx, y0: rows[0], y1: rows[rows.length - 1] });
+            }
+          }
+          tx = x1 + 1;
+        }
       }
     }
   }
@@ -2602,6 +2782,12 @@ window.DS = window.DS || {};
         if (group && group.position) list.push({ name: name, group: group, boxed: !!boxed });
       }
     }
+    /* Ropes and ladders are deliberately NOT in this list: they hang, so
+       "how far is its footprint from the surface below it" is the wrong
+       question for them. What they must satisfy is written on the group itself
+       (userData.hangTop / userData.hangOn) and checked by
+       tools/qa/check-hangs.js, which asks the question that fits: is the top of
+       this strand attached to something solid? */
     add(chestMeshes, 'chest', true);
     add(pickupMeshes, 'pickup', true);
     add(plateMeshes, 'plate', false);
@@ -3197,7 +3383,15 @@ window.DS = window.DS || {};
        does not own a light: `glow` is what it wants, and the fixed element
        pool lights the nearest few patches (see ELEM_LIGHTS), so a churning
        fight cannot grow the scene's light count. */
-    const rig = { group: group, parts: parts, element: el, rec: rec, glow: 0, fade: 1, key: null };
+    /* Every rig carries its OWN phase. The glow below used to be phased off
+       parts[0], which is the scar disc -- and the scar is the one part with no
+       phase of its own, so `Math.sin(t * 3 + undefined)` made the rig's glow
+       NaN. That NaN went straight into a point light's intensity, and a NaN
+       light poisons the shading of every lit material in the scene: the frame
+       went dark the moment fire, lightning or poison landed. A per-rig phase is
+       what the animation wanted in the first place. */
+    const rig = { group: group, parts: parts, element: el, rec: rec, glow: 0, fade: 1,
+                  key: null, phase: rnd(0, Math.PI * 2) };
 
     fxGroup.add(group);
     return rig;
@@ -3281,9 +3475,13 @@ window.DS = window.DS || {};
         mesh.material.opacity = 0.5 * fade;
       }
     }
-    rig.glow = rec && rec.light
-      ? (0.35 + 0.2 * (Math.sin(t * 3 + rig.parts[0].phase) * 0.5 + 0.5)) * fade
+    /* What the rig WANTS the fixed element pool to shine at. Never allowed to
+       be non-finite: a light's intensity is one of the few values that can take
+       the whole frame down with it (see the note on the rig's phase). */
+    const glow = rec && rec.light
+      ? (0.35 + 0.2 * (Math.sin(t * 3 + rig.phase) * 0.5 + 0.5)) * fade
       : 0;
+    rig.glow = Number.isFinite(glow) ? glow : 0;
   }
 
   function animateLiveRigs(t) {
@@ -3346,8 +3544,17 @@ window.DS = window.DS || {};
       }
       if (bestI >= 0) {
         const rig = liveRigs[bestI];
+        const gpx = rig.group.position.x, gpy = rig.group.position.y;
+        /* The last gate before a value becomes light. A non-finite intensity
+           does not dim a frame, it BLACKS it out, so it is refused here even if
+           everything upstream is already careful. */
+        if (!Number.isFinite(gpx) || !Number.isFinite(gpy) ||
+            !Number.isFinite(rig.glow) || rig.glow <= 0) {
+          l.userData.rig = null;
+          continue;
+        }
         l.userData.rig = rig;
-        l.position.set(rig.group.position.x, rig.group.position.y + 0.6, 0.3);
+        l.position.set(gpx, gpy + 0.6, 0.3);
         l.color.setHex(rig.rec.light);
         l.intensity = rig.glow;
       } else {
@@ -3801,8 +4008,11 @@ window.DS = window.DS || {};
         l.position.set(0, -999, 0.3);
         continue;
       }
+      /* Same gate as the element pool: an intensity that is not a finite
+         number is worse than no light at all. */
+      const lit = flameBestI[k];
       l.position.set(flameBestX[k], flameBestY[k], 0.3);
-      l.intensity = flameBestI[k];
+      l.intensity = Number.isFinite(lit) && lit > 0 ? lit : 0;
     }
   }
 

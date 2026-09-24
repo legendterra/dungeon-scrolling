@@ -27,90 +27,197 @@ window.DS = window.DS || {};
     wind: 'GALE', steam: 'STEAM'
   };
 
+  /* Clip a label to a width, with a ".." so a shortened name reads as shortened
+     rather than as a typo. BODY advances 6 units per character and MICRO 4, and
+     those are the only two faces the HUD draws with. The boss names and the
+     momentum tier labels are the two that grew long enough to escape their
+     band, and a band a name can escape is not a band. */
+  function clip(str, maxW, advance) {
+    str = String(str == null ? '' : str);
+    const n = Math.max(0, Math.floor((maxW + 1) / advance));
+    if (str.length <= n) return str;
+    if (n <= 2) return str.slice(0, n);
+    return str.slice(0, n - 2) + '..';
+  }
+  function clipBody(str, maxW) { return clip(str, maxW, 6); }
+  function clipMicro(str, maxW) { return clip(str, maxW, 4); }
+
   // --- HUD ------------------------------------------------------------------
 
+  /* --- HUD layout: one table, one owner --------------------------------------
+
+     Every cluster's rectangle is decided HERE and nowhere else. The HUD used to
+     be hand-tuned at each call site, which is how one plate ended up 78 units
+     wide with 20-unit rows while the vitals sat 150 wide and the skill keycaps
+     hung off the bottom edge of the frame: every number was reasonable on its
+     own and the totals were not. The frame is now divided once -- a 4-unit
+     gutter, four corners, one centre column -- and a cluster may only draw
+     inside the box it is handed.
+
+     Units are logical pixels of the 320x180 frame. hudBoxes() is also what
+     tools/qa/audit-hud.js measures: every box inside the frame with a real
+     margin, no two boxes colliding, and how much of the frame the HUD claims as
+     a whole. A hand-written `y = 96` in a cluster is how this drifts back.
+
+     Two measures, and everything else is derived from them. HUD_GUTTER is the
+     distance from the frame's edge to the nearest pixel of HUD; HUD_BAND is the
+     height of the one row the three bottom clusters share, so the vitals, the
+     hands and the skill tiles sit on a single baseline instead of three. */
+  const HUD_GUTTER = 4;
+  const HUD_BAND = 27;
+  const HUD_VITALS = { w: 120 };
+  const HUD_SLOT = 18;                       // side of one hand or skill tile
+  const HUD_SLOT_GAP = 4;
+  const HUD_ARMOR = { w: 12, h: 5, gap: 1 };
+  /* Row height is the icon well's, not a text line's: the pickups are 6x6
+     (coin) to 7x8 (shard) logical pixels, and the old 16-unit rows meant every
+     currency row wore a 16x16 black square around a 6x6 coin -- which is what
+     made the plate look like a second, angrier window. */
+  const HUD_PLATE = { w: 40, rowH: 9, gap: 3, pad: 3 };
+
+  function hudBoxes(g) {
+    const bandY = C.H - HUD_GUTTER - HUD_BAND;
+    const rows = (g && g.inv && g.inv.keys > 0) ? 3 : 2;
+    const plateH = HUD_PLATE.pad * 2 + rows * HUD_PLATE.rowH + (rows - 1) * HUD_PLATE.gap;
+    const slotsW = HUD_SLOT * 2 + HUD_SLOT_GAP;
+    const handsW = slotsW + 8 + HUD_ARMOR.w;
+    const plateX = C.W - HUD_GUTTER - HUD_PLATE.w;
+
+    /* The vitals are centred in the gap the two corner clusters leave, not in
+       the frame: a 120-wide panel centred on the frame would sit 14 units
+       closer to the skills than to the hands, and the whole bottom row would
+       read as a stack that had slid sideways. */
+    const innerL = HUD_GUTTER + handsW + 8;
+    const innerR = C.W - HUD_GUTTER - slotsW - 8;
+    const vitalsW = Math.max(80, Math.min(HUD_VITALS.w, innerR - innerL));
+    const vitalsX = Math.round((innerL + innerR - vitalsW) / 2);
+
+    const b = {
+      // The floor's name, in the width the currency plate does not own.
+      banner: { x: HUD_GUTTER, y: 3, w: plateX - HUD_GUTTER - 2, h: 8 },
+      // Coins and shards (and a key, only while you have one).
+      plate: { x: plateX, y: 3, w: HUD_PLATE.w, h: plateH },
+      // Boons taken this run: a single column down the right edge.
+      boons: { x: C.W - HUD_GUTTER - 11, y: 0, w: 11, h: 0 },
+      // Vitals, bottom centre.
+      vitals: { x: vitalsX, y: bandY, w: vitalsW, h: HUD_BAND },
+      // Both hands plus the armour you are wearing, bottom left.
+      hands: { x: HUD_GUTTER, y: bandY, w: handsW, h: HUD_BAND },
+      // Skill and ultimate, bottom right.
+      skills: { x: C.W - HUD_GUTTER - slotsW, y: bandY, w: slotsW, h: HUD_BAND },
+      /* The centred rows, each with its own band so they can never land on the
+         vitals the way the boss bar used to (it was drawn at C.H-14, which is
+         inside the vitals panel, and read as a red smear across the health).
+         The bands are also kept off the right edge, where the boon column
+         runs, or the two would draw through each other. */
+      momentum: { x: Math.round(C.W / 2) - 38, y: 13, w: 76, h: 18 },
+      boss: { x: Math.round((C.W - 140) / 2), y: 34, w: 140, h: 16 },
+      breath: { x: Math.round(C.W / 2) - 34, y: 52, w: 68, h: 20 },
+      toast: { x: 60, y: 76, w: C.W - 120, h: 8 },
+      controls: { x: 20, y: 92, w: C.W - 40, h: 32 },
+      prompt: { x: 40, y: 132, w: C.W - 80, h: 8 },
+      camera: { x: HUD_GUTTER, y: 14, w: 84, h: 24 }
+    };
+    b.boons.y = b.plate.y + b.plate.h + 3;
+    b.boons.h = Math.max(0, b.hands.y - b.boons.y - 3);
+    return b;
+  }
+
   /* The HUD, in the action-RPG arrangement: vitals along the bottom centre,
-     abilities bottom right, currency top right in the same panel the bag uses,
-     and only the floor's name across the top. It replaces a heart row, three
-     stacked bars and a skill pair all crowded into the top-left corner -- with
-     a voxel dungeon behind them, the corner that used to hold everything is now
-     the part of the screen the player most needs to see. */
+     abilities bottom right, currency top right in the same plate the bag uses,
+     both hands and the armour bottom left, and the floor's name across the top
+     left of that plate. Everything on screen is a box from hudBoxes(). */
   function hud(g) {
     const R = DS.R;
     const p = g.player;
     if (!p) return;
 
+    const B = hudBoxes(g);
     const held = Inv.weapon(p.inv);
-    drawVitals(g, p);
-    drawCurrency(g);
+
+    drawVitals(g, p, B.vitals);
+    drawCurrency(g, B.plate);
+    drawBoons(g, B.boons);
 
     const label = g.levelKind === 'safe' ? 'SAFE ROOM'
                 : g.levelKind === 'boss' ? 'THRONE ROOM'
                 : g.levelKind === 'trial' ? 'THE TRIAL'
                 : 'DEPTH ' + g.depth;
-    R.textCenter(label, C.W / 2, 4, MUTED);
+    /* Centred on the FRAME, not on the banner box: the box is the strip of top
+       edge the currency plate leaves free, and its midpoint sits 21 units left
+       of the frame's while the plate is 40 wide. The deepest label the game
+       has ('THRONE ROOM') is 65 wide, so it is always inside the box. */
+    R.textCenter(label, C.W / 2, B.banner.y + 1, MUTED);
 
-    // Abilities hug the bottom-right corner: thumb reach, and out of the way of
-    // the walkway the player is reading.
-    /* Anchored off the right edge by the cluster's own width, so the second
-       tile (and its keycap) cannot run past the 320px frame. */
-    if (held) drawSkills(g, p, held, C.W - 50, C.H - 26);
+    if (held) drawSkills(g, p, held, B.skills);
 
-    drawBreath(g, p);
-    drawMomentum(g);
-    drawBoons(g);
-    drawWeaponSlot(g, held);
-    if (g.boss && !g.boss.dead) drawBossBar(g);
-    drawToast(g);
-    drawControls(g);
-    if (DS.R3D && DS.R3D.rig && DS.R3D.rig.show > 0) drawCamReadout();
+    drawBreath(g, p, B.breath);
+    drawMomentum(g, B.momentum);
+    drawWeaponSlot(g, held, B.hands);
+    if (g.boss && !g.boss.dead) drawBossBar(g, B.boss);
+    drawToast(g, B.toast);
+    drawControls(g, B.controls);
+    if (DS.R3D && DS.R3D.rig && DS.R3D.rig.show > 0) drawCamReadout(B.camera);
     // A modal owns the screen; the world's interaction hint underneath it is
     // just text bleeding through a panel.
     if (g.prompt && !g.modal && !g.paused) {
-      R.hintsCenter([[g.prompt.key, g.prompt.text]], C.W / 2, C.H - 46, INK, CYAN);
+      R.hintsCenter([[g.prompt.key, g.prompt.text]],
+                    B.prompt.x + B.prompt.w / 2, B.prompt.y, INK, CYAN);
     }
   }
 
-  /* HP, shield, mana, stamina and the dash charges, stacked on one plate at the
-     bottom centre. Health is a bar with a number on it rather than a row of
+  /* HP, shield, mana, stamina and the dash charges, stacked in one box from the
+     layout table. Health is a bar with its number on it rather than a row of
      hearts: the pool grows past a dozen with boons, and a heart row that wraps
-     onto a second line told the player nothing about how much was left. */
-  function drawVitals(g, p) {
+     onto a second line told the player nothing about how much was left.
+
+     Every row keeps its height whether or not it has something to say, so the
+     plate never changes shape mid-fight. */
+  function drawVitals(g, p, box) {
     const R = DS.R;
-    const W2 = 150, X = (C.W - W2) / 2, Y = C.H - 24;
+    const X = box.x, Y = box.y, W2 = box.w;
 
-    R.panelS(X - 4, Y - 5, W2 + 8, 27, 'rgba(10,8,16,0.72)', '#514c72');
+    R.panelS(X, Y, W2, box.h, 'rgba(10,8,16,0.78)', '#514c72');
 
-    const hpPct = p.hp / Math.max(1, p.stats.maxHp);
+    const hpPct = M.clamp(p.hp / Math.max(1, p.stats.maxHp), 0, 1);
     const low = hpPct <= 0.25;
     const pulse = low && Math.floor(g.frames / 12) % 2 === 0;
-    R.barRPG(X, Y, W2, 6, hpPct, pulse ? '#e8743b' : '#c0303c', '#2a1116');
-    R.textSmall(String(Math.max(0, Math.ceil(p.hp))) + '/' + p.stats.maxHp,
-                X + 3, Y + 1, '#ffffff');
+    R.barRPG(X + 2, Y + 2, W2 - 4, 7, hpPct, pulse ? '#e8743b' : '#c0303c', '#2a1116');
+    R.textSmall(Math.max(0, Math.ceil(p.hp)) + '/' + p.stats.maxHp, X + 4, Y + 3, '#ffffff');
 
+    // Shield: a hairline under the health. Empty row when there is none.
     if (p.stats.shield > 0) {
-      R.barRPG(X, Y + 7, W2, 3, p.shield / p.stats.shield, '#a8e4ff', '#16324f');
+      const shieldPct = M.clamp(p.shield / p.stats.shield, 0, 1);
+      R.rectS(X + 2, Y + 10, Math.max(1, Math.round((W2 - 4) * shieldPct)), 3, '#a8e4ff');
     } else {
-      R.rectS(X, Y + 7, W2, 3, 'rgba(20,18,32,0.8)');
+      R.rectS(X + 2, Y + 10, W2 - 4, 3, 'rgba(20,18,32,0.85)');
     }
 
-    // Mana left, stamina right, dash charges as pips under the stamina half.
-    const half = Math.floor((W2 - 4) / 2);
-    R.barRPG(X, Y + 12, half, 4, p.mana / Math.max(1, p.stats.maxMana), '#4fb3e0', '#12253a');
-    R.barRPG(X + half + 4, Y + 12, half, 4,
-             p.stamina / Math.max(1, p.stats.maxStamina), '#5cbf62', '#14240f');
-    R.textSmall('MP', X + 1, Y + 17, CYAN);
-    R.textSmall('SP', X + half + 5, Y + 17, '#5cbf62');
+    // Mana and stamina side by side, each labelled and valued INSIDE its own
+    // bar: no text ever sits under the plate where nothing lines up with it.
+    const half = Math.floor((W2 - 6) / 2);
+    const mana = Math.floor(p.mana), stam = Math.floor(p.stamina);
+    R.barRPG(X + 2, Y + 15, half, 5, M.clamp(p.mana / Math.max(1, p.stats.maxMana), 0, 1),
+             '#4fb3e0', '#12253a');
+    R.barRPG(X + half + 4, Y + 15, half, 5,
+             M.clamp(p.stamina / Math.max(1, p.stats.maxStamina), 0, 1), '#5cbf62', '#14240f');
+    R.textSmall('MP', X + 4, Y + 15, '#dff2ff');
+    R.textSmall(String(mana), X + 2 + half - 4 - R.textSmallWidth(String(mana)), Y + 15, '#dff2ff');
+    R.textSmall('SP', X + half + 6, Y + 15, '#e6ffe4');
+    R.textSmall(String(stam), X + half + 4 + half - 4 - R.textSmallWidth(String(stam)),
+                Y + 15, '#e6ffe4');
 
+    // Dash charges, right-aligned on the last row, with the row's own label.
     const max = DS.Player.MINI_CHARGES;
     const refill = 1 - M.clamp(p.miniTimer / DS.Player.MINI_RECHARGE, 0, 1);
+    R.textSmall('DASH', X + 4, Y + 21, MUTED);
     for (let i = 0; i < max; i++) {
-      const cx = X + W2 - 6 - i * 7;
-      R.rectS(cx, Y + 17, 5, 5, '#1c1a2b');
-      if (i < p.miniLeft) R.rectS(cx + 1, Y + 18, 3, 3, '#a3e86b');
+      const cx = X + W2 - 4 - 6 - i * 7;
+      R.rectS(cx, Y + 21, 5, 5, '#1c1a2b');
+      if (i < p.miniLeft) R.rectS(cx + 1, Y + 22, 3, 3, '#a3e86b');
       else if (p.miniLeft < max) {
         const fill = Math.max(0, Math.round(3 * refill));
-        if (fill > 0) R.rectS(cx + 1, Y + 21 - fill, 3, fill, '#3d6b3f');
+        if (fill > 0) R.rectS(cx + 1, Y + 25 - fill, 3, fill, '#3d6b3f');
       }
     }
   }
@@ -118,40 +225,47 @@ window.DS = window.DS || {};
   /* Coins, shards and keys in the bag's own plate, so the HUD and the inventory
      speak the same language instead of the currency being the one spot on
      screen still drawn as bare icons. */
-  function drawCurrency(g) {
+  function drawCurrency(g, box) {
     const R = DS.R, S = DS.SPR;
-    const rows = 2 + (g.inv.keys > 0 ? 1 : 0);
-    /* Sized to hold a 16px icon on its own line rather than a 9px row: the
-       icons were being cramped against the value and read as specks in the
-       corner of a 16:9 frame. */
-    const rowH = 20, pad = 5;
-    const w = 78, h = pad * 2 + rows * rowH, x = C.W - w - 4, y = 4;
-    R.panelS(x, y, w, h, 'rgba(13,11,18,0.88)', '#514c72');
-    R.rectS(x + 1, y + 1, w - 2, 1, 'rgba(111,106,144,0.35)');
+    const rows = [
+      { icon: S.coin, value: g.inv.coins, color: GOLD },
+      { icon: S.shard, value: g.inv.shards, color: CYAN }
+    ];
+    // The key row only exists once you have a key, and the plate is sized for it
+    // in hudBoxes() so the row appearing does not shove the plate past the edge.
+    if (g.inv.keys > 0) rows.push({ icon: S.key, value: g.inv.keys, color: GOLD });
 
-    const row = function (i, icon, value, color) {
-      const ry = y + pad + i * rowH;
-      R.rectS(x + 4, ry, 16, 16, 'rgba(8,7,14,0.7)');
-      R.sprS(icon, x + 4, ry);
-      R.textRight(String(value), x + w - 6, ry + 5, color);
-    };
-    row(0, S.coin, g.inv.coins, GOLD);
-    row(1, S.shard, g.inv.shards, CYAN);
-    if (g.inv.keys > 0) row(2, S.key, g.inv.keys, GOLD);
+    R.panelS(box.x, box.y, box.w, box.h, 'rgba(13,11,18,0.88)', '#514c72');
+    R.rectS(box.x + 1, box.y + 1, box.w - 2, 1, 'rgba(111,106,144,0.35)');
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const ry = box.y + HUD_PLATE.pad + i * (HUD_PLATE.rowH + HUD_PLATE.gap);
+      // A well of one fixed size, the artwork centred in it: a 6x6 coin and a
+      // 7x8 shard then share the same left edge instead of the shard sitting
+      // one pixel high and two wide.
+      R.rectS(box.x + 2, ry, HUD_PLATE.rowH, HUD_PLATE.rowH, 'rgba(8,7,14,0.6)');
+      const iw = r.icon.uw == null ? r.icon.width : r.icon.uw;
+      const ih = r.icon.uh == null ? r.icon.height : r.icon.uh;
+      R.sprS(r.icon, box.x + 2 + Math.round((HUD_PLATE.rowH - iw) / 2),
+                     ry + Math.round((HUD_PLATE.rowH - ih) / 2));
+      const text = String(r.value);
+      R.textSmall(text, box.x + box.w - 4 - R.textSmallWidth(text),
+                  ry + Math.round((HUD_PLATE.rowH - 5) / 2) + 1, r.color);
+    }
   }
 
   /* The camera preset readout, up for a few seconds after F6. It names the
      preset and prints the two angles, because the yaw is a real trade-off
      between how 3D the frame looks and how much of the level fits on it. */
-  function drawCamReadout() {
+  function drawCamReadout(box) {
     const R = DS.R;
     const rig = DS.R3D.rig;
     const preset = DS.R3D.presets[rig.preset];
-    const w = 132, x = C.W - w - 4, y = 30;
-    R.panelS(x, y, w, 22, 'rgba(10,8,16,0.86)', '#6f6a90');
-    R.textSmall('CAMERA', x + 4, y + 3, MUTED);
-    R.textSmall(preset.label, x + 4, y + 11, CYAN);
-    R.textSmall('F6 NEXT  F7 RESET', x + 4, y + 17, '#3a3654');
+    R.panelS(box.x, box.y, box.w, box.h, 'rgba(10,8,16,0.86)', '#6f6a90');
+    R.textSmall('CAMERA', box.x + 4, box.y + 3, MUTED);
+    R.textSmall(preset.label, box.x + 4, box.y + 10, CYAN);
+    R.textSmall('F6 NEXT  F7 RESET', box.x + 4, box.y + 17, '#3a3654');
   }
 
   /* The control sheet, drawn in the canvas instead of as HTML under it.
@@ -168,24 +282,26 @@ window.DS = window.DS || {};
   /* The countdown itself belongs to update(), not here: a timer that ticks
      while the frame is being drawn ages differently in a paused window than in
      a simulation, and the control sheet is a simulation-time thing. */
-  function drawControls(g) {
+  function drawControls(g, box) {
     if (!g.controlsTimer || g.controlsTimer <= 0) return;
 
     const R = DS.R;
     const fade = Math.min(1, g.controlsTimer / 90);
     if (fade <= 0) return;
 
-    /* A centred card rather than a bottom strip: the bottom of the screen is
-       already the weapon card and the interaction prompt. */
-    const h = 36, y = 96;
-    R.rectS(0, y - 3, C.W, h, 'rgba(10,8,16,' + (0.78 * fade).toFixed(2) + ')');
-    R.rectS(0, y - 4, C.W, 1, 'rgba(111,106,144,' + (0.8 * fade).toFixed(2) + ')');
-    R.rectS(0, y + h - 4, C.W, 1, 'rgba(111,106,144,' + (0.8 * fade).toFixed(2) + ')');
+    /* A card, not a band across the screen. It used to be full-bleed, which
+       meant it covered the depth banner, the boon column and part of the
+       currency plate the moment a run started -- the one HUD element that
+       everybody sees first was the one that looked most broken. */
+    R.panelS(box.x, box.y, box.w, box.h,
+             'rgba(10,8,16,' + (0.80 * fade).toFixed(2) + ')',
+             'rgba(111,106,144,' + (0.85 * fade).toFixed(2) + ')');
 
     const strong = fade > 0.4;
     const ink = strong ? MUTED : '#3a3654';
     for (let i = 0; i < CONTROL_ROWS.length; i++) {
-      R.hintsCenter(CONTROL_ROWS[i], C.W / 2, y + i * 10, ink, strong ? CYAN : '#2a2740');
+      R.hintsCenter(CONTROL_ROWS[i], box.x + box.w / 2, box.y + 5 + i * 10,
+                    ink, strong ? CYAN : '#2a2740');
     }
   }
 
@@ -196,7 +312,7 @@ window.DS = window.DS || {};
      the corner and the cooldown drawn as a shutter wiping down over the art.
      The old version printed the skill's name in 3px type next to a key, which
      at this resolution was an unreadable smear that told you nothing. */
-  function drawSkills(g, p, item, x, y) {
+  function drawSkills(g, p, item, box) {
     const R = DS.R, S = DS.Skills, SPR = DS.SPR;
     const names = S.names(item);
     const rarityColor = W.rarityColor(item.rarity);
@@ -212,10 +328,17 @@ window.DS = window.DS || {};
     // Track previous cooldowns for READY! pop
     if (!p._prevSkillCd) p._prevSkillCd = {};
 
-    const SIZE = 21;
+    /* The tile sits on the band's baseline and its keycap takes the row above
+       it. The keycap used to hang off the tile's own bottom edge, which put a
+       7-unit cap at y+SIZE-1 -- for a tile on the bottom band that is past the
+       last row of the frame, so the badge was simply cut in half. */
+    const SIZE = HUD_SLOT;
+    const y = box.y + box.h - SIZE;
+    const capY = box.y + 1;
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const sx = x + i * (SIZE + 4);
+      const sx = box.x + i * (SIZE + HUD_SLOT_GAP);
       const cooling = row.cd > 0;
       const cost = Math.round(row.cost * discount);
       const poor = p.mana < cost;
@@ -237,15 +360,17 @@ window.DS = window.DS || {};
       R.rectS(sx + 1, y + 1, 2, SIZE - 2, accent);
 
       const icon = SPR.skillIcon(item.type, row.which);
-      const ix = sx + Math.round((SIZE - 16) / 2) + 1;
-      if (ready) R.sprS(icon, ix, y + 2);
-      else R.sprAlphaS(icon, ix, y + 2, cooling ? 0.30 : 0.45);
+      const ix = sx + Math.round((SIZE - 16) / 2);
+      if (ready) R.sprS(icon, ix, y + 1);
+      else R.sprAlphaS(icon, ix, y + 1, cooling ? 0.30 : 0.45);
 
       // Cooldown shutter: fills from the top and retreats as it recharges.
       if (cooling) {
         const covered = Math.round((SIZE - 2) * (row.cd / row.max));
         R.rectS(sx + 1, y + 1, SIZE - 2, covered, 'rgba(13,11,18,0.72)');
-        R.textSmall(String(Math.ceil(row.cd / 60)), sx + SIZE / 2 - 1, y + 6, '#9b96b8');
+        const left = String(Math.ceil(row.cd / 60));
+        R.textSmall(left, sx + Math.round((SIZE - R.textSmallWidth(left)) / 2),
+                    y + 7, '#9b96b8');
       }
 
       // A ready skill gets a lit rail along the bottom edge + subtle glow pulse
@@ -257,27 +382,41 @@ window.DS = window.DS || {};
         }
       }
 
-      R.keycap(row.key, sx - 1, y + SIZE - 1, accent);
+      R.keycap(row.key, sx, capY, accent);
       if (poor && !cooling) {
-        R.textSmall(String(cost), sx + SIZE - 7, y + SIZE - 7, '#2f6fa8');
+        // The price sits in the tile's bottom-right corner, right-aligned so a
+        // three-digit cost does not push the first digit out of the tile.
+        const price = String(cost);
+        R.textSmall(price, sx + SIZE - 2 - R.textSmallWidth(price), y + SIZE - 6, '#2f6fa8');
       }
     }
   }
 
 
   // Boons taken this run, as coloured initials down the right edge.
-  function drawBoons(g) {
+  function drawBoons(g, box) {
     const list = g.inv.boons || [];
     if (!list.length) return;
     const R = DS.R;
 
-    for (let i = 0; i < list.length; i++) {
+    /* Only as many chips as the column actually holds. The list used to start
+       at y=62 and run off the bottom of the screen once a run got long, which
+       is exactly the sort of thing nobody notices until depth 8 with twelve
+       boons: the count then wears a "+n" so the missing ones are still
+       accounted for rather than silently dropped. */
+    const fit = Math.floor((box.h + 2) / 10);
+    const shown = Math.max(0, Math.min(list.length, fit));
+
+    for (let i = 0; i < shown; i++) {
       const boon = DS.Boons.BY_KEY[list[i]];
       if (!boon) continue;
-      const y = 62 + i * 9;   // under the currency plate, not through it
-      R.rectS(C.W - 12, y, 8, 8, 'rgba(13,11,18,0.7)');
-      R.frameS(C.W - 12, y, 8, 8, boon.color);
-      R.text(boon.name[0], C.W - 10, y + 1, boon.color);
+      const y = box.y + i * 10;
+      R.rectS(box.x + 2, y, 8, 8, 'rgba(13,11,18,0.7)');
+      R.frameS(box.x + 2, y, 8, 8, boon.color);
+      R.text(boon.name[0], box.x + 4, y, boon.color);
+    }
+    if (shown < list.length) {
+      R.textSmall('+' + (list.length - shown), box.x + 2, box.y + shown * 10, MUTED);
     }
   }
 
@@ -289,57 +428,61 @@ window.DS = window.DS || {};
      active one raised, lit and labelled, the off-hand dimmed under its swap
      key — plus a strip of the three armour slots, so what you wear is
      visible at a glance without opening the bag. */
-  function drawWeaponSlot(g, item) {
+  function drawWeaponSlot(g, item, box) {
     const R = DS.R, S = DS.SPR;
     const inv = g.inv;
     if (!item && !Inv.offhand(inv)) return;
 
-    const slotW = 27, slotH = 22, gap = 3;
-    const y = C.H - slotH - 3;
-    const totalW = slotW * 2 + gap + 3 + 10;   // hands + divider + 3 mini armour slots
-    const x0 = 4;
+    const SIZE = HUD_SLOT;
+    const y = box.y + box.h - SIZE;      // tiles on the band's baseline
+    const capY = box.y + 1;              // keycaps in their own row above
+    const x0 = box.x + 2;
 
     // Backing panel for the whole cluster.
-    R.panelS(x0 - 2, y - 2, totalW + 2, slotH + 4, 'rgba(10,8,16,0.82)', '#3a3654');
+    R.panelS(box.x, box.y, box.w, box.h, 'rgba(10,8,16,0.82)', '#3a3654');
 
     const hands = [inv.equipped[0], inv.equipped[1]];
     for (let i = 0; i < 2; i++) {
       const it = hands[i];
       const active = i === inv.active;
-      const sx = x0 + i * (slotW + gap);
-      // Active slot floats up and glows in its rarity colour; the off-hand
-      // sits flat and dim — hierarchy you can read at a glance.
-      const sy = active ? y - 2 : y;
+      const sx = x0 + i * (SIZE + HUD_SLOT_GAP);
       const col = it ? W.rarityColor(it.rarity) : '#3a3654';
-      R.panelS(sx, sy, slotW, slotH, active ? 'rgba(16,14,26,0.9)' : 'rgba(8,7,14,0.7)', active ? col : '#26233a');
+      /* The active slot no longer floats two units up. That lift made the
+         cluster a different height from its neighbours and, worse, slid the
+         slot under its own keycap -- so the badge for the hand you were
+         holding was the one badge you could not read. Active is shown by the
+         border, the rail and the element pip instead, all of which stay put. */
+      R.panelS(sx, y, SIZE, SIZE, active ? 'rgba(16,14,26,0.9)' : 'rgba(8,7,14,0.7)',
+               active ? col : '#26233a');
       if (it) {
-        R.sprS(S.itemIcon(it), sx + 5, sy + 5);
+        R.sprS(S.itemIcon(it), sx + 1, y + 1);
         if (active) {
           // Under-glow strip + element pip, reading "this is what you hold".
-          R.rectS(sx + 2, sy + slotH - 2, slotW - 4, 1, col);
+          R.rectS(sx + 1, y + SIZE - 2, SIZE - 2, 1, col);
           if (it.element) {
             const el = W.ELEMENTS[it.element];
-            R.rectS(sx + slotW - 6, sy + 2, 3, 3, el.color);
+            R.rectS(sx + SIZE - 4, y + 1, 3, 3, el.color);
           }
         }
       } else {
-        R.textSmall('_', sx + 10, sy + 7, '#2a2740');
+        R.textSmall('-', sx + Math.round(SIZE / 2) - 1, y + 7, '#2a2740');
       }
-      R.keycap(String(i + 1), sx - 1, sy - 3, active ? col : '#2a2740');
+      R.keycap(String(i + 1), sx, capY, active ? col : '#2a2740');
     }
 
-    // Armour strip: head / chest / legs mini-slots.
+    // Armour strip: head / chest / legs mini-slots, stacked in the column the
+    // hand tiles leave on the right.
     const slots = ['head', 'chest', 'legs'];
-    const ax = x0 + slotW * 2 + gap + 4;
-    R.rectS(ax - 2, y + 2, 1, slotH - 4, '#26233a');   // divider
+    const ax = box.x + box.w - 2 - HUD_ARMOR.w;
+    R.rectS(ax - 2, y, 1, SIZE, '#26233a');   // divider
     for (let a = 0; a < slots.length; a++) {
       const piece = inv.armor[slots[a]];
-      const ay = y + 2 + a * 7;
-      R.rectS(ax, ay, 10, 6, piece ? 'rgba(16,14,26,0.9)' : 'rgba(8,7,14,0.6)');
+      const ay = y + a * (HUD_ARMOR.h + HUD_ARMOR.gap);
+      R.rectS(ax, ay, HUD_ARMOR.w, HUD_ARMOR.h, piece ? 'rgba(16,14,26,0.9)' : 'rgba(8,7,14,0.6)');
       if (piece) {
         const mc = (DS.Armor && DS.Armor.MATERIALS[piece.material]) || {};
-        R.rectS(ax + 1, ay + 1, 8, 4, mc.mid || '#9b96b8');
-        R.rectS(ax + 1, ay + 1, 8, 1, mc.light || '#cfc4ff');
+        R.rectS(ax + 1, ay + 1, HUD_ARMOR.w - 2, HUD_ARMOR.h - 2, mc.mid || '#9b96b8');
+        R.rectS(ax + 1, ay + 1, HUD_ARMOR.w - 2, 1, mc.light || '#cfc4ff');
       }
     }
   }
@@ -347,45 +490,55 @@ window.DS = window.DS || {};
   /* One bar, whoever is wearing it. Bosses carry their own name and colour so
      the bar reads as that fight rather than as a generic health strip, and the
      pool behind it is deep enough that the segments are worth drawing. */
-  function drawBossBar(g) {
+  function drawBossBar(g, box) {
     const R = DS.R;
     const b = g.boss;
-    const w = 180, x = (C.W - w) / 2, y = C.H - 14;
     const color = b.barColor || '#c86ee0';
+    const enraged = b.phase === 2;
 
-    R.textCenter(b.name || 'SLIME KING', C.W / 2, y - 9, color);
-    R.bar(x, y, w, 6, b.hp / b.maxHp, color, '#1c1a2b');
+    /* The name is clipped to the box, so no boss name the game ever gains can
+       run past it, and "ENRAGED" is a tag on the bar rather than a word after
+       the name: appended to the name it pushed a 95-wide label to 155 and out
+       of the band on both sides. */
+    R.textCenter(clipBody(b.name || 'SLIME KING', box.w - 8),
+                 box.x + box.w / 2, box.y + 1, enraged ? RED : color);
+    R.bar(box.x, box.y + 10, box.w, 6, b.hp / b.maxHp, color, '#1c1a2b');
 
     // Ticks every quarter, so progress through a long fight is legible.
     for (let i = 1; i < 4; i++) {
-      R.rectS(x + (w / 4) * i, y + 1, 1, 4, 'rgba(13,11,18,0.7)');
+      R.rectS(box.x + (box.w / 4) * i, box.y + 11, 1, 4, 'rgba(13,11,18,0.7)');
     }
-    if (b.phase === 2) R.textSmall('ENRAGED', x + w + 3, y, '#c0303c');
+    if (enraged) {
+      R.rectS(box.x + 2, box.y + 10, 31, 6, 'rgba(13,11,18,0.72)');
+      R.textSmall('ENRAGED', box.x + 3, box.y + 11, '#ff8a8a');
+    }
   }
 
   /* Breath. Only ever on screen while it matters: under water, or during the
      few seconds after surfacing while it fills back up. */
-  function drawBreath(g, p) {
+  function drawBreath(g, p, box) {
     if (!p.inWater && p.breath >= 60 * 14) return;
     const R = DS.R;
     const pct = M.clamp(p.breath / (60 * 14), 0, 1);
-    const w = 60, x = (C.W - w) / 2, y = 26;
     const low = pct < 0.3;
 
-    R.textSmall('BREATH', x, y - 7, low ? RED : CYAN);
-    R.bar(x, y, w, 4, pct, low ? '#c0303c' : '#4fb3e0', '#16324f');
+    R.textSmall('BREATH', box.x, box.y + 1, low ? RED : CYAN);
+    R.bar(box.x, box.y + 8, box.w, 4, pct, low ? '#c0303c' : '#4fb3e0', '#16324f');
     if (pct > 0) return;
     if (Math.floor(g.frames / 8) % 2 === 0) {
-      R.textCenter('DROWNING', C.W / 2, y + 7, RED);
+      R.textCenter('DROWNING', box.x + box.w / 2, box.y + 13, RED);
     }
   }
 
-  function drawToast(g) {
+  function drawToast(g, box) {
     if (!g.toastTimer || g.toastTimer <= 0) return;
     const R = DS.R;
     const alpha = Math.min(1, g.toastTimer / 20);
-    const y = 40 - (1 - alpha) * 4;
-    R.textCenter(g.toastText, C.W / 2, y, g.toastColor || INK);
+    // Slides one unit into place as it fades. It used to travel four units up,
+    // which put the line above its own band and, once the breath bar moved
+    // there, straight through it.
+    const y = box.y + Math.round(1 - alpha);
+    R.textCenter(g.toastText, box.x + box.w / 2, y, g.toastColor || INK);
   }
 
   // --- item card ------------------------------------------------------------
@@ -682,19 +835,30 @@ window.DS = window.DS || {};
   }
 
   /* Momentum meter — only appears once a streak is actually going. */
-  function drawMomentum(g) {
+  function drawMomentum(g, box) {
     if (g.streak < 2) return;
     const R = DS.R;
     const tier = DS.Boons.tier(g.streak);
-    const pct = g.streakTimer / DS.Boons.DECAY_FRAMES;
+    const pct = M.clamp(g.streakTimer / DS.Boons.DECAY_FRAMES, 0, 1);
     const bonus = Math.round(DS.Boons.bonus(g) * 100);
 
-    const x = C.W / 2 - 30, y = 16;
-    R.textCenter('x' + g.streak + (tier.label ? '  ' + tier.label : ''),
-                 C.W / 2, y, tier.color);
-    R.rectS(x, y + 9, 60, 2, '#1c1a2b');
-    R.rectS(x, y + 9, Math.round(60 * pct), 2, tier.color);
-    if (bonus > 0) R.textRight('+' + bonus + '%', x + 60, y + 13, tier.color);
+    R.textCenter(clipBody('x' + g.streak, box.w - 8),
+                 box.x + box.w / 2, box.y + 1, tier.color);
+    R.rectS(box.x + 4, box.y + 10, box.w - 8, 2, '#1c1a2b');
+    R.rectS(box.x + 4, box.y + 10, Math.round((box.w - 8) * pct), 2, tier.color);
+
+    /* The tier name used to ride along on the streak line, which made the line
+       as wide as the longest tier ('UNSTOPPABLE') plus 'x30  ' -- 95 units in a
+       frame where the whole centre column is 76. It shares the row under the
+       bar with the damage bonus now, each clipped to what is left. */
+    const pctTxt = bonus > 0 ? '+' + bonus + '%' : '';
+    const used = pctTxt ? R.textSmallWidth(pctTxt) + 4 : 0;
+    if (tier.label) {
+      R.textSmall(clipMicro(tier.label, box.w - 8 - used), box.x + 4, box.y + 13, tier.color);
+    }
+    if (pctTxt) {
+      R.textSmallRight(pctTxt, box.x + box.w - 4, box.y + 13, tier.color);
+    }
   }
 
   function openShop(g) {
@@ -1477,6 +1641,10 @@ window.DS = window.DS || {};
 
   DS.UI = {
     hud: hud,
+    /* Exported for tools/qa/audit-hud.js, which measures the table itself:
+       every box inside the frame with a real margin and no two boxes sharing a
+       pixel. A layout bug you cannot measure is a layout bug that comes back. */
+    hudBoxes: hudBoxes,
     reticle: reticle,
     itemCard: itemCard,
     cardHeight: cardHeight,
