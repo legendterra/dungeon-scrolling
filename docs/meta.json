@@ -2,12 +2,12 @@
   "game": "DUNGEON SCROLLING",
   "title": "Game Design & Technical Bible",
   "subtitle": "Every screen, every number, every system - and everything that still needs fixing",
-  "version": "v5.1.0",
-  "slug": "Dungeon-Scrolling-GDD-v5.1.0",
-  "date": "2026-09-23",
+  "version": "v5.2.0",
+  "slug": "Dungeon-Scrolling-GDD-v5.2.0",
+  "date": "2026-09-24",
   "engine": "Vanilla JavaScript + Three.js, no build step",
   "repo": "github.com/legendterra/dungeon-scrolling",
   "url": "dungeonscrolling.moneyspender.net",
   "author": "Legendterra",
-  "note": "This book is the reference for the next development passes. Part V is a numbered issue register: every entry names the file, the evidence, and the fix, so a later pass can work from it without re-reading the codebase."
+  "note": "This book is the reference for the next development passes. Part V is a numbered issue register: every entry names the file, the evidence, and the fix, so a later pass can work from it without re-reading the codebase. The Status column was refreshed in v5.2.0, which closed the frame-scale, reachability, dead-module and identity issues and added the online ladder."
 }

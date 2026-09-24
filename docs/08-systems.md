@@ -239,7 +239,42 @@ wrangler.jsonc
 Setelah itu yang naik ke Cloudflare hanya `index.html`, `libs/` dan `src/` -
 sekitar 1,3 MB, dan source code pengembangan tidak ikut publik.
 
-## 8.12 Cara meregenerasi dokumen ini
+## 8.12 Nama dan ladder online (v5.2.0)
+
+`[CODE]` Nama pemain disimpan lokal (`localStorage['ds_name']`), tapi peringkatnya
+butuh satu tempat bersama. Itu satu-satunya bagian game yang tidak statis, dan
+bentuknya sengaja sekecil mungkin:
+
+| Berkas | Isi |
+|---|---|
+| `worker/index.js` (140 baris) | `GET /api/top` -> 10 baris teratas; `POST /api/score` -> validasi, INSERT, balas `rank` + tabel baru. Sisanya `env.ASSETS.fetch(req)` |
+| `worker/schema.sql` | Satu tabel `scores` (+ indeks `scores_ladder`), tanpa kolom pemain/akun |
+| `wrangler.jsonc` | `main: worker/index.js`, `assets.binding: ASSETS`, `run_worker_first: ["/api/*"]`, `d1_databases: DB` |
+| `src/core/board.js` (190 baris) | Klien: nama, `submit()`, `refresh()`, `rows()`, fallback lokal, `rankFor()` |
+
+**Prinsipnya, dan alasannya:**
+
+- **Kunjungan halaman tidak menyentuh Worker.** `run_worker_first` hanya cocok
+  untuk `/api/*`, jadi `index.html`, `src/` dan `libs/` tetap dilayani sebagai aset
+  statis — latensi nol, dan kuota Worker hanya terpakai saat ada run yang mati.
+- **Jaringan tidak pernah ditunggu.** `submit()` dan `refresh()` fire-and-forget;
+  layar kematian sudah tampil sebelum jawaban tiba, dan baris ladder diisi saat
+  jawaban datang.
+- **Tanpa server tetap benar.** Kalau `/api/*` mengembalikan apa pun selain baris
+  (dev server lokal, `file://`, D1 sedang mati), run disimpan di
+  `localStorage['ds_runs']` dan layar kematian menulis `THIS DEVICE` — bukan tabel
+  kosong, dan bukan klaim online palsu.
+- **Input diperlakukan sebagai tidak tepercaya.** Nama disaring ke ASCII tercetak
+  2-12 karakter; `depth` di-clamp ke 10, `kills`/`coins` ke 9999, `frames` ke batas
+  12 jam; run dengan `depth < 1` ditolak. Bukan pertahanan terhadap cheater
+  (tidak ada yang client-side bisa), tapi menjaga tabel dari build basi.
+- **Tabel tidak tumbuh tanpa batas.** Setelah insert, `trim()` menyisakan 500
+  baris terbaik — dan hanya kalau jumlahnya sudah melewatinya.
+
+**Verifikasi:** `npm run qa:board` (nama, label kepala, ladder offline di browser
+nyata) dan `npm run qa:api` (satu run di situs live sampai terbaca lagi dari D1).
+
+## 8.13 Cara meregenerasi dokumen ini
 
 ```bash
 # 1. Word (super detail)
@@ -249,11 +284,14 @@ python tools/docs/build_docx.py
 python tools/docs/build_html.py
 
 # 3. PDF lewat Chrome headless (nol dependensi)
-node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.1.0.html
+node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.2.0.html
 
 # 4. cek tata letak tanpa mencetak (0 overflow, 0 gambar rusak)
-node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.1.0.html --probe
+node tools/docs/build_pdf.js dist/Dungeon-Scrolling-GDD-v5.2.0.html --probe
 ```
+
+> Nama berkas memakai versi dari `docs/meta.json`, jadi ganti versinya di sana
+> sebelum membangun ulang.
 
 Isi dokumen ada di `docs/NN-*.md` (markdown, satu bab per file), metadatanya di
 `docs/meta.json`, gambarnya di `docs/img/`. Urutan bab mengikuti nama file.

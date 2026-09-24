@@ -108,17 +108,17 @@ karena beberapa modul membaca modul lain saat dimuat (bukan saat dipanggil):
 | Urutan | Kelompok | Alasan urutan |
 |---|---|---|
 | 1 | `libs/three.min.js`, `core/rng.js` | `THREE` dan `DS.C`/`DS.M` harus ada sebelum apa pun. |
-| 2 | `core/storage.js`, `core/input.js`, `core/audio.js` | Tidak butuh art. |
-| 3 | `art/base.js` -> `art/font3.js` -> `art/sprites.js`, `biomes.js`, `backdrop.js` | `font3` dibaca lapisan layar saat atlas dibakar; sprite adalah bahan semua art. |
+| 2 | `core/storage.js`, `core/board.js`, `core/input.js`, `core/audio.js` | Tidak butuh art. |
+| 3 | `art/base.js` -> `art/font3.js` -> `art/sprites.js`, `biomes.js` | `font3` dibaca lapisan layar saat atlas dibakar; sprite adalah bahan semua art. |
 | 4 | `core/renderer.js`, `core/voxel.js`, `core/renderer3d.js` | Model voxel adalah bahan renderer 3D, jadi voxel dulu. |
 | 5 | `ui3/screen.js` | Lapisan layar: semua HUD/menu/quad FX lewat sini. |
-| 6 | `systems/*` (physics, particles, lighting, elements, modifiers, boons) | Aturan gameplay. |
+| 6 | `systems/*` (physics, particles, elements, modifiers, boons) | Aturan gameplay. |
 | 7 | `systems/difficulty.js` | **Harus** sebelum semua generator dunia, karena semuanya bertanya ke sini. |
-| 8 | `items/*` -> `art/paperdoll.js` -> `art/faces.js`, `fxart.js` -> `art/uiart.js` -> `art/icons.js` | Paperdoll membaca `DS.Armor` saat dimuat; icons menggantikan sprite pickup. |
+| 8 | `items/*` -> `art/paperdoll.js` -> `art/faces.js`, `fxart.js` -> `art/uiart.js` | Paperdoll membaca `DS.Armor` saat dimuat. |
 | 9 | `world/*` (tilemap, reach, parkour, generator, hazards, puzzle, mountain, trial) | `reach.js` sebelum `generator.js`: generator memanggilnya sebagai pass terakhir. |
 | 10 | `entities/*` (base, player, enemies, enemies2) -> `world/bonus.js` -> `world/water.js` -> `entities/boss*.js` | `water.js` mendaftarkan monster sendiri, jadi harus sesudah bestiary. |
 | 11 | `systems/skills.js` | Menangkap `DS.Ent`/`DS.Inv`/`DS.Weapons` saat dimuat, jadi paling akhir di kelompok gameplay. |
-| 12 | `ui/kit.js` -> `ui/pointer.js` -> `ui/ui.js` -> `ui/profile.js` | Kit adalah grid+komponen yang dipakai semua layar. |
+| 12 | `core/board.js` -> `ui/pointer.js` -> `ui/ui.js` -> `ui/profile.js` | `board.js` menyimpan nama pemain, dan layar kematian membacanya. |
 | 13 | `scenes/cutscene.js`, `scenes/camp3d.js`, `scenes/menu.js`, `scenes/game.js`, `main.js` | `main.js` terakhir: dia yang menjalankan `boot()`. |
 
 `[CODE]` `src/main.js` menentukan loop:
@@ -132,6 +132,7 @@ karena beberapa modul membaca modul lain saat dimuat (bukan saat dipanggil):
 | Per langkah | `Input.poll()` -> `Ptr.beginFrame()` -> `scene.update()` -> `Input.endFrame()` |
 | Sekali per frame | `Audio.update()` -> `scene.draw()` -> `Ptr.drawCursor(scene.cursor)` -> `R.present(time)` |
 | Hook uji | `DS.__paused = true` membekukan update+draw tapi loop tetap hidup; `DS.currentGame`/`DS.currentScene` adalah pegangan debug. |
+| QA berbasis browser | `npm run qa:frame` (skala frame), `qa:menu` (diorama menu vs fallback, dari piksel), `qa:board` (layar nama + ladder offline), `qa:api` (satu run sampai ke D1), `qa:climb` (panjat di fisika asli) |
 
 Pergantian scene ditunda ke frame berikutnya (`setScene` menyimpan `pending`),
 jadi sebuah scene boleh meminta ganti scene dari dalam `update()`-nya sendiri
@@ -167,15 +168,12 @@ data yang hanya boleh diubah oleh file itu.
 | `systems/particles.js` | 454 | Partikel debu/percikan/jejak | Partikel dunia |
 | `entities/bosses.js` | 418 | Boss tengah-run: Stone Warden, Arbiter | Fase boss |
 | `ui/profile.js` | 392 | Layar profil 3 tab | `g.profile` |
-| `ui/kit.js` | 390 | Grid + komponen + audit tata letak | `L` (grid layar) |
 | `world/hazards.js` | 370 | Paku, bola berduri, gergaji, platform runtuh | Hazard |
 | `art/uiart.js` | 364 | Bingkai, tombol, dan ornamen UI | Art UI |
 | `world/tilemap.js` | 353 | Peta tile, query tabrakan | `map.*` |
 | `world/trial.js` | 338 | Lantai trial (arena ujian) | Layout trial |
-| `art/backdrop.js` | 324 | Backdrop 2D warisan (dipakai lapisan layar) | Art latar |
 | `scenes/cutscene.js` | 316 | Intro pembuka (walk/edge/fall/land) | Progress cutscene |
 | `items/generator.js` | 312 | Roll item: rarity, affix, tier peti | Hasil loot |
-| `art/icons.js` | 309 | Katalog ikon 1:1 (koin, shard, kunci, skill, senjata) | `DS.Icons` |
 | `scenes/camp3d.js` | 298 | Diorama 3D menu (hero, api unggun, pohon) | Kamera menu |
 | `art/base.js` | 285 | Palet, `makeSprite`, `scaled`, `flipped`, `silhouette` | Palet global |
 | `systems/boons.js` | 266 | Boon (buff antar-lantai) | `inv.perks` |
@@ -200,7 +198,8 @@ data yang hanya boleh diubah oleh file itu.
 | `art/faces.js` | 111 | Wajah/ekspresi MC | Art wajah |
 | `main.js` | 95 | Boot, pergantian scene, loop langkah tetap | `current`/`pending` scene |
 | `core/storage.js` | 79 | Rekor di `localStorage['ds_stats']` | Rekor |
-| `systems/lighting.js` | 43 | Sisa modul cahaya warisan | (tidak menggambar) |
+| `core/board.js` | 190 | Nama pemain + klien leaderboard (`/api/top`, `/api/score`) | `ds_name`, `ds_ladder`, `ds_runs` di `localStorage` |
+| `worker/index.js` | 140 | Worker Cloudflare: dua route `/api/*` di atas binding aset | Tabel D1 `scores` |
 
 ## 1.7 Repositori dan penerbitan
 
@@ -208,13 +207,13 @@ data yang hanya boleh diubah oleh file itu.
 
 | Hal | Nilai |
 |---|---|
-| Commit terakhir | `4d12dc9 updated game 1 manuals` |
-| Status | bersih, selevel `origin/main` (0 commit tertinggal / 0 di depan) |
-| Riwayat | 7 commit, dari `Initial commit` sampai v5.0.0 |
-| Riwayat versi | `CHANGELOG.md` memuat v1.0.0 sampai v5.0.0 |
-| Host | `wrangler.jsonc`: Worker `dungeon-scrolling`, `assets.directory: "."`, route domain `dungeonscrolling.moneyspender.net` |
+| Commit terakhir | v5.2.0 (`feat(board)`), setelah v5.1.0 (`docs`) |
+| Status | bersih; `docs/`, `dist/`, `tools/`, `backup/` tidak ikut deploy |
+| Riwayat versi | `CHANGELOG.md` memuat v1.0.0 sampai **v5.2.0** |
+| Host | `wrangler.jsonc`: Worker `dungeon-scrolling` dengan `main: worker/index.js`, `assets.directory: "."` + binding `ASSETS`, binding D1 `DB`, `run_worker_first: ["/api/*"]`, route domain `dungeonscrolling.moneyspender.net` |
+| Ladder | D1 `dungeon-scrolling` (`worker/schema.sql`), satu tabel `scores`, dibaca `/api/top`, ditulis `/api/score` |
 | Konfigurasi dev | `python devserver.py [port]` (default 8123) dengan `Cache-Control: no-store` dan `POST /__shot/<nama>` untuk menyimpan screenshot |
-| Folder yang tidak dipakai runtime | `assets/` (18 MB, hanya konsep art + 127 screenshot pengembangan), `backup/` (1,7 MB salinan `src` sebelum v5.0.0), `tools/` (generator art Python), `prompts/` |
+| Folder yang tidak dipakai runtime | `assets/` (hanya konsep art + screenshot pengembangan), `backup/` (salinan `src` sebelum v5.0.0 — kini **tidak** ter-commit), `tools/` (generator art Python + tool QA), `prompts/` |
 
 > **Catatan penerbitan.** `.assetsignore` saat ini hanya mengecualikan
 > `node_modules/`, `.git/`, `.claude/`, `.freebuff/`, `backup/` dan file log. Artinya

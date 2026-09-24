@@ -16,28 +16,34 @@ berarti diukur sambil game berjalan.
 
 ## 9.1 Ringkasan
 
-| ID | Judul singkat | Area | Tingkat | Bukti |
-|---|---|---|---|---|
-| BUG-001 | Deploy mengunggah source tooling + 18 MB aset pengembangan | Penerbitan | S2 | CODE |
-| BUG-002 | Cache-bust tidak konsisten di `index.html` | Build/runtime | S2 | CODE |
-| BUG-003 | `camp3d.js` (298 baris) modul mati; menu tetap 2D | Scene | S2 | CODE |
-| BUG-004 | `art/backdrop.js` (324 baris) modul mati | Art | S3 | CODE |
-| BUG-005 | `systems/lighting.js` (43 baris) sisa modul tanpa fungsi | Sistem | S3 | CODE |
-| BUG-006 | `updatePause`/`drawPause` kode mati di `game.js` | Scene | S3 | CODE |
-| BUG-007 | `ELEMENT_SHORT` tidak punya elemen `wind` | UI | S2 | CODE |
-| BUG-008 | Tidak ada nama pemain, leaderboard, atau cloud save | Fitur | S2 | CODE |
-| BUG-009 | `Kit.audit()` tidak pernah dijalankan otomatis | QA | S2 | CODE |
-| BUG-010 | `package.json` tanpa `scripts`, tidak ada `npm test` | DX | S4 | CODE |
-| BUG-011 | `backup/` 1,4 MB (dua salinan penuh `src`) ter-commit | Repo | S3 | CODE |
-| BUG-012 | `.codex/config.toml` (konfigurasi agen) ter-commit | Repo | S4 | CODE |
-| BUG-013 | 127 screenshot pengembangan + art konsep ter-commit | Repo | S3 | CODE |
-| BUG-014 | `drawControls` mengubah state di jalur gambar | UI/loop | S3 | CODE |
-| BUG-015 | Readout kamera F6 ikut terkirim ke pemain | UI | S4 | CODE |
-| BUG-016 | Route custom domain hardcoded di `wrangler.jsonc` | Penerbitan | S3 | CODE |
-| BUG-017 | Jaminan "lantai bisa diselesaikan" belum diverifikasi ulang di runtime | Worldgen | S2 | perlu uji |
-| BUG-018 | Latar belum bertekstur sesuai tema | Visual | S2 | CODE |
-| BUG-019 | UI seluruhnya huruf kapital bitmap: tidak ada jalur aksesibilitas | UI | S4 | CODE |
-| BUG-020 | Teks UI hardcoded bahasa Inggris, tidak ada sistem lokalisasi | UI | S3 | CODE |
+**Kolom Status** diperbarui pada **v5.2.0** (commit `feat(board)`): `SELESAI` berarti
+perbaikannya sudah ada di kode **dan** sudah diukur/dijalankan lewat tool QA yang
+disebut, bukan sekadar ditulis. Isu yang belum tersentuh tetap `TERBUKA`.
+
+| ID | Judul singkat | Area | Tingkat | Bukti | Status (v5.2.0) |
+|---|---|---|---|---|---|
+| BUG-001 | Deploy mengunggah source tooling + 18 MB aset pengembangan | Penerbitan | S2 | CODE | **SELESAI** v5.1.0 |
+| BUG-002 | Cache-bust tidak konsisten di `index.html` | Build/runtime | S2 | CODE | **SELESAI** v5.2.0 (semua `?v=5.2.0`) |
+| BUG-003 | `camp3d.js` (298 baris) modul mati; menu tetap 2D | Scene | S2 | CODE | **SELESAI** v5.2.0 (dipakai; diukur `qa:menu`) |
+| BUG-004 | `art/backdrop.js` (324 baris) modul mati | Art | S3 | CODE | **SELESAI** v5.2.0 (dihapus) |
+| BUG-005 | `systems/lighting.js` sisa modul tanpa fungsi | Sistem | S3 | CODE | **SELESAI** v5.2.0 (dihapus) |
+| BUG-006 | `updatePause`/`drawPause` kode mati di `game.js` | Scene | S3 | CODE | TERBUKA |
+| BUG-007 | `ELEMENT_SHORT` tidak punya elemen `wind` | UI | S2 | CODE | **SELESAI** v5.2.0 (`wind`, `steam`) |
+| BUG-008 | Tidak ada nama pemain, leaderboard, atau cloud save | Fitur | S2 | CODE | **SELESAI** v5.2.0 (`core/board.js` + Worker + D1) |
+| BUG-009 | `Kit.audit()` tidak pernah dijalankan otomatis | QA | S2 | CODE | **TIDAK RELEVAN** v5.2.0 (kit dihapus; digantikan `npm run qa:frame`/`qa:menu`) |
+| BUG-010 | `package.json` tanpa `scripts`, tidak ada `npm test` | DX | S4 | CODE | **SELESAI** v5.2.0 (`dev`, `solve`, `qa:*`, `docs:*`) |
+| BUG-011 | `backup/` 1,4 MB (dua salinan penuh `src`) ter-commit | Repo | S3 | CODE | **SELESAI** v5.2.0 (untracked) |
+| BUG-012 | `.codex/config.toml` (konfigurasi agen) ter-commit | Repo | S4 | CODE | **SELESAI** v5.2.0 (untracked) |
+| BUG-013 | 127 screenshot pengembangan + art konsep ter-commit | Repo | S3 | CODE | **SELESAI** v5.2.0 (untracked) |
+| BUG-014 | `drawControls` mengubah state di jalur gambar | UI/loop | S3 | CODE | **SELESAI** v5.2.0 (hitung mundur di `update()`) |
+| BUG-015 | Readout kamera F6 ikut terkirim ke pemain | UI | S4 | CODE | **BUKAN BUG** v5.2.0 (muncul hanya setelah F6) |
+| BUG-016 | Route custom domain hardcoded di `wrangler.jsonc` | Penerbitan | S3 | CODE | TERBUKA |
+| BUG-017 | Jaminan "lantai bisa diselesaikan" belum diverifikasi ulang di runtime | Worldgen | S2 | perlu uji | **SELESAI** v5.2.0 (0/400 lantai, `qa:climb`) |
+| BUG-018 | Latar belum bertekstur sesuai tema | Visual | S2 | CODE | TERBUKA |
+| BUG-019 | UI seluruhnya huruf kapital bitmap: tidak ada jalur aksesibilitas | UI | S4 | CODE | TERBUKA |
+| BUG-020 | Teks UI hardcoded bahasa Inggris, tidak ada sistem lokalisasi | UI | S3 | CODE | TERBUKA |
+| BUG-021 | Frame main hanya mengisi 29% jendela di layar non-16:9 | UI/skala | S2 | RUNTIME | **SELESAI** v5.2.0 (`fitScale` hybrid, `qa:frame`) |
+| BUG-022 | Lampu per obor tak terbatas: shader gagal link, layar hitam saat skill api | Render | S1 | RUNTIME | **SELESAI** v5.2.0 (pool cahaya tetap 8 titik) |
 
 ## 9.2 Detail per isu
 
@@ -230,14 +236,38 @@ HUD ringkas. Ini juga membantu pemain di monitor kecil.
 lalu tambahkan bahasa Indonesia sebagai pilihan. Ini pekerjaan mekanis yang lebih
 baik dilakukan **sebelum** menambah banyak teks baru.
 
+### BUG-021 - Frame main hanya mengisi 29% jendela (S2) - SELESAI v5.2.0
+
+**Bukti:** `[RUNTIME]` diukur `npm run qa:frame` pada v5.1.0: aturan lama
+`floor(fill / C.RS) * C.RS` memberi frame 640x360 di jendela 1280x630 (29%), dan
+1024x576 di 1024x768 (29%). Inilah keluhan "ukuran layar kekecilan, aku harus zoom
+sampai 200".
+**Perbaikan:** `fitScale()` di `src/ui3/screen.js` sekarang memilih kelipatan bulat
+hanya kalau sisa pembulatan <= 3% sumbu pengikat; selain itu memakai fill fraksional.
+Hasil terukur: 1280x630 29% -> 88%, 1024x768 29% -> 75%, 1920x1080 tetap 100%
+(skala 6, piksel sempurna).
+
+### BUG-022 - Lampu per obor tak terbatas, layar jadi hitam (S1) - SELESAI v5.2.0
+
+**Bukti:** `[RUNTIME]` diukur di run hidup: biji kedalaman 1 dengan 10 obor = 13
+light (8 point), kedalaman 5 = 19 light (14 point). Three.js meng-compile shader per
+jumlah light, jadi setiap obor baru = recompile semua material, dan begitu melewati
+batas uniform GPU, material yang terdampak digambar **hitam**. Skill api menambah
+light di atas batas itu, yang menjelaskan laporan "tiba-tiba gelap, ketrigger karena
+skill api".
+**Perbaikan:** pool cahaya tetap (4 flame + 2 element + lampu hero + portal = 8 point
+light), tiap frame pool diarahkan ke obor/field terdekat dari pemain. Terukur: 9
+obor, 0 obor, dan 12 fire field semuanya tetap `13/8` light. Modul veil kegelapan
+(`systems/lighting.js`) dan modifier `DARKNESS` dihapus.
+
 ## 9.3 Fitur yang diminta tetapi belum ada
 
 | Permintaan | Status | Rujukan |
 |---|---|---|
-| Nama pemain + tampil di atas kepala pemain | Belum ada | BUG-008 |
-| Leaderboard saat mati, nama tetap tersimpan | Belum ada | BUG-008 |
-| Penyimpanan online (Cloudflare/Supabase) | Belum ada | BUG-008 |
+| Nama pemain + tampil di atas kepala pemain | **Ada** (v5.2.0) | BUG-008, Bab 2.6 |
+| Leaderboard saat mati, nama tetap tersimpan | **Ada** (v5.2.0): nama di `localStorage`, ladder D1 di layar kematian | BUG-008, Bab 2.6 & 8.12 |
+| Penyimpanan online (Cloudflare/Supabase) | **Ada** (v5.2.0): Worker + D1 di akun Cloudflare yang sama, tanpa akun baru | BUG-008, Bab 8.12 |
 | Latar bertekstur per tema | Belum ada | BUG-018 |
-| Ruangan gelap dengan cahaya dari latar (backlight) | Dihapus atas permintaan "ilangin aja"; `backLight` tetap ada sebagai cahaya bulan | Bab 7.4, 8.2 |
+| Ruangan gelap dengan cahaya dari latar (backlight) | Dihapus atas permintaan "ilangin aja"; `backLight` tetap ada sebagai cahaya bulan. Pemicunya bukan setting gelap melainkan batas light GPU (BUG-022) | Bab 7.4, 8.2 |
 | Animasi serang 3D per senjata (swing/trail, thrust, draw, cast) | Ada (Bab 5.6); perlu penajaman visual | - |
 | Kamera: lookahead + shake + zoom boss | Sebagian: shake ada (`R.shake`), lookahead/zoom boss belum | - |

@@ -12,9 +12,11 @@
 
    The horizon is geometry, not art: every biome stages its own distant
    landscape (see BACKDROP_RECIPE) out of boxes and cones in real depth bands,
-   anchored on the level's own walking surface. Fog and lighting per theme are
-   kept subtle; the real mood comes from the 2D darkness veil, which is
-   composited over this canvas in src/systems/lighting.js. */
+   anchored on the level's own walking surface. Fog and the theme's own ambient
+   and key lights are what make the mood, and every light in the world is drawn
+   from one fixed pool (see the flame pool below) -- the old module that
+   composited a darkness veil over the finished frame is gone, because a veil
+   over a 3D scene is a black screen with extra steps. */
 window.DS = window.DS || {};
 
 (function (DS) {

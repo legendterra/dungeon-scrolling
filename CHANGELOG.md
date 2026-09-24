@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v5.2.0] - 2026-09-24 - A Name, A Ladder, And Terrain You Can Actually Climb
+
+### Added
+- **A player name and an online ladder** (`src/core/board.js`, `worker/`, D1): START RUN asks who you are once, the name rides over the hero's head in both render modes, and every finished run is posted to a leaderboard shown beside the run summary on the death screen. The ladder is a 140-line Cloudflare Worker over a D1 table on the same free account that already hosts the game — a page load never invokes it (`run_worker_first` matches only `/api/*`), nothing is waited on, and when `/api/*` cannot be reached the run is kept locally and the screen says `THIS DEVICE` instead of pretending to be online. Fields are clamped server-side (depth to the ten the dungeon has), so a stale client cannot poison the table.
+- **`tools/qa/` — four browser checks that measure instead of assert**: `measure-frame.js` (the play frame at nine window sizes, recomputing the old rule from the same live numbers), `measure-menu.js` (decodes the composited frame in-page and compares the 3D diorama against its 2D fallback), `check-board.js` (the name prompt, typed text, the label over the hero, the offline ladder) and `check-api.js` (one real run on the deployed site, read back out of D1).
+- **`npm run …` scripts at last** (`package.json`): `dev`, `solve`, `qa:*`, `docs:*` — the commands that had been typed by hand all along.
+
+### Fixed
+- **The play frame was 29% of the window** (BUG-021): `fitScale()` only ever used whole multiples of the 2x art scale, so a 1280×630 window played in 640×360 and a 1024×768 window in 1024×576 — the "everything is tiny, I have to zoom to 200%" report. The fill now wins unless a whole multiple wastes 3% or less of the binding axis: 1280×630 goes 29% → 88%, 1366×660 26% → 86%, 1024×768 29% → 75%, while 1920×1080 stays pixel-exact at 100%.
+- **Ledges you could not climb** (BUG-017): reachability was a repair pass bolted on after the terrain — 23.6 emergency platforms per floor, and any face taller than four rows was skipped on the theory that a long climb was authored on purpose, which is exactly the ledge that stranded the player. The pass now journals every edit and rolls a repair back if it severs the level, knows that ropes and the mountain shafts are routes, and steps the ledge ladder two rows at a time. On 400 floors: **0 unreachable**, patch platforms down 23.6 → 8.2 per floor.
+- **The black screen when fire skills fired** (BUG-022): every torch created its own `PointLight`, so the shader was recompiled per torch and, past the GPU uniform limit, affected materials drew black. The world now uses one fixed pool of eight point lights, re-aimed at the nearest torches and fields each frame; measured at 9 torches, 0 torches and 12 fire fields it stays at 8. The darkness veil module and the `DARKNESS` modifier are gone with it.
+- **The menu is a 3D diorama now** (BUG-003): `scenes/camp3d.js` was written and never called. It renders as a pre-pass inside the play frame — voxel hero at a voxel fire, three rows of trees, lantern flies, a camera that breathes — with the painted forest kept only as the fallback for a frame the diorama cannot build.
+- **1,127 lines of dead code removed** (BUG-004, BUG-005, BUG-009): `ui/kit.js`, `art/icons.js`, `art/backdrop.js` and `systems/lighting.js` were loaded by `index.html` and called by nothing; the layout audit they advertised never ran once. The chapters that documented them now say what the game actually does.
+- **Smaller ones**: the cache-buster is one version again, so a stale `player.js` cannot survive a deploy (BUG-002); `ELEMENT_SHORT` has `wind` and `steam`, which used to print as `UNDEFINED` on a weapon card (BUG-007); the control sheet's countdown ticks in `update()` instead of in the draw path (BUG-014); `backup/`, `assets/preview/` and `.codex/` are untracked (BUG-011…013).
+
+### Changed
+- **The documentation is rebuilt at v5.2.0**: `dist/Dungeon-Scrolling-GDD-v5.2.0.docx` (20 figures) and `.pdf`, with the issue register's new **Status** column marking what v5.2.0 closed — plus two new entries, BUG-021 (the frame) and BUG-022 (the light limit), and a section on the Worker and the ladder.
+
 ## [v5.1.0] - 2026-09 - The Book, And A Site That Ships Only The Game
 
 ### Added

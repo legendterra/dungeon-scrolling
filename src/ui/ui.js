@@ -21,7 +21,10 @@ window.DS = window.DS || {};
   // Short element codes, so the weapon card never has to truncate mid-word.
   const ELEMENT_SHORT = {
     fire: 'FIRE', ice: 'ICE', lightning: 'BOLT', poison: 'TOXIN',
-    water: 'WATER', earth: 'STONE', leaf: 'LEAF'
+    water: 'WATER', earth: 'STONE', leaf: 'LEAF',
+    // Every element the weapon tables can roll needs a short form; a missing
+    // one printed as "UNDEFINED" on the card rather than as a name.
+    wind: 'GALE', steam: 'STEAM'
   };
 
   // --- HUD ------------------------------------------------------------------
@@ -162,9 +165,11 @@ window.DS = window.DS || {};
     [['F', 'USE'], ['Q', 'SWAP'], ['TAB/B', 'BAG'], ['ESC/P', 'MENU']]
   ];
 
+  /* The countdown itself belongs to update(), not here: a timer that ticks
+     while the frame is being drawn ages differently in a paused window than in
+     a simulation, and the control sheet is a simulation-time thing. */
   function drawControls(g) {
     if (!g.controlsTimer || g.controlsTimer <= 0) return;
-    g.controlsTimer--;
 
     const R = DS.R;
     const fade = Math.min(1, g.controlsTimer / 90);

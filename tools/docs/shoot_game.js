@@ -39,6 +39,12 @@ const KEYP = ['p', 'KeyP', 80];
 const KEYJ = ['j', 'KeyJ', 74];
 const KEYX = ['x', 'KeyX', 88];
 
+/* Typing a name is a real key sequence: the game reads the characters off the
+   keydown events, so a screenshot of the prompt has to be filled the way a
+   player fills it. */
+const TYPE = (text) => text.split('').map(
+  (ch) => [ch, 'Key' + ch.toUpperCase(), ch.toUpperCase().charCodeAt(0)]);
+
 /* Poll a page expression until it is truthy. The cutscene is 396 frames long,
    so the run simply does not exist yet when the capture script starts poking at
    it -- waiting on the state itself beats guessing a delay. */
@@ -70,8 +76,14 @@ const steps = [
      get back to START RUN. */
   { name: 'menu-records', caption: 'Records, read from localStorage',
     keys: [ESC, DOWN, ENTER], settle: 700 },
+  /* START RUN now asks who you are before it offers steel: the name is what the
+     ladder and the label over the hero use, and it is stored the first time it
+     is accepted. A fresh profile (this tool launches its own temp one) has no
+     name, so both of these screens are reachable in order. */
+  { name: 'name', caption: 'The name prompt: asked once, kept in localStorage',
+    keys: [ESC, UP, UP, ENTER], settle: 800 },
   { name: 'loadout', caption: 'Weapon select: six archetypes, all common, no affixes',
-    keys: [ESC, UP, UP, ENTER], settle: 700 },
+    keys: TYPE('GDD').concat([ENTER]), settle: 800 },
   { name: 'intro', caption: 'The opening cutscene, four phases in 396 frames',
     keys: [ENTER], settle: 1100, thenStartRun: true },
   { name: 'hud-floor1', caption: 'Depth 1, The Shore: the HUD in its four clusters',

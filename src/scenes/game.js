@@ -697,6 +697,9 @@ window.DS = window.DS || {};
     if (g.toastTimer > 0) g.toastTimer--;
     if (g.bannerTimer > 0) g.bannerTimer--;
     if (g.fadeIn > 0) g.fadeIn--;
+    // Every countdown ticks here, in the update, so a frame the game did not
+    // simulate (a paused window, a hidden tab) cannot age the HUD.
+    if (g.controlsTimer > 0) g.controlsTimer--;
     DS.Boons.update(g);
     DS.Modifiers.ambience(g);
 
@@ -877,9 +880,10 @@ window.DS = window.DS || {};
     if (g.debug) drawDebug(g);
 
     /* No darkness pass. There is deliberately nothing here that dims the whole
-       frame: the room you are standing in is lit by its own lights (the torches
-       on the wall, the lamp the hero carries, the sky behind it) and that is the
-       whole of it. See the note at the top of systems/lighting.js. */
+       frame: the room you are standing in is lit by its own lights -- the
+       torches on the wall, the lamp the hero carries, the sky behind it -- and
+       that is the whole of it. The veil that used to be composited here is
+       gone, along with its module. */
     R.uiMode();
     DS.Modifiers.drawAtmosphere(g);
     R.drawFlash();

@@ -190,10 +190,21 @@ window.DS = window.DS || {};
     }
   }
 
+  /* The clearing is a 3D diorama (scenes/camp3d.js): a voxel hero at a voxel
+     fire, lantern flies, three rows of trees for depth, and a camera that
+     breathes on two slow cycles that never line up. It renders as a pre-pass
+     through the screen layer, so every panel below still lands inside the play
+     frame on top of it.
+
+     The painted forest is kept as the fallback for a frame in which the
+     diorama cannot build yet -- the screen layer bakes its font atlases and
+     textures before it can composite anything, and the menu draws on the very
+     first frame that happens. */
   function backdrop(state) {
     const R = DS.R;
     R.begin();
     R.uiMode();   // menus are pure screen space; no camera punch here
+    if (DS.Camp3D && DS.UI3 && DS.UI3.ready && DS.Camp3D.attach(1 / 60)) return;
     forest(state);
     camp(state);
   }
