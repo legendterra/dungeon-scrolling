@@ -31,6 +31,10 @@ tools/
 assets/
 node_modules/
 
+# The Worker's own source. It is bundled into the deployed script, so the
+# assets binding must not also hand it out as a static file.
+worker/
+
 # Repository paperwork: no markdown, no build scripts, no host config
 *.md
 *.py

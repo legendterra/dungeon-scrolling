@@ -51,6 +51,7 @@ window.DS = window.DS || {};
 
   let anyPressedFlag = false;
   let padIndex = -1;
+  let textSink = null;
   const padPrev = new Set();
 
   // --- keyboard -------------------------------------------------------------
@@ -70,6 +71,19 @@ window.DS = window.DS || {};
     if (SWALLOW.has(e.code)) {
       e.preventDefault();
       e.stopImmediatePropagation();
+    }
+    /* A screen that wants typed text (the name prompt) installs a sink. While
+       one is installed the letter keys are delivered to it and consumed, so
+       typing a name cannot also jump, dash or open the bag. Enter and Escape
+       are deliberately NOT taken here: they stay the ordinary confirm and back
+       actions every screen already reads, and Backspace becomes "erase one
+       character" only while a sink is installed. */
+    if (textSink && (e.code === 'Backspace' ||
+                     (e.key && e.key.length === 1 && !e.repeat))) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      textSink(e.code === 'Backspace' ? '' : e.key);
+      return;
     }
     if (e.repeat) return;
     down.add(e.code);
@@ -201,6 +215,11 @@ window.DS = window.DS || {};
     justReleased: function (action) { return matches(action, released); },
 
     anyPressed: function () { return anyPressedFlag; },
+
+    /* Install (or clear, with null) the text sink described in onKeyDown. The
+       owning screen is responsible for clearing it when it closes: a sink left
+       installed would eat every letter the game needs. */
+    setTextSink: function (fn) { textSink = fn || null; },
 
     /* Swallow a press so a single key event cannot be handled twice in one
        frame (e.g. ESC closing the bag and also opening the pause menu). */

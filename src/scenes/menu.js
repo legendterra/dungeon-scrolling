@@ -226,8 +226,14 @@ window.DS = window.DS || {};
   function createMenu(page, skipIntro) {
     const state = {
       frame: 0, cursor: 0, pick: 0,
-      page: page || 'menu',
+      /* A run starts with a name. The ladder has no anonymous rows, and the
+         name is what follows the hero through the dungeon. Asking here means
+         every route into a run -- START RUN, the death screen's RUN AGAIN, a
+         direct call to loadout -- lands on the prompt exactly once. */
+      page: (page === 'loadout' && !DS.Board.hasName()) ? 'name' : (page || 'menu'),
       skipIntro: !!skipIntro,
+      typed: DS.Board.name || '',
+      note: '',
       stats: DS.Storage.load()
     };
 
@@ -236,6 +242,11 @@ window.DS = window.DS || {};
         const In = DS.Input;
         state.frame++;
         DS.Audio.setMusic('calm');
+
+        // Only the name prompt takes typed text; every other page hands the
+        // letter keys straight back to the game.
+        if (state.page !== 'name') In.setTextSink(null);
+        if (state.page === 'name') { updateName(state); return; }
 
         if (state.page === 'loadout') { updateLoadout(state); return; }
 
@@ -280,6 +291,7 @@ window.DS = window.DS || {};
         backdrop(state);
         title(state);
 
+        if (state.page === 'name') { drawName(state); return; }
         if (state.page === 'loadout') { drawLoadout(state); return; }
         if (state.page === 'help') { drawHelp(); return; }
         if (state.page === 'records') { drawRecords(state.stats); return; }
@@ -310,10 +322,69 @@ window.DS = window.DS || {};
 
   function choose(state) {
     DS.Audio.play('menuPick');
-    if (state.cursor === 0) state.page = 'loadout';
+    if (state.cursor === 0) state.page = DS.Board.hasName() ? 'loadout' : 'name';
     else if (state.cursor === 1) state.page = 'help';
     else if (state.cursor === 2) { state.stats = DS.Storage.load(); state.page = 'records'; }
     else DS.Audio.toggleMute();
+  }
+
+  // --- name prompt ----------------------------------------------------------
+
+  /* Asked once, before the first weapon choice, and then never again: the name
+     is written down the moment it is accepted, so RUN AGAIN reuses it and only
+     a fresh browser is ever asked. The same string is what the ladder shows and
+     what floats over the hero's head. */
+  function updateName(state) {
+    const In = DS.Input;
+
+    In.setTextSink(function (ch) {
+      if (ch === '') state.typed = state.typed.slice(0, -1);
+      else if (state.typed.length < DS.Board.MAX_NAME) state.typed += ch;
+      state.note = '';
+    });
+
+    if (In.justPressed('back')) {
+      In.consume('back');
+      In.setTextSink(null);
+      state.page = 'menu';
+      DS.Audio.play('menuMove');
+      return;
+    }
+
+    if (!In.justPressed('confirm')) return;
+    In.consume('confirm');
+
+    if (!DS.Board.setName(state.typed)) {
+      state.note = 'TWO TO TWELVE CHARACTERS';
+      DS.Audio.play('menuMove');
+      return;
+    }
+
+    In.setTextSink(null);
+    DS.Audio.play('menuPick');
+    state.page = 'loadout';
+  }
+
+  function drawName(state) {
+    const R = DS.R;
+    const w = 180, x = (C.W - w) / 2;
+
+    R.panelS(x, 62, w, 50);
+    R.textCenter('WHO ARE YOU?', C.W / 2, 70, GOLD);
+    R.textSmallCenter('THIS NAME RIDES WITH YOU INTO THE DUNGEON', C.W / 2, 82, MUTED);
+
+    R.rectS(x + 20, 92, w - 40, 14, 'rgba(7,11,12,0.85)');
+    R.frameS(x + 20, 92, w - 40, 14, state.note ? '#c0303c' : '#3a3654');
+    // A blinking caret, so the field reads as something waiting to be typed
+    // into rather than as another label.
+    const caret = (state.frame % 40 < 24) ? '_' : '';
+    R.textCenter(state.typed.toUpperCase() + caret, C.W / 2, 96, '#ffffff');
+
+    if (state.note) R.textSmallCenter(state.note, C.W / 2, 108, '#c0303c');
+
+    R.hintsCenter([['ENTER', 'THAT IS ME'], ['ESC/P', 'BACK']],
+                  C.W / 2, C.H - 14, MUTED, GOLD);
+    DS.Ptr.cursor();
   }
 
   // --- loadout --------------------------------------------------------------
@@ -485,7 +556,28 @@ window.DS = window.DS || {};
       bestItem: best ? { name: best.name, rarity: best.rarity } : null
     });
 
-    const state = { frame: 0, won: won, stats: stats, best: best, g: g };
+    const state = {
+      frame: 0, won: won, stats: stats, best: best, g: g,
+      rows: DS.Board.rows(), rank: 0
+    };
+
+    /* The run goes up on the ladder the moment this screen opens, and the
+       ladder itself is refreshed lazily behind it. Neither is ever awaited:
+       opening the death screen must not depend on the network, and the list
+       simply starts as whatever was last known. */
+    DS.Board.submit({
+      depth: g.depth,
+      kills: g.kills,
+      coins: g.inv.coins,
+      frames: g.frames,
+      cleared: won
+    }).then(function (res) {
+      if (res && res.rows) { state.rows = res.rows; state.rank = res.rank || 0; }
+    });
+    DS.Board.refresh().then(function (res) {
+      if (res && res.rows) state.rows = res.rows;
+    });
+
     DS.Audio.setMusic(won ? 'calm' : null);
     if (!won) DS.Audio.stopMusic();
 
@@ -493,6 +585,8 @@ window.DS = window.DS || {};
       update: function () {
         state.frame++;
         const In = DS.Input;
+        // The answer to submit() may have landed since the last frame.
+        if (state.frame % 30 === 0) state.rows = DS.Board.rows();
         if (state.frame < 30) return;
         // Running again re-opens the weapon choice: the loadout is the first
         // decision of a run, and skipping it would silently hand back a sword.
@@ -532,20 +626,42 @@ window.DS = window.DS || {};
           R.textCenter(label, C.W / 2, 36, GOLD);
         }
 
-        R.panelS(36, 50, C.W - 72, 92);
-        R.text('DEPTH REACHED', 44, 58, MUTED);
-        R.textRight(String(g.depth), C.W - 44, 58, INK);
-        R.text('ENEMIES SLAIN', 44, 70, MUTED);
-        R.textRight(String(g.kills), C.W - 44, 70, INK);
-        R.text('COINS', 44, 82, MUTED);
-        R.textRight(String(g.inv.coins), C.W - 44, 82, GOLD);
-        R.text('TIME', 44, 94, MUTED);
-        R.textRight(formatTime(g.frames), C.W - 44, 94, INK);
+        /* Two columns: the run on the left, the ladder on the right. They used
+           to be one column with the numbers right-aligned against the panel
+           edge, which left nowhere for a ladder to go; splitting the panel is
+           what makes the ranking part of the screen instead of a second
+           screen nobody opens. */
+        R.panelS(20, 46, C.W - 40, 96);
+        R.text('DEPTH REACHED', 26, 54, MUTED);
+        R.textRight(String(g.depth), 150, 54, INK);
+        R.text('ENEMIES SLAIN', 26, 66, MUTED);
+        R.textRight(String(g.kills), 150, 66, INK);
+        R.text('COINS', 26, 78, MUTED);
+        R.textRight(String(g.inv.coins), 150, 78, GOLD);
+        R.text('TIME', 26, 90, MUTED);
+        R.textRight(formatTime(g.frames), 150, 90, INK);
 
         if (state.best) {
-          R.text('BEST WEAPON', 44, 110, MUTED);
-          R.textCenter(state.best.name, C.W / 2, 122,
-                       DS.Weapons.rarityColor(state.best.rarity));
+          R.text('BEST WEAPON', 26, 102, MUTED);
+          R.text(state.best.name, 26, 112,
+                 DS.Weapons.rarityColor(state.best.rarity));
+        }
+
+        R.rectS(160, 52, 1, 82, '#2a2740');
+        R.text('LADDER', 168, 54, GOLD);
+        R.textSmallRight(DS.Board.online ? 'ONLINE' : 'THIS DEVICE', C.W - 26, 55, MUTED);
+
+        const ladder = state.rows || [];
+        for (let i = 0; i < ladder.length && i < 8; i++) {
+          const row = ladder[i];
+          const y = 66 + i * 9;
+          const mine = DS.Board.name && row.name === DS.Board.name;
+          R.textRight(String(row.rank), 182, y, mine ? '#ffffff' : MUTED);
+          R.text(row.name, 186, y, mine ? GOLD : INK);
+          R.textRight(String(row.depth), C.W - 26, y, row.cleared ? GOLD : MUTED);
+        }
+        if (!ladder.length) {
+          R.textSmall('NO RUNS RECORDED YET', 186, 66, MUTED);
         }
 
         if (state.frame > 30) {
@@ -562,7 +678,10 @@ window.DS = window.DS || {};
                         C.W / 2, C.H - 10, MUTED, GOLD);
         }
 
-        R.textCenter('NOTHING CARRIES OVER', C.W / 2, C.H - 30, MUTED);
+        // Who this run belonged to, and where it landed.
+        const who = (DS.Board.name || 'PLAYER') +
+                    (state.rank ? '   RANK #' + state.rank : '');
+        R.textSmallCenter(who, C.W / 2, C.H - 32, GOLD);
         DS.Ptr.cursor();
       }
     };

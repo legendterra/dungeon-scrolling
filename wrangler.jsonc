@@ -1,9 +1,23 @@
 {
   "name": "dungeon-scrolling",
   "compatibility_date": "2026-09-21",
+  // The tiny Worker that owns the leaderboard. Everything else is still the
+  // static game: with an assets binding, only paths matched by
+  // run_worker_first reach the script, so a page load never touches the script
+  // (that is what keeps this free and fast).
+  "main": "worker/index.js",
   "assets": {
-    "directory": "."
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dungeon-scrolling",
+      "database_id": "409cf90b-324f-4350-a096-48356a0625a3"
+    }
+  ],
   "routes": [
     {
       "pattern": "dungeonscrolling.moneyspender.net",

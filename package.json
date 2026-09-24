@@ -4,6 +4,8 @@
     "solve": "node tools/solve-levels.js",
     "qa:frame": "node tools/qa/measure-frame.js",
     "qa:climb": "node tools/qa/check-climb.js",
+    "qa:board": "node tools/qa/check-board.js",
+    "qa:api": "node tools/qa/check-api.js",
     "qa:ui": "node tools/qa/audit-ui.js",
     "docs:docx": "python tools/docs/build_docx.py",
     "docs:pdf": "node tools/docs/build_pdf.js"

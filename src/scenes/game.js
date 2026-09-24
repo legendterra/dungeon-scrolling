@@ -852,6 +852,9 @@ window.DS = window.DS || {};
     // Rarity tags float over the drop in both modes — the 2D canvas is the top
     // layer, so the label lands over the 3D model too.
     Ent.drawDropLabels(g);
+    // The player's name rides over the hero in both render modes, so it is
+    // drawn here rather than from the sprite pass the voxel mode skips.
+    Ent.drawNameTag(g);
 
     if (!vox) {
       for (let i = 0; i < g.enemies.length; i++) {

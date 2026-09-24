@@ -538,6 +538,19 @@ window.DS = window.DS || {};
     }
   }
 
+  /* The player's own name, floating over the head it belongs to. It lives here,
+     beside the drop tags, and is called in BOTH render modes: when voxel models
+     are live the 2D sprite pass is skipped entirely, so a label drawn from the
+     player's own draw() would simply never appear. */
+  function drawNameTag(g) {
+    if (!DS.Board || !g.player || !DS.Board.hasName()) return;
+    const R = DS.R, p = g.player;
+    const name = DS.Board.name;
+    const w = R.textSmallWidth(name);
+    R.textSmall(name, Math.round(R.toScreenX(p.x + p.w * 0.5) - w / 2),
+                Math.round(R.toScreenY(p.y) - 10), '#f2c14e');
+  }
+
   function hexToGlow(hex) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -638,6 +651,7 @@ window.DS = window.DS || {};
     drawPickups: drawPickups,
     makeChest: makeChest,
     drawDropLabels: drawDropLabels,
+    drawNameTag: drawNameTag,
     openChest: openChest,
     drawChests: drawChests,
     spawnLoot: spawnLoot
