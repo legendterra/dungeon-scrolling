@@ -42,6 +42,13 @@ window.DS = window.DS || {};
      genuinely tiny window falls back to a fractional fill instead. */
   const MIN_SCALE = C.RS;
 
+  /* How much of the binding axis a whole multiple may waste before the crisp
+     scale loses to a full-bleed one. 3%: at 1920x1080 the fill is exactly 6 and
+     the integer wins (pixel-exact, the case the old rule was written for); in a
+     1366x660 window (Windows display scaling) the integer answer is 2 -- 24% of
+     the window -- and the fill answer wins instead. */
+  const SNAP = 0.03;
+
   // --- colours --------------------------------------------------------------
 
   const colorCache = new Map();
@@ -537,7 +544,8 @@ window.DS = window.DS || {};
     const fill = Math.max(0.5, Math.min(window.innerWidth / C.W,
                                         window.innerHeight / C.H));
     const whole = Math.floor(fill / C.RS) * C.RS;
-    return whole >= MIN_SCALE ? whole : fill;
+    if (whole >= MIN_SCALE && fill - whole <= whole * SNAP) return whole;
+    return fill;
   }
 
   function resize() {
