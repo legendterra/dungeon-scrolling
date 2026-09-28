@@ -11,6 +11,8 @@
     "qa:paint": "node tools/qa/check-hud-paint.js",
     "qa:lights": "node tools/qa/check-lights.js",
     "qa:hangs": "node tools/qa/check-hangs.js",
+    "qa:backdrop": "node tools/qa/audit-backdrop.js",
+    "shots:backdrop": "node tools/qa/shoot-backdrop.js",
     "docs:docx": "python tools/docs/build_docx.py",
     "docs:pdf": "node tools/docs/build_pdf.js"
   },

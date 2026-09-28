@@ -16,11 +16,11 @@ berarti diukur sambil game berjalan.
 
 ## 9.1 Ringkasan
 
-**Kolom Status** diperbarui pada **v5.2.1**: `SELESAI` berarti perbaikannya sudah
+**Kolom Status** diperbarui pada **v5.2.2**: `SELESAI` berarti perbaikannya sudah
 ada di kode **dan** sudah diukur/dijalankan lewat tool QA yang disebut, bukan
 sekadar ditulis. Isu yang belum tersentuh tetap `TERBUKA`.
 
-| ID | Judul singkat | Area | Tingkat | Bukti | Status (v5.2.0) |
+| ID | Judul singkat | Area | Tingkat | Bukti | Status (v5.2.2) |
 |---|---|---|---|---|---|
 | BUG-001 | Deploy mengunggah source tooling + 18 MB aset pengembangan | Penerbitan | S2 | CODE | **SELESAI** v5.1.0 |
 | BUG-002 | Cache-bust tidak konsisten di `index.html` | Build/runtime | S2 | CODE | **SELESAI** v5.2.0 (semua `?v=5.2.0`) |
@@ -39,7 +39,7 @@ sekadar ditulis. Isu yang belum tersentuh tetap `TERBUKA`.
 | BUG-015 | Readout kamera F6 ikut terkirim ke pemain | UI | S4 | CODE | **BUKAN BUG** v5.2.0 (muncul hanya setelah F6) |
 | BUG-016 | Route custom domain hardcoded di `wrangler.jsonc` | Penerbitan | S3 | CODE | TERBUKA |
 | BUG-017 | Jaminan "lantai bisa diselesaikan" belum diverifikasi ulang di runtime | Worldgen | S2 | perlu uji | **SELESAI** v5.2.0 (0/400 lantai, `qa:climb`) |
-| BUG-018 | Latar belum bertekstur sesuai tema | Visual | S2 | CODE | TERBUKA |
+| BUG-018 | Latar belum bertekstur sesuai tema | Visual | S2 | RUNTIME | **SELESAI** v5.2.2 (`core/backdrop3d.js`, 12 famili tekstur, `qa:backdrop`) |
 | BUG-019 | UI seluruhnya huruf kapital bitmap: tidak ada jalur aksesibilitas | UI | S4 | CODE | TERBUKA |
 | BUG-020 | Teks UI hardcoded bahasa Inggris, tidak ada sistem lokalisasi | UI | S3 | CODE | TERBUKA |
 | BUG-021 | Frame main hanya mengisi 29% jendela di layar non-16:9 | UI/skala | S2 | RUNTIME | **SELESAI** v5.2.0 (`fitScale` hybrid, `qa:frame`) |
@@ -47,6 +47,7 @@ sekadar ditulis. Isu yang belum tersentuh tetap `TERBUKA`.
 | BUG-023 | Layar gelap saat effect elemental keluar (iterasi kedua) | Render | S1 | RUNTIME | **SELESAI** v5.2.1 (satu `intensity` NaN; `qa:lights`) |
 | BUG-024 | Tali dan tangga mengambang, tidak menggantung di bawah pijakan kayu | Render/World | S2 | RUNTIME | **SELESAI** v5.2.1 (`hangTop`/`hangOn`/`anchorTile`, `qa:hangs`) |
 | BUG-025 | HUD tidak proporsional di semua tempat; koordinat hardcoded per klaster | UI | S2 | RUNTIME | **SELESAI** v5.2.1 (`hudBoxes()`, `qa:hud`, `qa:paint`) |
+| BUG-026 | Garis horizon berdiri di median seluruh level, bukan di tanah pemain | Render/World | S2 | RUNTIME | **SELESAI** v5.2.2 (`localHorizonY`, `qa:backdrop`) |
 
 ## 9.2 Detail per isu
 
@@ -214,15 +215,24 @@ verifikasi satu tanjakan yang gagal sebelumnya **di browser**: catat `p.y` sebel
 dan sesudah percobaan naik. Kalau rungs tidak muncul, periksa urutan pemanggilan
 `Reach.ensureExit()` terhadap `supportPlatforms()` di `generator.js:686`.
 
-### BUG-018 - Latar belum bertekstur sesuai tema (S2)
+### BUG-018 - Latar belum bertekstur sesuai tema (S2) - SELESAI v5.2.2
 
-**Bukti:** `[CODE:src/core/renderer3d.js:924]` - latar dibangun dari band siluet,
-warna, dan mote; tidak ada tekstur bergambar per tema.
+**Bukti:** `[RUNTIME:qa:backdrop]` sepuluh lantai, tiga tempat per lantai, 346
+pemeriksaan; sebelumnya `[CODE:src/core/renderer3d.js:924]` membangun latar dari
+band siluet, warna, dan mote - tanpa tekstur bergambar per tema.
 **Dampak:** pemain memintanya dua kali: "background harus sesuai DAN bertekstur".
-**Perbaikan:** tambahkan lapisan tekstur per tema (shore: pasir/karang, cave:
-batuan basah, swamp: lumut/akar, mountain: batu bersalju, flooded: keramik bawah
-air, volcanic: bara) pada band terjauh, plus pencahayaan tepi (`backLight` sudah
-ada) supaya tekstur tetap terbaca saat gelap.
+**Perbaikan (v5.2.2):** latar pindah ke `src/core/backdrop3d.js` (1.966 baris) dan
+menjadi 13 resep tema di atas **tangga tujuh rung** (4,5 / 7,5 / 12 / 19 / 30 / 46 /
+68 unit), 26 bentuk band, dan **12 famili tekstur prosedural** yang dipasang pada
+setiap rung <= 19 unit dengan `texRep = d / REF_D` sehingga kerapatan texel tetap.
+Tiap tema membawa **tepat satu** landmark di rung 30. Warna tiap rung diangkat
+terhadap kabut (`unfog`, `FOG_LIFT_MAX = 5.0`) supaya tekstur tetap terbaca di
+lantai gelap, dan setiap tema punya **kurva cahayanya sendiri** sehingga run
+menggelap turun lantai: rata-rata frame terukur `79,5` (depth 1) sampai `38,0`
+(depth 9). Halo cahaya tetap satu lampu: `backLight` dibidikan dan diwarnai
+`DS.Backdrop.heroLight(tema, yaw)`, dan jumlah lampu tetap 13 di semua lantai
+(lihat 8.3.3). Bukti tambahan: kontak-sheet `npm run shots:backdrop`
+(10 lantai x 3 posisi kamera).
 
 ### BUG-019 - Tidak ada jalur aksesibilitas teks (S4)
 
@@ -334,6 +344,26 @@ dan memeriksa 13 kotak plus 288 persegi tergambar untuk keadaan penuh) dan
 1280x720, 1024x768, 1920x1080 — tile mata uang 160x156 px pada skala 4 menjadi
 240x234 px pada skala 6, tepat 1,5x).
 
+### BUG-026 - Garis horizon berdiri di median seluruh level (S2) - SELESAI v5.2.2
+
+**Bukti:** `[CODE:src/core/renderer3d.js:849]` `horizonRow(map)` mengambil median
+baris tanah **seluruh level** dan itulah `anchorY` saat tema dibangun;
+`[RUNTIME]` tanah sepuluh lantai bergerak **6 sampai 20 tile** (10-32 unit dunia)
+di sekitar garis itu. Terukur: 14,2 unit di atas anchor di bawah plafon 10 unit
+saat pemain naik ke bukit.
+**Dampak pemain:** di punggungan, horizon tertutup **atap temanya sendiri**; di
+cekungan, bidang tanah latar berdiri **di atas kepala pemain** sehingga seluruh
+latar ada di balik lantai. Dua-duanya terlihat sebagai "background-nya rusak".
+**Perbaikan (v5.2.2):** garis tidak dibangun ulang, melainkan **diterjemahkan**
+tiap frame ke median **jendela +/-16 tile di sekitar pemain** (`localHorizonY`,
+kolom tanpa lantai dilewatkan), ditempatkan pada frame pertama level dan
+digerakkan `0,22` per 8 frame. `qa:backdrop` menunggu garis berhenti bergerak
+(sambil menuntut frame loop masih berjalan dan pemain sudah berhenti jatuh), lalu
+menuntut `garis == tanah di bawah pemain` (toleransi 0,75 unit) di dua tempat yang
+berjauhan, **dan** menuntut garis itu pernah bergerak lebih dari satu unit dari
+garis bangunannya - horizon yang tidak pernah lepas dari garis bangunan adalah
+bug yang baru saja dihapus.
+
 ## 9.3 Fitur yang diminta tetapi belum ada
 
 | Permintaan | Status | Rujukan |
@@ -341,7 +371,8 @@ dan memeriksa 13 kotak plus 288 persegi tergambar untuk keadaan penuh) dan
 | Nama pemain + tampil di atas kepala pemain | **Ada** (v5.2.0) | BUG-008, Bab 2.6 |
 | Leaderboard saat mati, nama tetap tersimpan | **Ada** (v5.2.0): nama di `localStorage`, ladder D1 di layar kematian | BUG-008, Bab 2.6 & 8.12 |
 | Penyimpanan online (Cloudflare/Supabase) | **Ada** (v5.2.0): Worker + D1 di akun Cloudflare yang sama, tanpa akun baru | BUG-008, Bab 8.12 |
-| Latar bertekstur per tema | Belum ada | BUG-018 |
+| Latar bertekstur per tema | **Ada** (v5.2.2): 13 resep tema x 7 rung, 12 famili tekstur, satu landmark per lantai; diukur `qa:backdrop` dan `shots:backdrop` | BUG-018, Bab 8.3 |
 | Ruangan gelap dengan cahaya dari latar (backlight) | Dihapus atas permintaan "ilangin aja"; `backLight` tetap ada sebagai cahaya bulan. Pemicunya bukan setting gelap melainkan batas light GPU (BUG-022) | Bab 7.4, 8.2 |
 | Animasi serang 3D per senjata (swing/trail, thrust, draw, cast) | Ada (Bab 5.6); perlu penajaman visual | - |
 | Kamera: lookahead + shake + zoom boss | Sebagian: shake ada (`R.shake`), lookahead/zoom boss belum | - |
+

@@ -26,6 +26,12 @@ Thumbs.db
 # Local screenshot dumps from the dev server's POST /__shot bridge
 assets/preview/
 
+# Generated QA output: the backdrop contact sheet, the frame measurements.
+# Regenerate with `npm run shots:backdrop` / `npm run qa:*` -- the pictures are
+# reproducible from the code, so they do not belong in every clone (see
+# BUG-013, which untracked 127 development screenshots for the same reason).
+tools/qa/out/
+
 # Development-only copies and agent config. Untracked, not deleted: the files
 # stay on disk, they just stop riding along in every clone.
 backup/

@@ -1,31 +1,37 @@
 # Bab 8 - Sistem Internal
 
-## 8.1 `core/renderer3d.js` (4.169 baris) dari dalam
+## 8.1 `core/renderer3d.js` (3.662 baris) dari dalam
 
-File terbesar di proyek. Isinya, berurutan seperti di kode:
+File terbesar di proyek. Isinya, berurutan seperti di kode (angka baris diukur
+ulang di v5.2.2, saat latar dipindahkan keluar ke `core/backdrop3d.js`):
 
 | Bagian | Baris | Fungsi |
 |---|---|---|
-| Preset kamera + rig | 130-196 | `CAM_PRESETS`, `camRig`, `applyCameraPreset` |
-| Tabel tema | 198-219 | 16 tema (fog, ambient, hemi, dir, dirI) |
+| Preset kamera + rig | 139-175 | `CAM_PRESETS`, `camRig`, `applyCameraPreset` |
+| Tabel tema | 177-232 | 16 tema (fog, ambient, hemi, dir, dirI) |
 | Anggaran cahaya | 234-281 | konstanta intensitas + ukuran pool |
-| Tekstur prosedural | 297-380 | `makeWallTexture`, `makeFloorTexture`, `makePlatformTexture` per biome |
-| Pembangun voxel | 591-923 | `box`, `instancedBoxes`, `instancedShards`, `bandCount`, `buildSkyTexture` |
-| Backdrop | 823-1170 | `backdropMotes`, `buildSkyLife`, `buildBackdrop`, `updateBackdropLife` |
-| Tekstur efek | 1172-1264 | flame, glow, portal, rune |
-| Init | 1365-1500 | Renderer WebGL, kamera, semua lampu, pool |
-| Level | 1713-2245 | Mesh pintu, obor, brazier, gate, tuas, peti, plate, paku, gergaji, platform runtuh |
-| `loadLevel` | 2246-2593 | Membangun seluruh dunia untuk satu lantai |
-| Registry & audit prop | 2594-2661 | `propRegistry`, `auditAnchors` |
-| Aktor | 2673-2790 | `gripWeapon`, `ensureHero`, `ensureEnemyModel`, `actorScale`, `ensureChargeAura` |
-| Elemen/FX | 3198-3500 | Rig efek elemen untuk puddle, burst |
-| Update & render | 3700-4135 | Flicker obor, sinkron aktor, render + scissor viewport |
-| Ekspor | 4136-4169 | `DS.R3D` |
+| Tekstur prosedural | 282-358 | `makeWallTexture`, `makeFloorTexture`, `makePlatformTexture` per biome |
+| Tekstur efek | 359-551 | flame, glow, portal, rune |
+| Init | 552-752 | Renderer WebGL, kamera, semua lampu, pool |
+| `resize` | 753-848 | Ukuran buffer dan scissor play frame |
+| Garis horizon | 849-884 | `horizonRow` (median satu level) dan `localHorizonY` (median jendela di sekitar pemain) - lihat 8.3.5 |
+| `setupTheme` | 885-951 | Kabut + lampu dari tema, satu panggilan `DS.Backdrop.build`, `backLight` diarahkan `DS.Backdrop.heroLight` |
+| Mesh prop level | 952-1546 | Pintu, obor, brazier, gate, tuas, peti, plate, paku, gergaji, platform runtuh, plus `floorAt`/`snapToFloor`/`groundAnchor` |
+| `loadLevel` | 1547-2005 | Membangun seluruh dunia untuk satu lantai |
+| Registry & audit prop | 2006-2090 | `propRegistry`, `auditAnchors` |
+| Aktor | 2091-2534 | `gripWeapon`, `ensureHero`, `ensureEnemyModel`, `actorScale`, `ensureChargeAura` |
+| Elemen/FX | 2535-2898 | `buildElemRig`, `animateRig` (rig efek elemen untuk puddle, burst) |
+| Puddle & FX dunia | 2899-3248 | `spawnElemPuddle`, `spawnGroundBurst`, `spawnSmokePuff`, `spawnSwingArc` |
+| Update & render | 3249-3611 | Sinkron aktor, flicker obor, render + scissor viewport, dan terjemahan horizon |
+| Ekspor | 3612-3662 | `DS.R3D` |
 
 `DS.R3D` adalah satu-satunya pintu masuk ke dunia 3D: `loadLevel`, `render`,
 `resize`, `spawnElemPuddle/Burst/SmokePuff`, `spawnSwingArc`, `floorAt`,
-`snapToFloor`, `groundAnchor`, `auditAnchors`, `rig`, `presets`, `lights`,
-`voxels`, `scene`, dan `gl` (renderer WebGL, yang juga dipakai lapisan layar).
+`snapToFloor`, `groundAnchor`, `auditAnchors`, `rig`, `presets`, `setPreset`,
+`lights`, `voxels`, `scene`, `gl`, dan `themeGroup`/`dungeon`/`propsGroup`/
+`activeThemeName`/`backdrop` (lima yang terakhir hanya untuk QA: tanpa `dungeon`
+dan `propsGroup`, sebuah harness tidak bisa membedakan "horizon tidak ada" dari
+"batu level sendiri yang menghalangi").
 
 ## 8.2 Rig cahaya: anggaran yang dibalik
 
@@ -84,34 +90,165 @@ Intensitas obor punya animasi hidup: tiap obor menyimpan `baseIntensity` dan
 > memeriksa (a) setiap intensitas lampu berhingga setelah tiap elemen mendarat dan
 > (b) frame tidak bertambah gelap saat satu patch terbakar.
 
-## 8.3 Latar belakang 3D (backdrop)
+## 8.3 Latar belakang 3D: `src/core/backdrop3d.js` (1.966 baris, v5.2.2)
 
-`[CODE]` `src/core/renderer3d.js:924` (`buildBackdrop`)
+`[CODE]` `src/core/backdrop3d.js:1416` (`build`), dipanggil dari
+`[CODE:src/core/renderer3d.js:1601]` di dalam `setupTheme()`.
 
-Setiap tema punya spec latar dengan beberapa **band** yang digambar berlapis:
+Sampai v5.2.1 latar dibangun **di dalam** `renderer3d.js` sebagai band siluet
+berwarna. Sejak v5.2.2 seluruh latar adalah modul sendiri, dan renderer hanya
+menyisakan kabut, lampu, dan satu panggilan:
 
-- `bandCount(spec, WU)` menghitung jumlah elemen dari lebar dunia dibagi
-  `spec.sp` (jarak antar elemen).
-- Band punya `rise` (pergeseran vertikal), `drift` (gerak horizontal, default
-  0.35), `col`, `size`, `alpha`, `pulse` (default 0.18), dan digambar dengan
-  `AdditiveBlending` + `depthWrite: false`.
-- Tema juga punya `stars` (bintang) dan bentuk siluet khasnya: `trees`, `reeds`,
-  `bones`, `columns`, `spires`, `arches`, `crystals`, `ice`, `rubble`.
+```js
+DS.Backdrop.build({ scene, theme, p2u, fogCol, fogDensity }, themeName, w, h, anchorY)
+  -> { group, skyRig, hero, report }
+DS.Backdrop.update(time, dt)      // denyut band, awan, burung, mote
+```
 
-**Kehidupan** latar dikelola `updateBackdropLife(time, dt)` + `buildSkyLife`:
+`report` adalah bagian yang membuat modul ini bisa **diukur**: ia membawa `theme`,
+`wu` (lebar lantai dalam unit dunia), `anchorY`, `gain`, `window`, `skyValue`,
+`haze`, `rungs`, `layers[]` (satu entri per rung: `kind, d, k, n, col, glow, tex,
+texRep, mean, solo, dropped`), `textures[]`, `fogLift[]`, dan `hero` yang dibaca
+dari objek yang benar-benar dibangun (`getWorldPosition`), bukan dari aritmetika
+penempatannya. `heroFit(name)` mengembalikan benda langit yang **akan** didapat
+sebuah tema (keinginan penulis setelah dipangkas oleh atap ruangan).
 
-| Gerakan | Sumber |
+### 8.3.1 Tangga tujuh rung
+
+| Konstanta | Nilai | Arti |
+|---|---|---|
+| `RUNGS` | 4.5 / 7.5 / 12 / 19 / 30 / 46 / 68 | jarak tujuh band dari kamera, unit dunia |
+| `REF_D` | `RUNGS[0]` = 4.5 | jarak acuan: ukuran elemen dan kerapatan tekstur diskalakan dari sini |
+| `GROUND_D` | 130 | panjang tanah datar sebelum langit |
+| `SKY_Z` / `SKY_H` / `SKY_DROP` | −150 / 240 / 30 | bidang langit: posisi, tinggi, dan seberapa jauh ia turun di bawah garis mata |
+| `CAM_DIST` | 26 | menyalin `camRig.dist`, dipakai untuk skala benda langit |
+| `TEX_AT` | 19 | rung pada atau lebih dekat dari ini membawa tekstur |
+| `ROOM_HERO_D` | −30 | kedalaman benda langit di ruangan beratap |
+
+Setiap tema adalah satu baris `RECIPE` (**13 tema**) dengan **tujuh rung penuh**
+dan **tepat satu** `solo: true` di rung 30 — satu landmark unik per lantai
+(`wreck` di Shore, `throne` di Throne, dan seterusnya). `BACKDROP_KINDS`
+menyediakan **26 bentuk band** (`spires`, `hills`, `ridge`, `rubble`, `bones`,
+`columns`, `arches`, `crystals`, `ice`, `reeds`, `wreck`, `throne`, …), dan
+`bandCount()` menghitung jumlah elemen dari lebar dunia dibagi `sp`, jadi
+kepadatan latar tidak berubah saat lantai bertambah lebar. Sembilan di antaranya
+punya tabel `SWAY_KINDS` (denyut opasitas sendiri).
+
+### 8.3.2 Tekstur per rung
+
+`makeBandTexture(family)` menggambar tekstur prosedural ke canvas sekali per
+famili lalu di-cache (`texCache`), dan **12 famili** tersedia: `sand`, `wetrock`,
+`moss`, `snow`, `brick`, `ash`, `bone`, `ice`, `coral`, `wood`, `marble`,
+`tiles`. Yang membuatnya terbaca sebagai kedalaman, bukan sebagai wallpaper:
+
+- hanya rung ≤ `TEX_AT` (19) yang bertekstur; yang lebih jauh tetap siluet;
+- `texRep` tiap rung dihitung dari `d / REF_D`, sehingga **kerapatan texel tetap**
+  naik tangga — rung jauh tidak berubah menjadi bintik-bintik halus;
+- warna rung diangkat terhadap kabut oleh `unfog(col, dist, fogCol, density)`
+  dengan `FOG_LIFT_MAX = 5.0`, jadi tekstur tetap terbaca di lantai gelap.
+
+### 8.3.3 Kurva cahaya sepanjang run
+
+`CURVE` punya **13 baris** (satu per tema) yang memberi `gain` langit dan warna
+langit atas/tengah/bawah; tema tanpa baris memakai `DEFAULT_GAIN = 0.30`.
+Light curve ini **monoton menggelap** dari Depth 1 ke Depth 10 dan diukur dari
+piksel, bukan diklaim: `npm run qa:backdrop` menjalankan `build` pada kesepuluh
+lantai dan mencetak rata-rata frame per lantai, mis. `shore 79.5` turun sampai
+`volcanic 38.0` — rentang 41 poin, dan tidak ada lantai yang jatuh ke layar gelap.
+
+Langit bukan lampu kedua. Ia tetap **satu** `DirectionalLight` (`backLight`) yang
+**dibidikan dan diwarnai oleh benda langit tema itu sendiri** lewat
+`DS.Backdrop.heroLight(themeName, yaw)`, sehingga benda yang menyala di langit dan
+tepi cahaya di batu adalah sumber yang sama. Jumlah lampu di scene tetap 13 di
+semua lantai — itu yang dijaga `qa:lights`, karena lampu tambahan adalah bug layar
+hitam v5.2.1.
+
+### 8.3.4 Benda langit, ruangan, dan "jendela"
+
+Setiap tema menulis satu `HEROES` entry: `kind` (matahari, bulan, kristal, obor,
+kubah, …), `col`, `glow`, `az` (azimut 0..1 dari lebar lantai), `elev`, dan `r`.
+Penempatannya:
+
+1. **Di langit terbuka** benda digantung di `skyRig`, pada `heroZ = 2`, di
+   `(az − 0.5) × WU × 0.9` — jadi azimut adalah pecahan dari rentang yang
+   direntangkan atas 90% lantai, dan `qa:backdrop` **memeriksa ulang** bahwa benda
+   itu benar-benar berada di garis tengah lantai pada azimutnya (toleransi 0,05).
+2. **Di ruangan beratap** `roomRig` berdiri di `(WU × 0.5, 0, 0)` dan benda
+   digantung di `ROOM_HERO_D = −30`, tetapi lebih dulu `fitRoomHero()` memangkas
+   jari-jari dan ketinggiannya agar muat: `room = max(2.4, ceiling.y − 1.6)`,
+   `cap = max(1.6, (room − 0.2) / 2)`. Tanpa itu benda setinggi 4,3 unit menembus
+   atap 10 unit dan halo-nya jadi coreng di tanah.
+3. **Jendela.** Band yang berada **di depan** benda langit akan menutupinya, dan
+   inilah bug yang tersembunyi paling lama: laporan tetap benar, tetapi yang
+   difoto pemain adalah batu. Karena itu lapisan di depan menghitung satu
+   "jendela" (`windowBodyZ`, `windowFeetY`, `windowGap`) dan **membuang** kotak
+   yang menutupi badan benda; report mencatat jumlahnya di `report.window`.
+   Terukur: tanpa jendela, pusat piringan benda di lantai `throne` terbaca
+   **5** dari 255; dengan jendela **106**.
+
+### 8.3.5 Horizon yang mengikuti tanah (v5.2.2)
+
+`horizonRow(map)` mengambil **median** baris tanah seluruh level, dan itulah yang
+menjadi `anchorY` saat tema dibangun. Median itu cukup untuk level datar dan salah
+untuk game ini: diukur pada kedalaman 1..10, tanah bergerak **6 sampai 20 tile**
+(10–32 unit dunia) di sekitar garis itu, dan dua-duanya terlihat:
+
+- **naik ke bukit** → kamera berakhir **di atas atap tema itu sendiri** (terukur
+  14,2 unit di atas anchor di bawah plafon 10 unit), sehingga horizon tertutup
+  atapnya sendiri;
+- **turun ke cekungan** → bidang tanah latar berada **di atas kepala pemain**, dan
+  seluruh latar berdiri di balik lantai.
+
+Perbaikannya bukan membangun ulang latar tiap frame, melainkan **menerjemahkan
+grup yang sudah dibangun**:
+
+```js
+// renderer3d.js, di dalam render()
+if ((g.frames & 7) === 0) {
+  const target = localHorizonY(g.map, DS.Ent.centerX(g.player));
+  if (target != null) horizonY = horizonSettled ? horizonY + (target - horizonY) * 0.22 : target;
+}
+themeGroup.position.y = horizonY - themeAnchorY;   // themeAnchorY = garis saat build
+```
+
+`localHorizonY()` adalah median yang sama, tetapi atas **jendela ±16 tile di
+sekitar pemain** (langkah 2, kolom tanpa lantai dilewatkan supaya lubang tidak
+menarik garis ke bawah): cukup tahan-uji untuk satu lubang, cukup lokal untuk
+bukit. Frame pertama sebuah level **menempatkan** garis, frame berikutnya
+**menggerakkannya** dengan `0.22` per 8 frame, jadi satu langkah tile tidak
+memunculkan pop pada seluruh latar.
+
+> **Satu jebakan yang baru ketahuan setelah garis ini mulai bergerak.** Rig langit
+> (`skyRig`) adalah **anak** dari grup yang sekarang diterjemahkan, tetapi ia dipin
+> ke tinggi kamera dalam **koordinat dunia** (`skyRig.position.y = camera.position.y`).
+> Selama grup ada di `y = 0` kedua angka itu sama; begitu grup bergeser, langit
+> beserta benda langitnya ikut naik/turun sebesar pergeseran itu - dan pergeseran
+> bisa 30 unit. Terukur: bulan Depth 7 berada **3% tinggi setengah frame di atas
+> tepi atas frame**, tepat dari satu-satunya tempat di lantai itu yang seharusnya
+> melihatnya di atas kepala. Pin-nya sekarang dikonversi ke ruang grup:
+> `skyRig.position.y = camera.position.y - themeGroup.position.y`. Aturan umumnya:
+> setiap angka **dunia** yang ditulis ke anak dari grup ini harus dikurangi dulu -
+> satu-satunya yang boleh tetap dunia adalah kamera.
+
+`npm run qa:backdrop` menunggu garis itu **sampai di tanah pemain** (bukan
+menunggu durasi) lalu menuntut `garis == tanah di bawah pemain` (toleransi 0,75
+unit) di dua tempat yang berjauhan — dan menuntut bahwa garis itu memang **pernah**
+bergerak lebih dari satu unit, karena horizon yang tidak pernah lepas dari garis
+bangunannya adalah bug yang baru saja dihapus.
+
+### 8.3.6 Cara mengukurnya
+
+| Alat | Yang diukur |
 |---|---|
-| Kabut/ember mengalir | `backdropMotes` dengan kecepatan dan denyut opasitas sendiri |
-| Band bernapas | Tabel `BREATHE` (amp/spd): `trees 0.018/0.62`, `reeds 0.030/1.05`, `bones 0.009/0.48`, `columns 0.005/0.38`, `spires 0.006/0.44`, `arches 0.004/0.34`, `crystals 0.014/0.85`, `ice 0.010/0.52`, `rubble 0.004/0.70` |
-| Awan bergeser | Band awan dengan `drift` |
-| 6 siluet terbang | Burung mengepak melintasi langit, **hanya pada tema beratap terbuka** |
+| `npm run qa:backdrop` (`tools/qa/audit-backdrop.js`, `lib/backdrop-page.js`) | **346 pemeriksaan**: struktur 13 resep, anggaran lampu, 4×3 sinar dari tiga tempat di lantai (0/36 lubang), benda langit di dalam frame dan **lebih terang dari bingkainya**, laporan ≡ objek di scene, garis horizon di atas tanah pemain, kerapatan texel, dan biaya frame |
+| `npm run shots:backdrop` (`tools/qa/shoot-backdrop.js`) | kontak-sheet: 10 lantai × 3 posisi kamera, dipotong ke play frame, HUD mati, plus kolom **before** dari build yang sedang terbit kalau `--before URL` diberikan |
 
-> **Catatan penting untuk pass berikutnya.** Backdrop yang sekarang adalah
-> geometri padat dan sudah bergerak, tetapi ia **belum bertekstur sesuai tema** -
-> ini permintaan pemain yang masih terbuka: "backgroundnya harus sesuai tema DAN
-> bertekstur". Yang ada sekarang adalah bentuk siluet + warna, bukan tekstur
-> bergambar (lihat register isu).
+Pelajaran yang mahal dan sudah ditulis di dalam tool-nya: harness ini mengukur
+objek **hidup**, bukan report. `underBody()` mengambil kolom dari objek yang benar-
+benar dipakai (`getWorldPosition`), `vantage()` mencari kolom tempat level sendiri
+tidak menghalangi (batu level memang tidak bisa dilihat tembus), dan
+`levelInTheWay()` hanya me-raycast grup dungeon — raycast ke seluruh scene pernah
+melempar `Cannot read properties of null` pada mesh yang sudah di-dispose.
 
 ## 8.4 Kamera
 
