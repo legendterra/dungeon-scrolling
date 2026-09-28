@@ -77,15 +77,21 @@ window.DS = window.DS || {};
       toastText: '', toastColor: '#ffffff', toastTimer: 0
     };
 
-    g.showBanner = function (title, subtitle, color) {
+    /* Both keep filling the old fields (the WebGL fallback draws them) and hand
+       the line to the HTML layer, which queues banners instead of letting the
+       newest overwrite the last. `opts` is HTML-only: { kind: 'boss' | 'floor',
+       eyebrow, title, subtitle } for a richer card than the two-line fallback. */
+    g.showBanner = function (title, subtitle, color, opts) {
       g.banner = { title: title, subtitle: subtitle || '', color: color || '#d8d5e8' };
       g.bannerTimer = 130;
+      if (DS.Notify) DS.Notify.banner(g, title, subtitle, color, opts);
     };
 
     g.toast = function (text, color) {
       g.toastText = text;
       g.toastColor = color || '#ffffff';
       g.toastTimer = 90;
+      if (DS.Notify) DS.Notify.toast(text, color);
     };
 
     g.spawnAmbush = function (x, y, count) {
@@ -289,9 +295,14 @@ window.DS = window.DS || {};
 
     if (kind === 'boss') {
       g.showBanner(g.boss ? g.boss.name : 'THRONE ROOM', DS.Acts.label(g.depth),
-                   (g.boss && g.boss.barColor) || '#c86ee0');
+                   (g.boss && g.boss.barColor) || '#c86ee0',
+                   { kind: 'boss', eyebrow: DS.Acts.label(g.depth) + '  ·  BOSS', subtitle: g.biome.name });
     }
-    if (kind === 'safe') g.showBanner('SAFE ROOM', 'TRADE - ENCHANT - BREATHE', '#a8e4ff');
+    if (kind === 'safe') {
+      g.showBanner('SAFE ROOM', 'TRADE - ENCHANT - BREATHE', '#a8e4ff',
+                   { kind: 'floor', eyebrow: DS.Acts.label(g.depth),
+                     subtitle: 'Trade  ·  Enchant  ·  Breathe' });
+    }
 
     DS.R.setCam(Ent.centerX(g.player), Ent.centerY(g.player));
     if (DS.R3D && DS.R3D.loadLevel) DS.R3D.loadLevel(g.map, g.biome, g);
@@ -310,17 +321,23 @@ window.DS = window.DS || {};
   function announce(g, level) {
     if (level.kind === 'trial') return;    // the trial announces itself
 
+    /* The HTML card leads with the place (act and depth as its eyebrow); the
+       two-line WebGL fallback keeps its old 'DEPTH n - NAME' wording. */
+    const eyebrow = DS.Acts ? DS.Acts.label(g.depth) : 'DEPTH ' + g.depth;
     const flavor = FLAVOR_TEXT[level.flavor];
     if (flavor) {
-      g.showBanner('DEPTH ' + g.depth + '  -  ' + flavor.name, flavor.hint, '#a8e4ff');
+      g.showBanner('DEPTH ' + g.depth + '  -  ' + flavor.name, flavor.hint, '#a8e4ff',
+                   { kind: 'floor', eyebrow: eyebrow, title: flavor.name });
       return;
     }
     if (g.modifier) {
       g.showBanner('DEPTH ' + g.depth + '  -  ' + g.modifier.name,
-                   g.modifier.desc, g.modifier.color);
+                   g.modifier.desc, g.modifier.color,
+                   { kind: 'floor', eyebrow: eyebrow, title: g.modifier.name });
       return;
     }
-    g.showBanner('DEPTH ' + g.depth, g.biome.name, '#d8d5e8');
+    g.showBanner('DEPTH ' + g.depth, g.biome.name, '#d8d5e8',
+                 { kind: 'floor', eyebrow: eyebrow, title: g.biome.name, subtitle: '' });
   }
 
   /* A room boss waits until the player is actually in the room with it, so the
@@ -670,27 +687,61 @@ window.DS = window.DS || {};
      beside it. This used to return a single string with the key glued to the
      front, which meant `prompt.key` and `prompt.text` were both undefined and
      the hint renderer threw on every interactable the player walked up to. */
+  /* v6 adds what the in-world prompt chip needs on top of { key, text }: a
+     short verb, the thing's name (and rarity, for an item), the object itself
+     as `target`, and `anchor` -- the level point the chip floats over. The
+     old fallback renderer still reads only key and text. */
   function describe(g, action) {
     if (!action) return null;
+    const d = describeText(g, action);
+    if (d) d.anchor = promptAnchor(g, action);
+    return d;
+  }
+
+  function describeText(g, action) {
+    const t = action.target;
     if (action.kind === 'chest') {
-      const cfg = action.target.cfg;
-      if (action.target.sealed) return { key: '!', text: 'SEALED - KILL THE WARDEN' };
-      return { key: 'F', text: cfg.label.toUpperCase() + (cfg.locked ? ' (KEY)' : '') };
+      const cfg = t.cfg;
+      if (t.sealed) {
+        return { key: '!', text: 'SEALED - KILL THE WARDEN', verb: 'Sealed', name: 'Kill the warden', target: t };
+      }
+      return { key: 'F', text: cfg.label.toUpperCase() + (cfg.locked ? ' (KEY)' : ''),
+               verb: 'Open', name: cfg.label + (cfg.locked ? ' (key)' : ''), target: t };
     }
-    if (action.kind === 'crate') return { key: 'F', text: 'HEAVE THE CRATE BACK' };
+    if (action.kind === 'crate') {
+      return { key: 'F', text: 'HEAVE THE CRATE BACK', verb: 'Reset', name: 'Crate', target: t };
+    }
     if (action.kind === 'item') {
-      const item = action.target.item;
+      const item = t.item;
       const worn = DS.Armor.isArmor(item) && g.inv.armor[item.slot];
-      if (worn && item.rarity > worn.rarity) return { key: 'F', text: 'EQUIP ' + item.name };
+      const base = { key: 'F', name: item.name, rarity: item.rarity, item: item, target: t };
+      if (worn && item.rarity > worn.rarity) {
+        return Object.assign(base, { text: 'EQUIP ' + item.name, verb: 'Equip' });
+      }
       const swap = DS.Inv.bagFull(g.inv) && g.inv.equipped[1];
-      return { key: 'F', text: (swap ? 'SWAP FOR ' : 'TAKE ') + action.target.item.name };
+      return Object.assign(base, { text: (swap ? 'SWAP FOR ' : 'TAKE ') + item.name, verb: swap ? 'Swap' : 'Take' });
     }
-    if (action.kind === 'shrine') return { key: 'F', text: 'PRAY AT THE SHRINE' };
-    if (action.kind === 'lever') return { key: 'F', text: 'PULL LEVER' };
-    if (action.kind === 'shop') return { key: 'F', text: 'TRADE' };
-    if (action.kind === 'table') return { key: 'F', text: 'ENCHANT' };
-    if (action.kind === 'door') return { key: 'F', text: 'DESCEND' };
+    if (action.kind === 'shrine') return { key: 'F', text: 'PRAY AT THE SHRINE', verb: 'Pray', name: 'Shrine' };
+    if (action.kind === 'lever') return { key: 'F', text: 'PULL LEVER', verb: 'Pull', name: 'Lever', target: t };
+    if (action.kind === 'shop') return { key: 'F', text: 'TRADE', verb: 'Trade', name: 'Merchant' };
+    if (action.kind === 'table') return { key: 'F', text: 'ENCHANT', verb: 'Enchant', name: 'Rune table' };
+    if (action.kind === 'door') {
+      return { key: 'F', text: 'DESCEND', verb: 'Descend', name: DS.Acts ? DS.Acts.label(g.depth + 1) : '' };
+    }
     return null;
+  }
+
+  /* Where the prompt chip floats: just above the top of the thing, in level px. */
+  function promptAnchor(g, action) {
+    const t = action.target;
+    if (action.kind === 'lever' && t && t.lever) return { x: t.lever.x + t.lever.w / 2, y: t.lever.y - 4 };
+    if (t && t.w != null) return { x: t.x + t.w / 2, y: t.y - 4 };
+    if (action.kind === 'shrine' && g.shrine) return { x: g.shrine.x + 8, y: g.shrine.y - 10 };
+    if (action.kind === 'shop' && g.merchantPos) return { x: g.merchantPos.x + 4, y: g.merchantPos.y - 12 };
+    if (action.kind === 'table' && g.tablePos) return { x: g.tablePos.x, y: g.tablePos.y - 6 };
+    if (action.kind === 'door' && g.doorPos) return { x: g.doorPos.x + 8, y: g.doorPos.y - 8 };
+    const p = g.player;
+    return { x: p.x + p.w / 2, y: p.y - 14 };
   }
 
 
@@ -994,6 +1045,8 @@ window.DS = window.DS || {};
       UI.reticle(g);
     }
     if (g.paused) DS.Profile.draw(g);
+    // The HTML HUD, world labels and notifications follow this frame's camera.
+    if (DS.HUD) DS.HUD.frame(g);
 
     if (g.fadeIn > 0) R.fade(g.fadeIn / 26);
     if (g.player && g.player.dead) {

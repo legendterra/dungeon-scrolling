@@ -1,0 +1,493 @@
+/* Dungeon Scrolling -- the run HUD (v6). Built by src/ui-html/hud.js.
+
+   Direction: an anime action RPG HUD in the Genshin / Honkai family. The world
+   is the picture, so the HUD hugs the four corners and stays small: vitals
+   bottom-left, arms and skills bottom-right, where-am-I top-left, map and purse
+   top-right, the boss bar alone across the top centre. Scale contrast carries
+   the hierarchy -- HP number and skill discs are the loudest things, labels are
+   quiet small caps -- and colour is semantic only (HP red, MP blue, SP green,
+   rarity on items, element on anything elemental, gold for money and reward).
+
+   Every size is in --s units (1/720 of the play frame's height), so 720p,
+   1080p and 1440p are the same layout at different resolutions. */
+
+.hud {
+  position: absolute; inset: 0;
+  --g: calc(22 * var(--s));           /* distance from the frame edge */
+  --txt-shadow: 0 1px 0 rgba(0, 0, 0, 0.55), 0 0 calc(6 * var(--s)) rgba(0, 0, 0, 0.55);
+  transition: opacity var(--t-med) var(--ease-out);
+}
+.hud.is-dim { opacity: 0; }
+.hud canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+
+/* A glass plate shared by the clusters: darker toward the frame edge so it
+   reads as sitting ON the world rather than cut out of it. */
+.hud-glass {
+  background: linear-gradient(180deg, rgba(14, 18, 34, 0.62), rgba(8, 10, 22, 0.78));
+  border: 1px solid var(--edge);
+  box-shadow: 0 calc(4 * var(--s)) calc(14 * var(--s)) rgba(0, 0, 0, 0.35),
+              inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* --- skewed bars (HP, boss) ----------------------------------------------- */
+
+.hud-bar {
+  position: relative; overflow: hidden;
+  transform: skewX(-20deg);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), rgba(20, 10, 18, 0.7));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 0 calc(2 * var(--s)) rgba(255, 255, 255, 0.07);
+}
+.hud-bar > i {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 100%;
+  transform-origin: left center; will-change: transform;
+}
+.hud-bar > .lag { background: linear-gradient(180deg, #fff3f0, #ffc3b8); opacity: 0.85; }
+.hud-bar > .fill::after {
+  /* the glossy top third every anime bar has */
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 38%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0));
+}
+.hud-bar > .ticks {
+  transform: none; left: 0; right: 0; width: auto;
+  background: repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px),
+              rgba(0, 0, 0, 0.35) calc(10% - 1px), rgba(0, 0, 0, 0.35) 10%);
+}
+
+/* --- bottom-left: vitals --------------------------------------------------- */
+
+/* A soft shade pooled behind each bottom cluster: no plate, but the numbers
+   stay legible over a sunlit wall as well as over a dark cave. */
+.hud-vitals::before, .hud-arms::before {
+  content: ''; position: absolute; z-index: -1;
+  left: calc(-60 * var(--s)); right: calc(-60 * var(--s)); top: calc(-40 * var(--s)); bottom: calc(-40 * var(--s));
+  background: radial-gradient(closest-side, rgba(4, 6, 14, 0.5), rgba(4, 6, 14, 0));
+  pointer-events: none;
+}
+
+.hud-vitals {
+  position: absolute; left: var(--g); bottom: calc(20 * var(--s));
+  display: flex; align-items: flex-end; gap: calc(10 * var(--s));
+}
+
+.hud-portrait {
+  position: relative; flex: none;
+  width: calc(58 * var(--s)); height: calc(64 * var(--s));
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  /* the hexagon's lit rim: the plate is this gradient, the face sits inset */
+  background: linear-gradient(160deg, rgba(200, 228, 255, 0.95), rgba(111, 211, 255, 0.35) 45%, rgba(242, 198, 109, 0.85));
+}
+.hud-portrait .in {
+  position: absolute; inset: calc(2 * var(--s));
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: radial-gradient(circle at 50% 38%, #44578f 0%, #1a2140 58%, #0b0e1d 100%);
+}
+.hud-portrait canvas {
+  position: absolute; left: 10%; top: 14%; width: 80%; height: 80%;
+}
+.hud-portrait::after {
+  content: ''; position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(circle at 50% 60%, rgba(255, 60, 90, 0) 40%, rgba(255, 60, 90, 0.75) 100%);
+}
+.hud-vitals.is-low .hud-portrait::after { animation: hud-low 0.9s ease-in-out infinite alternate; }
+@keyframes hud-low { from { opacity: 0.15; } to { opacity: 0.9; } }
+
+.hud-vbody { display: flex; flex-direction: column; gap: calc(4 * var(--s)); padding-bottom: calc(3 * var(--s)); }
+
+.hud-status { display: flex; gap: calc(3 * var(--s)); min-height: calc(16 * var(--s)); margin-bottom: calc(2 * var(--s)); }
+.hud-boon {
+  width: calc(16 * var(--s)); height: calc(16 * var(--s));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(11 * var(--s));
+  color: var(--c, var(--ink));
+  background: rgba(8, 10, 22, 0.72);
+  box-shadow: inset 0 0 0 1px var(--c, var(--edge)), 0 0 calc(6 * var(--s)) color-mix(in srgb, var(--c, #fff) 35%, transparent);
+  clip-path: polygon(calc(4 * var(--s)) 0, 100% 0, 100% calc(100% - 4 * var(--s)), calc(100% - 4 * var(--s)) 100%, 0 100%, 0 calc(4 * var(--s)));
+}
+.hud-boon.more { color: var(--ink-dim); box-shadow: inset 0 0 0 1px var(--edge); font-size: calc(10 * var(--s)); width: auto; padding: 0 calc(4 * var(--s)); }
+
+.hud-vhead { display: flex; align-items: baseline; justify-content: space-between; padding-right: calc(8 * var(--s)); }
+.hud-name {
+  font-family: var(--font-display); font-weight: 700; font-size: calc(13 * var(--s));
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink);
+  text-shadow: var(--txt-shadow);
+}
+.hud-hpnum { font-family: var(--font-display); font-weight: 700; text-shadow: var(--txt-shadow); font-variant-numeric: tabular-nums; }
+.hud-hpnum b { font-size: calc(19 * var(--s)); color: #fff; font-weight: 700; }
+.hud-hpnum span { font-size: calc(12 * var(--s)); color: var(--ink-dim); margin-left: calc(2 * var(--s)); }
+.hud-hpnum em { font-style: normal; font-size: calc(12 * var(--s)); color: var(--shield); margin-left: calc(6 * var(--s)); }
+
+.hud-hp { width: calc(232 * var(--s)); height: calc(12 * var(--s)); margin-left: calc(4 * var(--s)); }
+.hud-hp > .fill { background: linear-gradient(90deg, #b3203f 0%, #ff4d6d 62%, #ff8a98 100%); }
+.hud-hp > .shield {
+  top: 0; bottom: auto; height: 45%;
+  background: repeating-linear-gradient(135deg, rgba(154, 217, 255, 0.95) 0 calc(3 * var(--s)), rgba(200, 238, 255, 0.95) calc(3 * var(--s)) calc(6 * var(--s)));
+  box-shadow: 0 0 calc(6 * var(--s)) rgba(154, 217, 255, 0.9);
+}
+.hud-vitals.is-low .hud-hp > .fill { background: linear-gradient(90deg, #8e1230, #ff2d55); }
+
+.hud-sub { display: flex; flex-direction: column; gap: calc(3 * var(--s)); margin-left: calc(1 * var(--s)); }
+.hud-pool { display: flex; align-items: center; gap: calc(6 * var(--s)); }
+.hud-pool .hud-bar { width: calc(170 * var(--s)); height: calc(5 * var(--s)); }
+.hud-pool .num {
+  font-family: var(--font-display); font-weight: 700; font-size: calc(11 * var(--s));
+  color: var(--ink-dim); min-width: calc(22 * var(--s)); text-shadow: var(--txt-shadow);
+  font-variant-numeric: tabular-nums;
+}
+.hud-pool.mp .fill { background: linear-gradient(90deg, #2a6fd6, #4da3ff 70%, #a9d4ff); }
+.hud-pool.sp .fill { background: linear-gradient(90deg, #2f9e57, #7be08c 70%, #c8f7c7); }
+.hud-pool.is-short .num { color: #ff8aa0; }
+.hud-pool .lag, .hud-pool .ticks { display: none; }
+
+.hud-dash { display: flex; gap: calc(3 * var(--s)); margin-left: calc(2 * var(--s)); }
+.hud-dash i {
+  width: calc(6 * var(--s)); height: calc(6 * var(--s)); transform: rotate(45deg);
+  background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 0 0 1px rgba(123, 224, 140, 0.4);
+}
+.hud-dash i.on { background: var(--sp); box-shadow: 0 0 calc(5 * var(--s)) rgba(123, 224, 140, 0.9); }
+
+/* --- bottom-right: arms and skills ---------------------------------------- */
+
+.hud-arms {
+  position: absolute; right: var(--g); bottom: calc(20 * var(--s));
+  display: flex; align-items: flex-end; gap: calc(12 * var(--s));
+}
+
+.hud-hands { position: relative; display: flex; align-items: flex-end; gap: calc(5 * var(--s)); padding-bottom: calc(6 * var(--s)); }
+.hud-hand {
+  position: relative; flex: none;
+  width: calc(34 * var(--s)); height: calc(34 * var(--s));
+  background: rgba(8, 10, 22, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(150, 190, 255, 0.18);
+  clip-path: polygon(calc(7 * var(--s)) 0, 100% 0, 100% calc(100% - 7 * var(--s)), calc(100% - 7 * var(--s)) 100%, 0 100%, 0 calc(7 * var(--s)));
+  opacity: 0.62;
+  transition: opacity var(--t-fast);
+}
+.hud-hand canvas { position: absolute; left: 12%; top: 12%; width: 76%; height: 76%; }
+.hud-hand.is-active {
+  width: calc(46 * var(--s)); height: calc(46 * var(--s)); opacity: 1;
+  background: radial-gradient(circle at 50% 70%, color-mix(in srgb, var(--rarity, #fff) 26%, transparent), rgba(8, 10, 22, 0.82) 70%);
+  box-shadow: inset 0 0 0 1px var(--rarity, var(--edge-strong)),
+              inset 0 calc(-3 * var(--s)) 0 0 var(--rarity, var(--edge-strong));
+}
+.hud-hand.is-empty canvas { display: none; }
+.hud-hand .ammo {
+  position: absolute; left: calc(3 * var(--s)); bottom: calc(2 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(11 * var(--s));
+  color: var(--ink); text-shadow: var(--txt-shadow);
+}
+.hud-hand .ammo.is-out { color: var(--danger); }
+
+/* The element badge rides the active hand's corner, outside the chamfer clip. */
+.hud-elem {
+  position: absolute; right: calc(-6 * var(--s)); top: calc(-7 * var(--s));
+  width: calc(20 * var(--s)); height: calc(20 * var(--s));
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, rgba(20, 24, 44, 0.95), rgba(6, 8, 18, 0.95));
+  box-shadow: 0 0 0 1px var(--elc, var(--edge)), 0 0 calc(8 * var(--s)) var(--elc, transparent);
+  color: var(--elc, var(--ink));
+}
+.hud-elem svg { width: 64%; height: 64%; }
+.hud-elem.is-infused { box-shadow: 0 0 0 calc(1.5 * var(--s)) #fff, 0 0 calc(10 * var(--s)) var(--elc); }
+
+.hud-ess {
+  position: absolute; left: 0; right: 0; bottom: calc(-4 * var(--s));
+  display: flex; justify-content: flex-end; gap: calc(2 * var(--s));
+}
+.hud-ess i { width: calc(4 * var(--s)); height: calc(4 * var(--s)); border-radius: 50%; background: rgba(255, 255, 255, 0.14); }
+.hud-ess i.on { background: var(--elc); box-shadow: 0 0 calc(4 * var(--s)) var(--elc); }
+.hud-ess i.cur { outline: 1px solid #fff; outline-offset: 1px; }
+
+.hud-hands .ui-key, .hud-skill .ui-key {
+  position: absolute; min-width: calc(15 * var(--s)); height: calc(15 * var(--s));
+  font-size: calc(10 * var(--s)); padding: 0 calc(3 * var(--s));
+  background: rgba(10, 14, 28, 0.92);
+}
+.hud-hands .swapkey { left: calc(-6 * var(--s)); top: calc(-6 * var(--s)); }
+
+.hud-skill { position: relative; flex: none; }
+.hud-skill .disc {
+  position: relative; width: calc(50 * var(--s)); height: calc(50 * var(--s)); border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, #26305a 0%, #121731 60%, #080a16 100%);
+  box-shadow: 0 0 0 calc(1.5 * var(--s)) var(--ring, rgba(150, 190, 255, 0.35)),
+              0 0 0 calc(4 * var(--s)) rgba(6, 8, 18, 0.55),
+              0 calc(4 * var(--s)) calc(14 * var(--s)) rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.hud-skill.ult .disc { width: calc(62 * var(--s)); height: calc(62 * var(--s)); }
+.hud-skill canvas { position: absolute; left: 20%; top: 20%; width: 60%; height: 60%; }
+.hud-skill .cd {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(rgba(4, 6, 14, 0.78) calc(var(--cd, 0) * 1turn), rgba(4, 6, 14, 0) 0);
+}
+.hud-skill .left {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(18 * var(--s));
+  color: #fff; text-shadow: var(--txt-shadow);
+}
+.hud-skill.ult .left { font-size: calc(22 * var(--s)); }
+.hud-skill .ui-key { left: 50%; bottom: calc(-7 * var(--s)); transform: translateX(-50%); }
+.hud-skill .cost {
+  position: absolute; right: calc(-4 * var(--s)); top: calc(-4 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(11 * var(--s));
+  color: #9cc8ff; background: rgba(10, 20, 44, 0.92); padding: 0 calc(4 * var(--s));
+  border-radius: calc(6 * var(--s)); box-shadow: 0 0 0 1px rgba(77, 163, 255, 0.6);
+}
+.hud-skill.is-ready .disc {
+  --ring: var(--rarity, var(--accent));
+  box-shadow: 0 0 0 calc(1.5 * var(--s)) var(--ring),
+              0 0 0 calc(4 * var(--s)) rgba(6, 8, 18, 0.55),
+              0 0 calc(16 * var(--s)) color-mix(in srgb, var(--ring) 55%, transparent);
+}
+.hud-skill.is-cooling canvas, .hud-skill.is-poor canvas { opacity: 0.45; filter: saturate(0.4); }
+.hud-skill.is-poor .disc { --ring: rgba(77, 163, 255, 0.6); }
+.hud-skill.ult.is-ready .disc::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 70%, color-mix(in srgb, var(--ring) 70%, #fff) 85%, transparent 100%);
+  mix-blend-mode: screen; animation: hud-spin 2.4s linear infinite; opacity: 0.55;
+}
+@keyframes hud-spin { to { transform: rotate(1turn); } }
+.hud-skill.is-flash-a .disc { animation: hud-ready-a 520ms var(--ease-out); }
+.hud-skill.is-flash-b .disc { animation: hud-ready-b 520ms var(--ease-out); }
+@keyframes hud-ready-b {
+  0% { transform: scale(1); filter: brightness(2.2); }
+  40% { transform: scale(1.12); }
+  100% { transform: scale(1); filter: none; }
+}
+@keyframes hud-ready-a {
+  0% { transform: scale(1); filter: brightness(2.2); }
+  40% { transform: scale(1.12); }
+  100% { transform: scale(1); filter: none; }
+}
+
+/* --- top-left: where you are ---------------------------------------------- */
+
+.hud-loc { position: absolute; left: var(--g); top: calc(16 * var(--s)); }
+.hud-loc .eyebrow {
+  display: flex; align-items: center; gap: calc(6 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s));
+  letter-spacing: 0.2em; color: var(--gold); text-shadow: var(--txt-shadow);
+}
+.hud-loc .eyebrow::before {
+  content: ''; width: calc(7 * var(--s)); height: calc(7 * var(--s)); transform: rotate(45deg);
+  background: var(--gold); box-shadow: 0 0 calc(6 * var(--s)) var(--gold);
+}
+.hud-loc .eyebrow .depth { color: var(--ink-dim); letter-spacing: 0.12em; }
+.hud-loc .title {
+  margin-top: calc(1 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(21 * var(--s));
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink);
+  text-shadow: var(--txt-shadow);
+}
+.hud-loc .rule {
+  height: 1px; width: calc(150 * var(--s)); margin-top: calc(3 * var(--s));
+  background: linear-gradient(90deg, rgba(242, 198, 109, 0.8), rgba(242, 198, 109, 0));
+}
+.hud-loc .mod {
+  display: inline-block; margin-top: calc(6 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(11 * var(--s)); letter-spacing: 0.12em;
+  color: var(--c, var(--ink)); padding: calc(1 * var(--s)) calc(7 * var(--s));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c, #fff) 22%, transparent), transparent);
+  border-left: calc(2 * var(--s)) solid var(--c, var(--ink));
+}
+
+/* --- top-right: map and purse --------------------------------------------- */
+
+.hud-nav { position: absolute; right: var(--g); top: calc(16 * var(--s)); display: flex; flex-direction: column; align-items: flex-end; gap: calc(6 * var(--s)); }
+.hud-map {
+  position: relative; width: calc(184 * var(--s)); height: calc(70 * var(--s));
+  clip-path: polygon(calc(10 * var(--s)) 0, 100% 0, 100% calc(100% - 10 * var(--s)), calc(100% - 10 * var(--s)) 100%, 0 100%, 0 calc(10 * var(--s)));
+}
+.hud-map canvas { position: absolute; inset: calc(1 * var(--s)); width: calc(100% - 2 * var(--s)); height: calc(100% - 2 * var(--s)); image-rendering: auto; }
+.hud-map .tag {
+  position: absolute; left: calc(8 * var(--s)); bottom: calc(4 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(9 * var(--s)); letter-spacing: 0.2em;
+  color: var(--ink-mute);
+}
+
+.hud-purse { display: flex; gap: calc(10 * var(--s)); padding-right: calc(2 * var(--s)); }
+.hud-coin { display: flex; align-items: center; gap: calc(4 * var(--s)); }
+.hud-coin canvas { width: calc(12 * var(--s)); height: calc(12 * var(--s)); }
+.hud-coin .ui-num { font-size: calc(15 * var(--s)); color: var(--c); text-shadow: var(--txt-shadow); }
+.hud-coin.is-bump-a .ui-num { animation: hud-bump-a 360ms var(--ease-out); }
+.hud-coin.is-bump-b .ui-num { animation: hud-bump-b 360ms var(--ease-out); }
+@keyframes hud-bump-a { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes hud-bump-b { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+.hud-coin .ui-num { display: inline-block; transform-origin: left center; }
+
+/* --- top-centre: boss ----------------------------------------------------- */
+
+.hud-boss {
+  position: absolute; left: 50%; top: calc(14 * var(--s)); width: calc(520 * var(--s));
+  transform: translateX(-50%);
+  --bc: #c86ee0;
+}
+.hud-boss .head { display: flex; align-items: flex-end; justify-content: center; gap: calc(10 * var(--s)); margin-bottom: calc(5 * var(--s)); }
+.hud-boss .name {
+  font-family: var(--font-display); font-weight: 700; font-size: calc(19 * var(--s));
+  letter-spacing: 0.22em; text-transform: uppercase; color: #fff;
+  text-shadow: 0 0 calc(10 * var(--s)) color-mix(in srgb, var(--bc) 70%, transparent), var(--txt-shadow);
+}
+.hud-boss .pips { display: flex; gap: calc(4 * var(--s)); padding-bottom: calc(6 * var(--s)); }
+.hud-boss .pips i { width: calc(7 * var(--s)); height: calc(7 * var(--s)); transform: rotate(45deg); background: rgba(255, 255, 255, 0.18); }
+.hud-boss .pips i.on { background: var(--bc); box-shadow: 0 0 calc(6 * var(--s)) var(--bc); }
+.hud-boss .hud-bar { height: calc(10 * var(--s)); }
+.hud-boss .hud-bar > .fill { background: linear-gradient(90deg, color-mix(in srgb, var(--bc) 65%, #000), var(--bc) 60%, color-mix(in srgb, var(--bc) 55%, #fff)); }
+.hud-boss .frame {
+  /* brackets at the bar's ends */
+  position: absolute; left: calc(-12 * var(--s)); right: calc(-12 * var(--s)); bottom: calc(-3 * var(--s)); height: calc(16 * var(--s));
+  pointer-events: none;
+  background:
+    linear-gradient(var(--bc), var(--bc)) left center / calc(2 * var(--s)) 100% no-repeat,
+    linear-gradient(var(--bc), var(--bc)) right center / calc(2 * var(--s)) 100% no-repeat;
+  opacity: 0.8;
+}
+.hud-boss .sub { display: flex; justify-content: space-between; margin-top: calc(4 * var(--s)); }
+.hud-boss .sub .ui-label { font-size: calc(10 * var(--s)); }
+.hud-boss .rage {
+  font-family: var(--font-display); font-weight: 700; font-size: calc(10 * var(--s)); letter-spacing: 0.2em;
+  color: #fff; background: linear-gradient(90deg, #ff2d55, #ff7a3d); padding: 0 calc(6 * var(--s));
+  transform: skewX(-14deg);
+}
+.hud-boss.is-rage .name { color: #ffd2d9; }
+
+/* --- right: momentum ------------------------------------------------------ */
+
+.hud-streak {
+  position: absolute; right: var(--g); top: calc(176 * var(--s));
+  display: flex; flex-direction: column; align-items: flex-end;
+  --tc: var(--gold);
+}
+.hud-streak .row { display: flex; align-items: baseline; gap: calc(4 * var(--s)); }
+.hud-streak .n {
+  font-family: var(--font-display); font-weight: 700; font-style: italic;
+  font-size: calc(34 * var(--s)); line-height: 0.9; color: #fff;
+  text-shadow: 0 0 calc(10 * var(--s)) color-mix(in srgb, var(--tc) 80%, transparent), var(--txt-shadow);
+}
+.hud-streak .x { font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s)); letter-spacing: 0.18em; color: var(--tc); }
+.hud-streak .tier { font-family: var(--font-display); font-weight: 700; font-size: calc(11 * var(--s)); letter-spacing: 0.2em; color: var(--tc); text-shadow: var(--txt-shadow); }
+.hud-streak .decay { width: calc(84 * var(--s)); height: calc(2 * var(--s)); background: rgba(255, 255, 255, 0.14); margin-top: calc(3 * var(--s)); overflow: hidden; }
+.hud-streak .decay i { display: block; height: 100%; background: var(--tc); transform-origin: right center; }
+.hud-streak .n { display: inline-block; transform-origin: right bottom; }
+.hud-streak.is-bump-a .n { animation: hud-bump-a 300ms var(--ease-out); }
+.hud-streak.is-bump-b .n { animation: hud-bump-b 300ms var(--ease-out); }
+
+/* --- bottom-centre: one-time hints ---------------------------------------- */
+
+.hud-hint {
+  position: absolute; left: 50%; bottom: calc(26 * var(--s));
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: calc(8 * var(--s));
+  padding: calc(6 * var(--s)) calc(14 * var(--s));
+  font-family: var(--font-display); font-weight: 600; font-size: calc(13 * var(--s)); letter-spacing: 0.06em;
+  color: var(--ink);
+  background: linear-gradient(90deg, rgba(8, 10, 22, 0), rgba(8, 10, 22, 0.78) 18%, rgba(8, 10, 22, 0.78) 82%, rgba(8, 10, 22, 0));
+  opacity: 0; transition: opacity var(--t-med) var(--ease-out), transform var(--t-med) var(--ease-out);
+  white-space: nowrap;
+}
+.hud-hint.is-on { opacity: 1; transform: translateX(-50%) translateY(calc(-4 * var(--s))); }
+.hud-hint .part { display: flex; align-items: center; gap: calc(4 * var(--s)); }
+.hud-hint .sep { width: calc(4 * var(--s)); height: calc(4 * var(--s)); transform: rotate(45deg); background: var(--accent); opacity: 0.7; }
+.hud-hint .ui-key { height: calc(18 * var(--s)); min-width: calc(18 * var(--s)); font-size: calc(11 * var(--s)); }
+.hud-hint .tip { color: var(--accent); font-size: calc(10 * var(--s)); letter-spacing: 0.24em; margin-right: calc(2 * var(--s)); }
+
+/* --- the full controls sheet (DS.HUD.showControls, from pause) ------------- */
+
+.hud-controls {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: calc(460 * var(--s));
+  animation: ui-in-fade var(--t-med) var(--ease-out) both;
+  z-index: 5;
+  padding: calc(18 * var(--s)) calc(22 * var(--s));
+  pointer-events: auto;
+}
+.hud-controls .ui-title { font-size: calc(18 * var(--s)); margin-bottom: calc(10 * var(--s)); }
+.hud-controls .grid { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: calc(7 * var(--s)) calc(12 * var(--s)); align-items: center; }
+.hud-controls .keys { display: flex; gap: calc(3 * var(--s)); justify-content: flex-end; }
+.hud-controls .lbl { font-family: var(--font-display); font-weight: 600; font-size: calc(13 * var(--s)); letter-spacing: 0.06em; color: var(--ink-dim); }
+.hud-controls .foot { margin-top: calc(12 * var(--s)); font-size: calc(11 * var(--s)); color: var(--ink-mute); text-align: center; }
+
+/* --- notifications (src/ui-html/notify.js) --------------------------------- */
+
+.ntf { position: absolute; inset: 0; }
+
+.ntf-toasts { position: absolute; right: calc(22 * var(--s)); top: calc(292 * var(--s)); }
+.ntf-toast {
+  position: absolute; right: 0; top: 0;
+  display: flex; align-items: center; gap: calc(8 * var(--s));
+  height: calc(24 * var(--s)); max-width: calc(320 * var(--s));
+  padding: 0 calc(12 * var(--s)) 0 0;
+  background: linear-gradient(270deg, rgba(8, 10, 22, 0.82), rgba(8, 10, 22, 0.62) 70%, rgba(8, 10, 22, 0));
+  transform: translateY(calc(var(--row, 0) * 28 * var(--s)));
+  transition: transform var(--t-med) var(--ease-out), opacity var(--t-med) var(--ease-out);
+  animation: ntf-in 260ms var(--ease-out) both;
+}
+.ntf-toast .rail {
+  order: 2; width: calc(3 * var(--s)); align-self: stretch;
+  background: var(--c); box-shadow: 0 0 calc(8 * var(--s)) var(--c);
+}
+.ntf-toast .txt {
+  padding-left: calc(28 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(13 * var(--s));
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+.ntf-toast.is-out { opacity: 0; }
+@keyframes ntf-in {
+  from { opacity: 0; translate: calc(24 * var(--s)) 0; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+.ntf-banner {
+  position: absolute; left: 0; right: 0; top: calc(150 * var(--s));
+  display: flex; flex-direction: column; align-items: center; gap: calc(4 * var(--s));
+  padding: calc(14 * var(--s)) 0 calc(16 * var(--s));
+  background: radial-gradient(closest-side, rgba(6, 8, 18, 0.72), rgba(6, 8, 18, 0.45) 55%, rgba(6, 8, 18, 0));
+  margin: 0 auto; width: calc(760 * var(--s));
+  text-align: center;
+  --c: #d8d5e8;
+}
+.ntf-banner .eyebrow {
+  display: flex; align-items: center; gap: calc(10 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s));
+  letter-spacing: 0.34em; color: var(--c); text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+.ntf-banner .eyebrow::before, .ntf-banner .eyebrow::after {
+  content: ''; width: calc(34 * var(--s)); height: 1px; background: linear-gradient(90deg, transparent, var(--c));
+}
+.ntf-banner .eyebrow::after { background: linear-gradient(270deg, transparent, var(--c)); }
+.ntf-banner .title {
+  font-family: var(--font-display); font-weight: 700; font-size: calc(38 * var(--s));
+  line-height: 1; letter-spacing: 0.14em; text-transform: uppercase; color: #fff;
+  text-shadow: 0 0 calc(18 * var(--s)) color-mix(in srgb, var(--c) 75%, transparent),
+               0 calc(2 * var(--s)) 0 rgba(0, 0, 0, 0.5);
+  padding-left: 0.14em;
+}
+.ntf-banner .sub {
+  font-family: var(--font-display); font-weight: 600; font-size: calc(14 * var(--s));
+  letter-spacing: 0.2em; text-transform: uppercase; color: #cfd6ea;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 0 calc(6 * var(--s)) rgba(0, 0, 0, 0.7);
+}
+.ntf-banner .rule {
+  display: block; width: calc(420 * var(--s)); height: 1px;
+  background: linear-gradient(90deg, transparent, var(--c) 30%, #fff 50%, var(--c) 70%, transparent);
+  opacity: 0.8;
+}
+.ntf-banner .rule.top { margin-bottom: calc(6 * var(--s)); }
+.ntf-banner .rule.bot { margin-top: calc(6 * var(--s)); }
+
+.ntf-banner.k-boss .title { font-size: calc(46 * var(--s)); letter-spacing: 0.2em; padding-left: 0.2em; }
+.ntf-banner.k-boss .rule { height: calc(2 * var(--s)); width: calc(560 * var(--s)); }
+.ntf-banner.k-boss { background: radial-gradient(closest-side, rgba(30, 4, 12, 0.66), rgba(20, 4, 12, 0.35) 55%, rgba(6, 8, 18, 0)); }
+
+.ntf-banner.is-in .rule { animation: ntf-rule 520ms var(--ease-out) both; }
+.ntf-banner.is-in .title { animation: ntf-title 520ms var(--ease-out) 80ms both; }
+.ntf-banner.is-in .eyebrow, .ntf-banner.is-in .sub { animation: ui-in-fade 420ms var(--ease-out) 200ms both; }
+.ntf-banner.is-out { animation: ntf-out 420ms ease-in both; }
+@keyframes ntf-rule { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 0.8; } }
+@keyframes ntf-title {
+  from { opacity: 0; letter-spacing: 0.5em; filter: blur(calc(4 * var(--s))); }
+  to { opacity: 1; filter: none; }
+}
+@keyframes ntf-out { to { opacity: 0; transform: translateY(calc(-8 * var(--s))); } }

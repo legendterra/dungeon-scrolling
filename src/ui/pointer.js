@@ -152,6 +152,10 @@ window.DS = window.DS || {};
 
   function cursor(accent) {
     if (!active()) return;
+    /* An HTML screen is up: the system cursor is the pointer there (see
+       html.hk-open in styles/panels.css), so the drawn arrow stands down
+       rather than doubling it. */
+    if (DS.HKit && DS.HKit.anyOpen()) return;
     const U = DS.UI3;
     if (!U || !U.ready) return;
     hideSystemCursor();

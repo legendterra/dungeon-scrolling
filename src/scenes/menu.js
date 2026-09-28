@@ -248,6 +248,31 @@ window.DS = window.DS || {};
       stats: DS.Storage.load()
     };
 
+    /* The HTML screens (src/ui-html/menus.js) route the mouse through this
+       table; the keyboard and gamepad stay in update() below, so every input
+       moves the same state.cursor / state.pick. */
+    const act = {
+      weapons: LOADOUT,
+      focus: function (i) {
+        if (state.cursor === i) return;
+        state.cursor = i;
+        DS.Audio.play('menuMove');
+      },
+      choose: function (i) { state.cursor = i; choose(state); },
+      pick: function (i) {
+        if (state.pick === i) return;
+        state.pick = i;
+        DS.Audio.play('menuMove');
+      },
+      start: function (i) { state.pick = i; startRun(state); },
+      confirmName: function () { acceptName(state); },
+      back: function () {
+        DS.Input.setTextSink(null);
+        state.page = 'menu';
+        DS.Audio.play('menuMove');
+      }
+    };
+
     return {
       update: function () {
         const In = DS.Input;
@@ -262,10 +287,11 @@ window.DS = window.DS || {};
         if (state.page === 'loadout') { updateLoadout(state); return; }
 
         const Ptr = DS.Ptr;
+        const html = htmlOn();
 
         if (state.page !== 'menu') {
           if (In.justPressed('back') || In.justPressed('confirm') ||
-              (Ptr.justReleased() && !Ptr.drag.moved)) {
+              (!html && Ptr.justReleased() && !Ptr.drag.moved)) {
             In.consume('back'); In.consume('confirm');
             state.page = 'menu';
             DS.Audio.play('menuMove');
@@ -273,9 +299,10 @@ window.DS = window.DS || {};
           return;
         }
 
-        // Hovering an entry selects it; clicking it takes it.
+        // Hovering an entry selects it; clicking it takes it. (The HTML menu
+        // gets the same from its own pointer events.)
         state.hover = -1;
-        for (let i = 0; i < ITEMS.length; i++) {
+        for (let i = 0; i < ITEMS.length && !html; i++) {
           const r = menuRect(i);
           if (!Ptr.inRect(r.x, r.y, r.w, r.h)) continue;
           state.hover = i;
@@ -300,6 +327,7 @@ window.DS = window.DS || {};
 
       draw: function () {
         backdrop(state);
+        if (htmlOn()) { DS.HMenus.menu(state, act); return; }
         title(state);
 
         if (state.page === 'name') { drawName(state); return; }
@@ -364,7 +392,11 @@ window.DS = window.DS || {};
 
     if (!In.justPressed('confirm')) return;
     In.consume('confirm');
+    acceptName(state);
+  }
 
+  function acceptName(state) {
+    const In = DS.Input;
     if (!DS.Board.setName(state.typed)) {
       state.note = 'TWO TO TWELVE CHARACTERS';
       DS.Audio.play('menuMove');
@@ -420,8 +452,11 @@ window.DS = window.DS || {};
   function updateLoadout(state) {
     const In = DS.Input;
     const Ptr = DS.Ptr;
+    // The HTML loadout is one row of six cards: its pointer lives in the DOM
+    // and only left/right walk it.
+    const html = htmlOn();
 
-    for (let i = 0; i < LOADOUT.length; i++) {
+    for (let i = 0; i < LOADOUT.length && !html; i++) {
       const r = loadoutRect(i);
       if (!Ptr.inRect(r.x, r.y, r.w, r.h)) continue;
       if (state.pick !== i) { state.pick = i; DS.Audio.play('menuMove'); }
@@ -439,8 +474,8 @@ window.DS = window.DS || {};
     const before = state.pick;
     if (In.justPressed('left')) state.pick--;
     if (In.justPressed('right')) state.pick++;
-    if (In.justPressed('up')) state.pick -= COLS;
-    if (In.justPressed('down')) state.pick += COLS;
+    if (!html && In.justPressed('up')) state.pick -= COLS;
+    if (!html && In.justPressed('down')) state.pick += COLS;
     state.pick = (state.pick + LOADOUT.length) % LOADOUT.length;
     if (state.pick !== before) DS.Audio.play('menuMove');
 
@@ -546,6 +581,9 @@ window.DS = window.DS || {};
     DS.Ptr.cursor();
   }
 
+  /* DS.HUI_MENUS picks the HTML screens; false keeps the WebGL ones. */
+  function htmlOn() { return !!(DS.HKit && DS.HKit.on() && DS.HMenus); }
+
   function formatTime(frames) {
     const total = Math.floor(frames / 60);
     const mins = Math.floor(total / 60);
@@ -569,7 +607,18 @@ window.DS = window.DS || {};
 
     const state = {
       frame: 0, won: won, stats: stats, best: best, g: g,
-      rows: DS.Board.rows(), rank: 0
+      rows: DS.Board.rows(), rank: 0, btn: 0
+    };
+
+    // Mouse routes for the HTML run summary (src/ui-html/menus.js).
+    const act = {
+      focus: function (i) {
+        if (state.btn === i) return;
+        state.btn = i;
+        DS.Audio.play('menuMove');
+      },
+      again: function () { DS.Audio.play('menuPick'); DS.Scenes.loadout(); },
+      menu: function () { DS.Audio.play('menuPick'); DS.Scenes.menu(); }
     };
 
     /* The run goes up on the ladder the moment this screen opens, and the
@@ -602,8 +651,9 @@ window.DS = window.DS || {};
         // Running again re-opens the weapon choice: the loadout is the first
         // decision of a run, and skipping it would silently hand back a sword.
         const Ptr = DS.Ptr;
+        const html = htmlOn();
         state.hover = -1;
-        for (let i = 0; i < 2; i++) {
+        for (let i = 0; i < 2 && !html; i++) {
           const r = overRect(i);
           if (!Ptr.inRect(r.x, r.y, r.w, r.h)) continue;
           state.hover = i;
@@ -615,13 +665,17 @@ window.DS = window.DS || {};
           break;
         }
 
-        if (In.justPressed('confirm')) { In.consume('confirm'); DS.Scenes.loadout(); }
-        else if (In.justPressed('back')) { In.consume('back'); DS.Scenes.menu(); }
+        if (html && (In.justPressed('left') || In.justPressed('right'))) act.focus(1 - state.btn);
+        if (In.justPressed('confirm')) {
+          In.consume('confirm');
+          if (html && state.btn === 1) DS.Scenes.menu(); else DS.Scenes.loadout();
+        } else if (In.justPressed('back')) { In.consume('back'); DS.Scenes.menu(); }
       },
 
       draw: function () {
         const R = DS.R;
         backdrop(state);
+        if (htmlOn()) { DS.HMenus.gameOver(state, act); return; }
 
         /* No floor ends a run any more - only death or walking away does. A
            run that beat the third act's boss first still earns the gold

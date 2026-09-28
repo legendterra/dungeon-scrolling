@@ -46,8 +46,17 @@ window.DS = window.DS || {};
     return { x: 24 + i * 92, y: C.H - 32, w: ACT_W, h: ACT_H };
   }
 
+  /* DS.HUI_MENUS: the pause screen is the HTML one in src/ui-html/menus.js
+     (resume, inventory, controls, graphics, sound, abandon, and the run at a
+     glance); false keeps the WebGL tabs below. */
+  function html() { return !!(DS.HKit && DS.HKit.on() && DS.HMenus); }
+
   function open(g) {
     g.profile = g.profile || { tab: 0, cursor: 0, action: 0 };
+    // Reopening never lands on an armed ABANDON or a leftover cursor.
+    g.profile.confirm = false;
+    g.profile.sheet = false;
+    if (html()) g.profile.action = 0;
     g.paused = true;
     DS.Audio.play('menuPick');
   }
@@ -70,6 +79,7 @@ window.DS = window.DS || {};
   }
 
   function update(g) {
+    if (html()) { DS.HMenus.pauseUpdate(g); return; }
     const In = DS.Input;
     const Ptr = DS.Ptr;
     const state = g.profile;
@@ -178,6 +188,7 @@ window.DS = window.DS || {};
   // --- drawing --------------------------------------------------------------
 
   function draw(g) {
+    if (html()) { DS.HMenus.pauseDraw(g); return; }
     const R = DS.R;
     const state = g.profile || { tab: 0, cursor: 0, action: 0 };
 

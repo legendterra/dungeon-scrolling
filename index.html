@@ -31,6 +31,10 @@
   }
 </style>
 <link rel="stylesheet" href="./styles/ui.css?v=6.0.0">
+<link rel="stylesheet" href="./styles/panels.css?v=6.0.0">
+<link rel="stylesheet" href="./styles/menus.css?v=6.0.0">
+<link rel="stylesheet" href="./styles/hud.css?v=6.0.0">
+<link rel="stylesheet" href="./styles/world.css?v=6.0.0">
 </head>
 <body>
 <canvas id="game3d" tabindex="0"></canvas>
@@ -90,6 +94,15 @@
 <!-- The screen layer: every HUD, menu and world-FX quad goes through it. -->
 <script src="./src/ui3/screen.js?v=6.0.0"></script>
 <script src="./src/ui-html/core.js?v=6.0.0"></script>
+<!-- The menus, the bag and the world panels as HTML (v6). DS.HUI_MENUS=false
+     (or ?huimenus=0) falls back to the WebGL screens. -->
+<script src="./src/ui-html/panels.js?v=6.0.0"></script>
+<script src="./src/ui-html/bag.js?v=6.0.0"></script>
+<script src="./src/ui-html/menus.js?v=6.0.0"></script>
+<!-- The run HUD, the in-world labels and the toasts / title cards (v6). -->
+<script src="./src/ui-html/hud.js?v=6.0.0"></script>
+<script src="./src/ui-html/world.js?v=6.0.0"></script>
+<script src="./src/ui-html/notify.js?v=6.0.0"></script>
 <script src="./src/systems/physics.js?v=6.0.0"></script>
 <script src="./src/systems/particles.js?v=6.0.0"></script>
 <script src="./src/systems/elements.js?v=6.0.0"></script>

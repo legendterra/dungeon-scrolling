@@ -133,6 +133,16 @@ window.DS = window.DS || {};
     if (!p) return;
 
     const B = hudBoxes(g);
+
+    /* v6: the HTML HUD (src/ui-html/hud.js) owns every cluster below, plus the
+       toast, the prompt and the control sheet. This WebGL path is the rollback:
+       DS.HUI_ENABLED = false brings all of it back unchanged. Only the camera
+       readout (a debug overlay behind F6) is still drawn here. */
+    if (DS.HUI_ENABLED && DS.HUD) {
+      if (DS.R3D && DS.R3D.rig && DS.R3D.rig.show > 0) drawCamReadout(B.camera);
+      return;
+    }
+
     const held = Inv.weapon(p.inv);
 
     drawVitals(g, p, B.vitals);
@@ -741,6 +751,25 @@ window.DS = window.DS || {};
     g.showBanner(boon.name, boon.desc, boon.color);
   }
 
+  /* Pay for a fresh hand of three. Shared by the WebGL shrine below and the
+     HTML one (src/ui-html/panels.js). */
+  function rerollShrine(g) {
+    const shrine = g.shrine;
+    const cost = rerollCost(shrine);
+    if (g.inv.coins < cost) {
+      DS.Audio.play('error');
+      g.toast('NEED ' + cost + ' COINS', RED);
+      return false;
+    }
+    g.inv.coins -= cost;
+    shrine.rerolls = (shrine.rerolls || 0) + 1;
+    rollOffers(g);
+    if (g.modal) g.modal.cursor = 0;
+    DS.Audio.play('enchant');
+    DS.R.flash('#a8e4ff', 6);
+    return true;
+  }
+
   function updateShrine(g) {
     const In = DS.Input;
     const state = g.modal;
@@ -755,18 +784,7 @@ window.DS = window.DS || {};
 
     if (In.justPressed('reroll')) {
       In.consume('reroll');
-      const cost = rerollCost(shrine);
-      if (g.inv.coins < cost) {
-        DS.Audio.play('error');
-        g.toast('NEED ' + cost + ' COINS', RED);
-      } else {
-        g.inv.coins -= cost;
-        shrine.rerolls = (shrine.rerolls || 0) + 1;
-        rollOffers(g);
-        state.cursor = 0;
-        DS.Audio.play('enchant');
-        DS.R.flash('#a8e4ff', 6);
-      }
+      rerollShrine(g);
       return;
     }
 
@@ -842,6 +860,8 @@ window.DS = window.DS || {};
 
   /* Full-width title card used for floors, biomes and boon pickups. */
   function drawBanner(g) {
+    // The HTML title card (src/ui-html/notify.js) queues these when it is on.
+    if (DS.HUI_ENABLED && DS.Notify) return;
     if (!g.bannerTimer || g.bannerTimer <= 0 || !g.banner) return;
     const R = DS.R;
     const t = g.bannerTimer;
@@ -1650,8 +1670,13 @@ window.DS = window.DS || {};
 
   // --- dispatch -------------------------------------------------------------
 
+  /* DS.HUI_MENUS: the bag, merchant, shrine and enchant table are HTML panels
+     (src/ui-html/bag.js, panels.js); false keeps the WebGL screens below. */
+  function htmlPanels() { return !!(DS.HKit && DS.HKit.on() && DS.HPanels); }
+
   function updateModal(g) {
     if (!g.modal) return false;
+    if (htmlPanels() && DS.HPanels.update(g)) return true;
     if (g.modal.kind === 'bag') updateBag(g);
     else if (g.modal.kind === 'enchant') updateEnchant(g);
     else if (g.modal.kind === 'shop') updateShop(g);
@@ -1661,6 +1686,7 @@ window.DS = window.DS || {};
 
   function drawModal(g) {
     if (!g.modal) return;
+    if (htmlPanels() && DS.HPanels.draw(g)) return;
     if (g.modal.kind === 'bag') drawBag(g);
     else if (g.modal.kind === 'enchant') drawEnchant(g);
     else if (g.modal.kind === 'shop') drawShop(g);
@@ -1685,6 +1711,18 @@ window.DS = window.DS || {};
     updateModal: updateModal,
     drawModal: drawModal,
     ownedList: ownedList,
+    /* The panels' game actions, shared with the HTML panels so both paths
+       buy, take, reroll and enchant through the same code. */
+    act: {
+      buy: buy,
+      takeShrineCard: takeShrineCard,
+      rerollShrine: rerollShrine,
+      rerollCost: rerollCost,
+      applyEnchant: applyEnchant,
+      actionCost: actionCost,
+      keyboardUse: keyboardUse,
+      RITES: RITES
+    },
     COLORS: { INK: INK, MUTED: MUTED, GOLD: GOLD, CYAN: CYAN, RED: RED, DIM: DIM }
   };
 })(window.DS);

@@ -794,7 +794,8 @@ window.DS = window.DS || {};
       R.spr(sprite, drawX, drawY);
     }
 
-    if (e.hp < e.maxHp && e.tier !== 'normal') {
+    // The HTML layer draws enemy bars (src/ui-html/world.js) when it is on.
+    if (e.hp < e.maxHp && e.tier !== 'normal' && !(DS.HUI_ENABLED && DS.World)) {
       R.rect(e.x, e.y - 4, e.w, 2, '#0d0b12');
       R.rect(e.x, e.y - 4, e.w * (e.hp / e.maxHp), 2, '#c0303c');
     }

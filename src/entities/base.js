@@ -89,7 +89,9 @@ window.DS = window.DS || {};
     }
 
     const color = opts.crit ? '#fff0a8' : '#ffffff';
-    DS.FX.number(centerX(enemy), enemy.y - 2, dealt, color, opts.crit ? 2 : 1);
+    // The element rides along as a hint so the HTML numbers can wear its colour.
+    DS.FX.number(centerX(enemy), enemy.y - 2, dealt, color, opts.crit ? 2 : 1,
+                 opts.element || (opts.procs && opts.procs.element) || null);
     // The hit spark knows the blow: element, crit and heavy colour the 3D impact.
     DS.FX.hit(centerX(enemy) + dir * 4, centerY(enemy), dir, opts);
     DS.Audio.play(opts.crit ? 'crit' : 'hit');
@@ -531,6 +533,8 @@ window.DS = window.DS || {};
      is noise. Drawn in both render modes: the 2D canvas sits over the 3D one,
      so the tag floats over the model either way. */
   function drawDropLabels(g) {
+    // The HTML layer (src/ui-html/world.js) names drops when it is on.
+    if (DS.HUI_ENABLED && DS.World) return;
     const R = DS.R;
     if (!g.pickups || !DS.Weapons.RARITY) return;
     for (let i = 0; i < g.pickups.length; i++) {
@@ -556,6 +560,7 @@ window.DS = window.DS || {};
      are live the 2D sprite pass is skipped entirely, so a label drawn from the
      player's own draw() would simply never appear. */
   function drawNameTag(g) {
+    if (DS.HUI_ENABLED && DS.World) return;   // drawn in HTML (world.js)
     if (!DS.Board || !g.player || !DS.Board.hasName()) return;
     const R = DS.R, p = g.player;
     const name = DS.Board.name;

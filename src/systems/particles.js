@@ -6,7 +6,9 @@ window.DS = window.DS || {};
   'use strict';
 
   const MAX_PARTICLES = 260;
-  const MAX_NUMBERS = 40;
+  /* 64: the HTML number layer (src/ui-html/world.js) mirrors this pool slot
+     for slot, so its size is the ceiling on numbers on screen at once. */
+  const MAX_NUMBERS = 64;
 
   const parts = [];
   const numbers = [];
@@ -23,7 +25,8 @@ window.DS = window.DS || {};
     });
   }
   for (let i = 0; i < MAX_NUMBERS; i++) {
-    numbers.push({ life: 0, x: 0, y: 0, vy: 0, text: '', color: '#fff', scale: 1 });
+    numbers.push({ life: 0, max: 45, x: 0, y: 0, vx: 0, vy: 0, text: '', color: '#fff', scale: 1,
+                   hint: null, serial: 0 });
   }
 
   // Oldest slot is overwritten once the pool is full — visually unnoticeable.
@@ -170,15 +173,25 @@ window.DS = window.DS || {};
     }
   }
 
-  function number(x, y, text, color, scale) {
+  /* `hint` is optional: the element a hit landed as, so the HTML layer can
+     colour the number by element. `serial` tells a reader a slot was reused.
+     Numbers now drift sideways a little as they rise, so a flurry of hits
+     fans out instead of stacking into one unreadable column. */
+  let serial = 0;
+  function number(x, y, text, color, scale, hint) {
     const n = numbers[nIndex];
     nIndex = (nIndex + 1) % MAX_NUMBERS;
     n.x = x; n.y = y;
-    n.vy = -0.9;
-    n.life = 45;
+    n.vx = (Math.random() - 0.5) * 0.9;
+    n.vy = -1.15;
     n.text = String(text);
+    // Words (reactions, BLOCK) hold a beat longer than a number.
+    n.max = /^[0-9+-]/.test(n.text) ? 45 : 58;
+    n.life = n.max;
     n.color = color || '#ffffff';
     n.scale = scale || 1;
+    n.hint = hint || null;
+    n.serial = ++serial;
   }
 
   function update() {
@@ -200,6 +213,8 @@ window.DS = window.DS || {};
       const n = numbers[i];
       if (n.life <= 0) continue;
       n.life--;
+      n.x += n.vx;
+      n.vx *= 0.94;
       n.y += n.vy;
       n.vy *= 0.92;
     }
@@ -228,6 +243,8 @@ window.DS = window.DS || {};
       const size = p.fade ? Math.max(1, Math.round(p.size * t)) : p.size;
       R2.rect(p.x, p.y, size, size, p.color);
     }
+    // With the HTML layer on, the numbers are drawn there (src/ui-html/world.js).
+    if (DS.HUI_ENABLED && DS.World) return;
     for (let i = 0; i < MAX_NUMBERS; i++) {
       const n = numbers[i];
       if (n.life <= 0) continue;
@@ -634,8 +651,8 @@ window.DS = window.DS || {};
 
   /* Reactions announce themselves by name; in 3D the name also sets off the
      reaction's burst (see src/fx3d/kits.js) at the target it floats over. */
-  function number3(x, y, text, color, scale) {
-    number(x, y, text, color, scale);
+  function number3(x, y, text, color, scale, hint) {
+    number(x, y, text, color, scale, hint);
     const F = fx3d();
     if (F && typeof text === 'string' && F.isReactionName && F.isReactionName(text)) {
       F.reaction(text, x * P2U, -(y + 17) * P2U, F.Z, 1);
@@ -658,6 +675,8 @@ window.DS = window.DS || {};
     element: element3,
     shaped: shaped3,
     number: number3,
+    // Read-only view of the number pool for the HTML layer.
+    numbers: numbers,
     update: update,
     draw: draw,
     clear: clear,
