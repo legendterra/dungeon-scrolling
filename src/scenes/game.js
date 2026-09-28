@@ -127,9 +127,23 @@ window.DS = window.DS || {};
       });
     };
 
-    g.onBossDefeated = function () {
+    /* An ACT boss - the one in a boss room - opens the door onward rather than
+       ending the run. The last boss of an act closes the act; beating the
+       third one is what the death screen will later call a cleared dungeon,
+       but the stairs keep going down into the endless floors. */
+    g.onBossDefeated = function (boss) {
       g.won = true;
-      g.toast('THE KING FALLS', '#f2c14e');
+      g.bossesSlain = (g.bossesSlain || 0) + 1;
+      const name = (boss && boss.name) || 'THE KING';
+      g.toast(name.replace(/^THE /, '') + ' FALLS', '#f2c14e');
+      const Acts = DS.Acts;
+      if (Acts && !Acts.isEndless(g.depth) && Acts.depthInAct(g.depth) === C.ACT_LENGTH) {
+        const act = Acts.actOf(g.depth);
+        g.actsCleared = Math.max(g.actsCleared || 0, act);
+        g.showBanner('ACT ' + Acts.roman(act) + ' CLEARED',
+                     act >= C.ACTS ? 'THE ENDLESS DEPTHS OPEN BELOW' : 'THE STAIRS GO DEEPER',
+                     '#f2c14e');
+      }
       DS.Audio.setMusic('calm');
     };
 
@@ -197,7 +211,7 @@ window.DS = window.DS || {};
     g.player.refreshStats();
 
     if (kind === 'boss') {
-      DS.Boss.create(g, g.map.pixelW / 2, (DS.LevelGen.ROOM_H - 2) * C.TILE);
+      spawnActBoss(g);
       DS.Audio.setMusic('boss');
     } else if (kind === 'safe') {
       // Every safe room carries a shrine, so a run always gets boon choices.
@@ -240,13 +254,16 @@ window.DS = window.DS || {};
         /* The Torch Hall: one floor in the ladder is guaranteed to hold a
            proper locked puzzle instead of depending on a dice roll, and it
            hands over the tool for it. A grey bow is the cheapest ranged weapon
-           in the game, so the hall teaches "shoot the switch" with the weapon
-           every later bow is an upgrade of - and it is granted ONCE per run. */
+           in the game, so the hall teaches "shoot the beacons" with the weapon
+           every later bow is an upgrade of - and it is granted ONCE per run.
+           The vault, barrier wall and coin tower were carved into the terrain
+           by the level generator, before the level was proven finishable;
+           these calls only furnish them from the plans left on `level`. */
         const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(g.depth) : null;
         const hall = !!(rung && rung.puzzle);
         DS.Puzzle.generate(g, level);
         DS.Puzzle.generateBarrier(g, level, hall);
-        if (hall) grantHallBow(g);
+        if (hall) grantHallBow(g, level);
         ensureKeyholder(g, spawns);
         placeShrine(g, level);
         DS.Bonus.generate(g, level);
@@ -265,7 +282,10 @@ window.DS = window.DS || {};
       announce(g, level);
     }
 
-    if (kind === 'boss') g.showBanner('THRONE ROOM', g.biome.name, '#c86ee0');
+    if (kind === 'boss') {
+      g.showBanner(g.boss ? g.boss.name : 'THRONE ROOM', DS.Acts.label(g.depth),
+                   (g.boss && g.boss.barColor) || '#c86ee0');
+    }
     if (kind === 'safe') g.showBanner('SAFE ROOM', 'TRADE - ENCHANT - BREATHE', '#a8e4ff');
 
     DS.R.setCam(Ent.centerX(g.player), Ent.centerY(g.player));
@@ -330,8 +350,11 @@ window.DS = window.DS || {};
   }
 
   /* The free starter bow. Granted only if the player is not already carrying a
-     bow, so it never clobbers a good one, and only once per run. */
-  function grantHallBow(g) {
+     bow, so it never clobbers a good one, and only once per run. The hint
+     names what the hall's barrier actually holds: its beacons stand on
+     brackets high on the barrier wall, and the banner used to promise a switch
+     that did not exist. */
+  function grantHallBow(g, level) {
     if (g.bowGift) return;
     g.bowGift = true;
     const held = DS.Inv.weapon(g.inv);
@@ -340,7 +363,10 @@ window.DS = window.DS || {};
     if (!bow) return;
     DS.Inv.addItem(g.inv, bow);
     g.inv.arrows = Math.max(g.inv.arrows || 0, 12);
-    g.showBanner('A PLAIN BOW', 'SHOOT THE SWITCH - HOLD TO DRAW', '#a8e4ff');
+    const beacons = level && level.barrier && level.barrier.kind === 'beacons';
+    g.showBanner('A PLAIN BOW',
+                 beacons ? 'SHOOT THE HIGH BEACONS ALIGHT - HOLD TO DRAW' : 'HOLD TO DRAW',
+                 '#a8e4ff');
   }
 
   function populate(g, spawns) {
@@ -357,18 +383,29 @@ window.DS = window.DS || {};
     let elites = 0;
     /* Decided once for the whole floor, not rolled per spawn point — rolling
        per point with a dozen points on the map meant a colossus nearly every
-       time, which stopped it feeling like an event. */
-    let colossus = !(g.depth >= 8 && g.rng.chance(0.35));
+       time, which stopped it feeling like an event. `colossi` counts the ones
+       actually placed: the rank roll below can ALSO come up colossal, and the
+       old flag only guarded the forced one, so a deep floor could stack two
+       or three of them. One per floor, whichever way it was rolled. */
+    const wantColossus = g.depth >= 8 && g.rng.chance(0.35);
+    let colossi = 0;
 
     const extra = DS.Modifiers.mult(g, 'spawnMult');
     /* How many of the level's spawn points are actually used. The generator
        scatters markers generously and the curve decides the population, so a
        tutorial floor is genuinely quiet however busy the room template is. */
     const budget = diff ? diff.enemyCount : spawns.enemies.length;
+    /* Markers come in level order, and taking them in that order until the
+       budget ran out meant the whole population stood in the first rooms and
+       the far end of a long floor was empty. They are dealt out across the
+       length of the floor instead: one from each stretch, round and round. */
+    const spots = DS.Enemies.spreadSpawns
+      ? DS.Enemies.spreadSpawns(spawns.enemies, budget, g.rng)
+      : spawns.enemies;
     let placed = 0;
-    for (let i = 0; i < spawns.enemies.length; i++) {
+    for (let i = 0; i < spots.length; i++) {
       if (placed >= budget) break;
-      const spot = spawns.enemies[i];
+      const spot = spots[i];
       // Never stand a monster over a hole. It would spend its first second
       // falling, and the pit guard would only have to drag it back out.
       if (g.map.groundBelow(Math.floor(spot.x / C.TILE)) >= g.map.pixelH) continue;
@@ -376,16 +413,21 @@ window.DS = window.DS || {};
       for (let c = 0; c < copies && placed < budget; c++) {
         placed++;
         const kind = g.rng.weighted(table);
-        /* One colossus per floor at most, from depth 3, and never a flier —
-           a 3x bat filling the ceiling is unreadable rather than exciting. */
-        if (!colossus && kind !== 'bat') {
+        /* A colossus is never a flier — a 3x bat filling the ceiling is
+           unreadable rather than exciting. */
+        const canBeColossal = colossi === 0 && !(DS.Enemies.TYPES[kind] || {}).flying;
+        if (wantColossus && canBeColossal) {
           DS.Enemies.create(g, spot.x + c * 10, spot.y, kind, 'colossal');
-          colossus = true;
+          colossi++;
           continue;
         }
         // Rolled, not "chance or not": the curve decides the mix, and a
         // miniboss or colossal is one of the outcomes.
-        const tier = g.rng.weighted(rankWeights);
+        let tier = g.rng.weighted(rankWeights);
+        if (tier === 'colossal') {
+          if (canBeColossal) colossi++;
+          else tier = 'miniboss';
+        }
         if (tier === 'elite' || tier === 'miniboss') elites++;
         DS.Enemies.create(g, spot.x + c * 10, spot.y, kind, tier);
       }
@@ -492,14 +534,29 @@ window.DS = window.DS || {};
     g.toast('A KEYBEARER GUARDS THIS FLOOR', '#f2c14e');
   }
 
+  /* The boss room holds whichever act boss the rotation puts on this depth
+     (difficulty.js bossForDepth). The Slime King keeps his own module; every
+     other boss is a DS.Bosses kind, flagged as an ACT boss so its death opens
+     the room's door rather than a vault. */
+  function spawnActBoss(g) {
+    const x = g.map.pixelW / 2;
+    const y = (DS.LevelGen.ROOM_H - 2) * C.TILE;
+    const plan = (DS.Difficulty && DS.Difficulty.bossForDepth(g.depth)) || { key: 'king' };
+    if (plan.key === 'king' || !DS.Bosses) return DS.Boss.create(g, x, y);
+    return DS.Bosses.create(g, x, y, plan.key, { actBoss: true });
+  }
+
   /* Floor order is read straight off a table rather than tracked with flags.
      The old version set a "pending safe room" flag *and* loaded the safe room
      in the same step, so leaving that room tripped the flag and loaded a second
      one — two safe rooms back to back. A table cannot drift like that.
 
-       1 2 3 4 [SAFE] 5 6 7 8 9 [SAFE] 10=BOSS                                */
+       ACT I    1 2 3 4 [SAFE] 5=BOSS 6 7 8 9 [SAFE] 10=BOSS
+       ACT II   11 .. 14 [SAFE] 15=BOSS 16 .. 19 [SAFE] 20=BOSS
+       ACT III  21 .. 24 [SAFE] 25=BOSS 26 .. 29 [SAFE] 30=BOSS
+       ENDLESS  31 .. 34 [SAFE] 35=BOSS ... a boss every five, for ever      */
   function kindForDepth(depth) {
-    return depth >= C.FINAL_DEPTH ? 'boss' : 'normal';
+    return DS.Acts.isBossDepth(depth) ? 'boss' : 'normal';
   }
 
   /* How often a staircase turns out to be the trial instead of the next floor.
@@ -508,34 +565,43 @@ window.DS = window.DS || {};
   const TRIAL_CHANCE = 0.22;
   const TRIAL_COOLDOWN = 3;    // depths of quiet after one
 
-  function advance(g) {
+  /* Where the stairs lead, as { depth, kind }, without loading anything - so
+     the route can be walked (and tested) without building a floor.
+
+     There is no last floor any more. The door out of an act boss's room leads
+     to the first floor of the next act, the third act's leads into the
+     endless depths, and the only ways a run ends are dying and walking away
+     from it. */
+  function planAdvance(g) {
     /* A safe room and the trial are both stops in front of a depth, not depths
        of their own - the floor they were heading to is still waiting. */
     if (g.levelKind === 'safe' || g.levelKind === 'trial') {
-      loadLevel(g, kindForDepth(g.depth));
-      return;
+      return { depth: g.depth, kind: kindForDepth(g.depth) };
     }
 
-    g.depth++;
+    const depth = g.depth + 1;
 
-    if (g.depth > C.FINAL_DEPTH) { g.finished = true; return; }
-
-    if (C.SAFE_BEFORE.indexOf(g.depth) >= 0) {
-      loadLevel(g, 'safe');
-      return;
-    }
+    if (DS.Acts.isSafeBefore(depth)) return { depth: depth, kind: 'safe' };
 
     /* One trial cannot follow another. Back to back they stop being an
        ambush and start being the game, and a run of three of them is longer
-       than the dungeon they interrupt. */
-    if (g.depth >= 3 && g.depth < C.FINAL_DEPTH &&
-        g.depth - g.lastTrial >= TRIAL_COOLDOWN && g.rng.chance(TRIAL_CHANCE)) {
-      g.lastTrial = g.depth;
-      loadLevel(g, 'trial');
-      return;
+       than the dungeon they interrupt. Boss depths never roll one: the safe
+       room in front of a boss already claimed the stairs. */
+    if (depth >= 3 && !DS.Acts.isBossDepth(depth) &&
+        depth - g.lastTrial >= TRIAL_COOLDOWN && g.rng.chance(TRIAL_CHANCE)) {
+      return { depth: depth, kind: 'trial' };
     }
 
-    loadLevel(g, kindForDepth(g.depth));
+    return { depth: depth, kind: kindForDepth(depth) };
+  }
+
+  function advance(g) {
+    const next = planAdvance(g);
+    g.depth = next.depth;
+    // A boss room's door is only open once ITS boss is down.
+    g.won = false;
+    if (next.kind === 'trial') g.lastTrial = next.depth;
+    loadLevel(g, next.kind);
   }
 
   // --- interaction ----------------------------------------------------------
@@ -697,7 +763,7 @@ window.DS = window.DS || {};
       UI.openEnchant(g);
     } else if (action.kind === 'door') {
       DS.Audio.play('stairs');
-      if (g.levelKind === 'boss' && g.won) { g.finished = true; return; }
+      // A boss room's door leads on, into the next act or the endless depths.
       advance(g);
     }
   }
@@ -774,11 +840,13 @@ window.DS = window.DS || {};
 
     updateCamera(g);
 
+    /* Death is the only thing in the world that ends a run. What the death
+       screen calls "cleared" is having beaten the third act's boss first. */
     if (g.player.dead) {
       g.deathTimer++;
-      if (g.deathTimer > 90) DS.Scenes.gameOver(g, false);
+      if (g.deathTimer > 90) DS.Scenes.gameOver(g, runCleared(g));
     }
-    if (g.finished) DS.Scenes.gameOver(g, true);
+    if (g.finished) DS.Scenes.gameOver(g, runCleared(g));
   }
 
   function updateCamera(g) {
@@ -821,7 +889,11 @@ window.DS = window.DS || {};
     if (g.pauseCursor === 0) g.paused = false;
     else if (g.pauseCursor === 1) { g.paused = false; UI.openBag(g); }
     else if (g.pauseCursor === 2) DS.Audio.toggleMute();
-    else DS.Scenes.gameOver(g, false);
+    else DS.Scenes.gameOver(g, runCleared(g));
+  }
+
+  function runCleared(g) {
+    return (g.actsCleared || 0) >= C.ACTS;
   }
 
   function drawPause(g) {
@@ -996,6 +1068,10 @@ window.DS = window.DS || {};
     createRun: createRun,
     loadLevel: loadLevel,
     advance: advance,
+    // Pure pieces of the run, exposed for the headless tests.
+    planAdvance: planAdvance,
+    kindForDepth: kindForDepth,
+    populate: populate,
     update: update,
     draw: draw
   };

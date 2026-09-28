@@ -17,8 +17,10 @@
 
 const MAX_NAME = 12;
 const TOP_N = 10;
-/* config.js: FINAL_DEPTH is 10 and a run cannot outlive its own frame budget. */
-const MAX_DEPTH = 10;
+/* The dungeon no longer has a bottom: three acts of ten, then an endless
+ * descent. The cap is a sanity bound on a number a client can type, not the
+ * depth of the dungeon - a four-digit depth is a stale build or a forged post. */
+const MAX_DEPTH = 999;
 const MAX_KILLS = 9999;
 const MAX_FRAMES = 12 * 60 * 60 * 60;      // 12 h of 60 fps frames
 
@@ -44,6 +46,15 @@ function readName(raw) {
   // tricks, nothing that would break the fixed-width row on the death screen.
   const clean = raw.replace(/[^\x20-\x7E]/g, '').trim().slice(0, MAX_NAME);
   return clean.length >= 2 ? clean : null;
+}
+
+/* Depth is the ranking key, so it is validated rather than coerced: a
+ * fraction, a string or an out-of-range number is refused outright instead of
+ * being clamped onto the top of the ladder. */
+function readDepth(v) {
+  if (typeof v !== 'number' || !Number.isInteger(v)) return null;
+  if (v < 1 || v > MAX_DEPTH) return null;
+  return v;
 }
 
 function readInt(v, lo, hi) {
@@ -95,8 +106,8 @@ async function postScore(req, env) {
   const name = readName(body.name);
   if (!name) return fail('name must be 2-12 printable characters');
 
-  const depth = readInt(body.depth, 0, MAX_DEPTH);
-  if (depth < 1) return fail('depth must be at least 1');
+  const depth = readDepth(body.depth);
+  if (depth === null) return fail('depth must be a whole number from 1 to ' + MAX_DEPTH);
 
   const row = {
     name: name,

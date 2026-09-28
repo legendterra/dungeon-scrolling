@@ -139,14 +139,18 @@ window.DS = window.DS || {};
     drawCurrency(g, B.plate);
     drawBoons(g, B.boons);
 
+    /* Where you are in the run, not just how deep: 'ACT II - 3/10', or
+       'ENDLESS - 34' once the three acts are behind you. */
+    const where = DS.Acts ? DS.Acts.label(g.depth) : 'DEPTH ' + g.depth;
     const label = g.levelKind === 'safe' ? 'SAFE ROOM'
-                : g.levelKind === 'boss' ? 'THRONE ROOM'
+                : g.levelKind === 'boss' ? 'BOSS - ' + where
                 : g.levelKind === 'trial' ? 'THE TRIAL'
-                : 'DEPTH ' + g.depth;
+                : where;
     /* Centred on the FRAME, not on the banner box: the box is the strip of top
        edge the currency plate leaves free, and its midpoint sits 21 units left
-       of the frame's while the plate is 40 wide. The deepest label the game
-       has ('THRONE ROOM') is 65 wide, so it is always inside the box. */
+       of the frame's while the plate is 40 wide. The longest label the game
+       has ('BOSS - ACT III - 10/10') is about 130 wide, so it is always inside
+       the box. */
     R.textCenter(label, C.W / 2, B.banner.y + 1, MUTED);
 
     if (held) drawSkills(g, p, held, B.skills);

@@ -1,7 +1,7 @@
 /* Voxel chibi models for the Three.js layer.
 
-   Every character — the hero, all eleven monsters, both floor bosses and the
-   Slime King — is built from a small table of boxes: a big head, a compact
+   Every character — the hero, every monster and every boss, the Slime
+   King included — is built from a small table of boxes: a big head, a compact
    torso, stubby arms and legs, exactly the "blocky real-world" look of a
    voxel action game. Each model is one THREE.Group with named parts
    (head, torso, armL, armR, legL, legR, extra...) so a per-frame pose
@@ -547,6 +547,265 @@ window.DS = window.DS || {};
     return s;
   }
 
+  // --- the act II-III bestiary -----------------------------------------------
+
+  /* A ring of runes at the feet, shown while the owner is casting. The pose
+     code already drives `ritualRing` (the necromancer's), so any caster that
+     carries one gets the tell for free. */
+  function runeRing(color, radius) {
+    const ring = new THREE.Group();
+    const runeMat = mat(color, { emissive: color, emissiveI: 1, opacity: 0.85 });
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const r = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.26), runeMat);
+      r.position.set(Math.sin(a) * radius, 0.04, Math.cos(a) * radius);
+      r.rotation.y = a;
+      ring.add(r);
+    }
+    ring.visible = false;
+    ring.frustumCulled = false;
+    return ring;
+  }
+
+  /* Ice wisp: a floating shard of frozen light around a white-hot core that
+     spins. Translucent, so it reads as colder and thinner than the wraith. */
+  function buildIceWisp() {
+    const root = new THREE.Group();
+    const body = part(root, 0.62, 0.62, 0.62, 0, 0.8, 0, 0xa8e4ff,
+                      { opacity: 0.55, emissive: 0x4fb3e0, emissiveI: 0.5 });
+    const spin = new THREE.Group();
+    spin.position.y = 0.8;
+    part(spin, 0.3, 0.3, 0.3, 0, 0, 0, 0xffffff, { emissive: 0xa8e4ff, emissiveI: 1.3 });
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const shard = part(spin, 0.09, 0.34, 0.09, Math.cos(a) * 0.46, 0, Math.sin(a) * 0.46,
+                         0xe8f4ff, { emissive: 0x4fb3e0, emissiveI: 0.8 });
+      shard.rotation.z = a;
+    }
+    root.add(spin);
+    part(root, 0.1, 0.42, 0.1, 0, 1.28, 0, 0xe8f4ff, { emissive: 0x4fb3e0 });   // crest
+    part(root, 0.07, 0.07, 0.03, -0.12, 0.88, 0.32, C.black);
+    part(root, 0.07, 0.07, 0.03, 0.12, 0.88, 0.32, C.black);
+    part(root, 0.26, 0.34, 0.26, 0, 0.32, 0, 0xa8e4ff, { opacity: 0.3 });        // trailing mist
+    return { root, torso: root, head: root, body, spin,
+             armL: null, armR: null, legL: null, legR: null };
+  }
+
+  /* Feathered wing: three stepped rows of feathers on a pivot at the shoulder,
+     flapped by the pose code's wingL / wingR like the bat's. */
+  function featherWing(parent, side, y) {
+    const w = new THREE.Group();
+    w.position.set(side * 0.3, y, -0.08);
+    part(w, 0.5, 0.2, 0.05, side * 0.25, 0, 0, 0x8a6340);
+    part(w, 0.44, 0.14, 0.04, side * 0.52, -0.1, 0, 0xb98d5c);
+    part(w, 0.3, 0.1, 0.04, side * 0.74, -0.18, 0, 0x5c3f2a);
+    parent.add(w);
+    return w;
+  }
+
+  function buildHarpy() {
+    const s = chibiSkeleton({
+      unit: 0.78, skin: 0xe0b48c, body: 0x8a6340, belt: 0x5c3f2a,
+      arms: 0x8a6340, legs: 0xb98d5c, hair: 0x6e1b28, eyeColor: 0xffe066
+    });
+    s.wingL = featherWing(s.torso, -1, 0.34);
+    s.wingR = featherWing(s.torso, 1, 0.34);
+    // Talons instead of feet, and a crest of feathers for the silhouette.
+    part(s.legL, 0.2, 0.06, 0.26, 0, -0.28, 0.05, C.goldDark);
+    part(s.legR, 0.2, 0.06, 0.26, 0, -0.28, 0.05, C.goldDark);
+    part(s.head, 0.12, 0.3, 0.12, 0, 0.78, -0.2, 0x6e1b28);
+    return s;
+  }
+
+  function buildCultist() {
+    const s = chibiSkeleton({
+      unit: 1.02, skin: 0xe0b48c, body: 0x6e1b28, belt: C.gold,
+      arms: 0x6e1b28, legs: 0x4a1018, hair: null, eyeColor: 0xff9e38
+    });
+    // Deep hood and a robe hem that hides the legs.
+    part(s.head, 0.9, 0.5, 0.82, 0, 0.95, -0.06, 0x8a1f2c);
+    part(s.head, 0.5, 0.28, 0.4, 0, 1.2, -0.24, 0x8a1f2c);
+    part(s.torso, 0.72, 0.3, 0.48, 0, -0.08, 0, 0x6e1b28);
+    // A brazier in the off hand, lit.
+    const brazier = new THREE.Group();
+    brazier.position.set(-0.05, -0.42, 0.14);
+    part(brazier, 0.2, 0.12, 0.2, 0, 0, 0, C.metalDark);
+    part(brazier, 0.12, 0.16, 0.12, 0, 0.12, 0, 0xff9e38, { emissive: 0xe8743b, emissiveI: 1.2 });
+    s.armL.add(brazier);
+    s.ritualRing = runeRing(0xe8743b, 0.75);
+    s.root.add(s.ritualRing);
+    return s;
+  }
+
+  /* Magma crab: a low, armoured shell with a molten seam, two claws on the
+     arm pivots (so the attack pose snaps them) and six scuttling legs. */
+  function buildMagmaCrab() {
+    const root = new THREE.Group();
+    const shell = 0x4a2b1a, crust = 0x2a1a12, glow = { emissive: 0xe8743b, emissiveI: 1 };
+    part(root, 0.9, 0.36, 0.7, 0, 0.32, 0, shell);
+    part(root, 0.8, 0.14, 0.6, 0, 0.56, 0, crust);
+    part(root, 0.62, 0.04, 0.05, 0, 0.46, 0.36, 0xff9e38, glow);
+    part(root, 0.05, 0.22, 0.05, -0.18, 0.4, 0.36, 0xff9e38, glow);
+    for (let side = -1; side <= 1; side += 2) {
+      part(root, 0.05, 0.2, 0.05, side * 0.14, 0.66, 0.26, crust);              // eye stalk
+      part(root, 0.09, 0.09, 0.09, side * 0.14, 0.8, 0.26, 0xffe066, { emissive: 0xffe066 });
+    }
+    function claw(side) {
+      const c = new THREE.Group();
+      c.position.set(side * 0.5, 0.36, 0.28);
+      part(c, 0.26, 0.18, 0.22, side * 0.1, -0.06, 0.1, 0x6e2a1a);
+      part(c, 0.2, 0.08, 0.18, side * 0.16, 0.06, 0.2, 0xe8743b, glow);
+      root.add(c);
+      return c;
+    }
+    const armL = claw(-1), armR = claw(1);
+    const legs = [];
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 3; i++) {
+        const leg = new THREE.Group();
+        leg.position.set(side * 0.38, 0.26, 0.18 - i * 0.2);
+        part(leg, 0.26, 0.06, 0.06, side * 0.14, 0.02, 0, crust);
+        const lower = part(leg, 0.22, 0.05, 0.05, side * 0.28, -0.1, 0, shell);
+        lower.rotation.z = side * 0.8;
+        root.add(leg);
+        legs.push(leg);
+      }
+    }
+    const cracks = new THREE.Group();
+    part(cracks, 0.7, 0.05, 0.62, 0, 0.64, 0, 0xffe066, { emissive: 0xff9e38, emissiveI: 1.4 });
+    cracks.visible = false;
+    root.add(cracks);
+    return { root, torso: root, head: root, legs, armL, armR, legL: null, legR: null,
+             windCracks: cracks };
+  }
+
+  // --- the act bosses ----------------------------------------------------------
+
+  /* The Frost Wyrm, built in profile like the piranha: long along +x with the
+     head leading, so the side-on walking yaw shows the whole serpent. Wings
+     spread toward and away from the camera and beat on their own pivot; the
+     jaw drops whenever it is doing anything but watching you. */
+  function buildFrostWyrm() {
+    const root = new THREE.Group();
+    const hide = 0x4f8fc0, dark = 0x2f6fa8, pale = 0xa8e4ff, horn = 0xe8f4ff;
+    const body = part(root, 1.7, 0.9, 1.0, 0, 0.82, 0, hide);
+    part(root, 1.3, 0.28, 0.92, 0.05, 0.32, 0, pale);                     // belly
+    for (let i = 0; i < 5; i++) {
+      part(root, 0.12, 0.32, 0.12, -0.6 + i * 0.3, 1.38, 0, horn);          // spines
+    }
+    // Four stubby legs under the body; the near pair walks.
+    const legL = new THREE.Group(); legL.position.set(0.5, 0.42, 0.36);
+    part(legL, 0.26, 0.42, 0.26, 0, -0.21, 0, dark); root.add(legL);
+    const legR = new THREE.Group(); legR.position.set(-0.5, 0.42, 0.36);
+    part(legR, 0.26, 0.42, 0.26, 0, -0.21, 0, dark); root.add(legR);
+    part(root, 0.26, 0.4, 0.26, 0.5, 0.2, -0.36, dark);
+    part(root, 0.26, 0.4, 0.26, -0.5, 0.2, -0.36, dark);
+
+    const head = new THREE.Group();
+    head.position.set(1.05, 1.28, 0);
+    root.add(head);
+    part(head, 0.5, 0.5, 0.5, -0.2, -0.1, 0, hide);                        // neck
+    part(head, 0.78, 0.54, 0.7, 0.3, 0.08, 0, hide);
+    part(head, 0.5, 0.26, 0.56, 0.78, 0, 0, 0x5aa0d0);                     // snout
+    for (let side = -1; side <= 1; side += 2) {
+      const h = part(head, 0.1, 0.44, 0.1, 0.06, 0.52, side * 0.22, horn);
+      h.rotation.z = 0.5;
+      part(head, 0.1, 0.1, 0.05, 0.5, 0.2, side * 0.36, 0xffffff,
+           { emissive: 0xa8e4ff, emissiveI: 1.3 });
+    }
+    const maw = new THREE.Group();
+    maw.position.set(0.5, -0.16, 0);
+    part(maw, 0.56, 0.12, 0.5, 0.3, -0.04, 0, dark);
+    for (let i = 0; i < 3; i++) part(maw, 0.05, 0.1, 0.05, 0.12 + i * 0.16, 0.06, 0.2, horn);
+    head.add(maw);
+
+    const swish = new THREE.Group();
+    swish.position.set(-0.85, 0.82, 0);
+    part(swish, 0.8, 0.54, 0.64, -0.4, 0, 0, hide);
+    part(swish, 0.7, 0.32, 0.42, -1.05, -0.08, 0, dark);
+    part(swish, 0.44, 0.2, 0.3, -1.55, -0.12, 0, pale);
+    root.add(swish);
+
+    function wing(side) {
+      const w = new THREE.Group();
+      w.position.set(0.1, 1.2, side * 0.5);
+      part(w, 0.9, 0.06, 0.8, 0, 0.05, side * 0.4, dark, { opacity: 0.85 });
+      part(w, 0.6, 0.05, 0.6, -0.2, 0.02, side * 0.95, pale, { opacity: 0.7 });
+      part(w, 0.08, 0.1, 1.2, 0.4, 0.08, side * 0.6, horn);
+      root.add(w);
+      return w;
+    }
+    return { root, torso: root, head, headY0: 1.28, body, maw, swish, legL, legR,
+             wingsX: [wing(1), wing(-1)], armL: null, armR: null };
+  }
+
+  function buildLich() {
+    const u = 1.8;
+    const s = chibiSkeleton({
+      unit: u, skin: C.bone, body: 0x2c2a3a, belt: C.goldDark,
+      arms: 0x2c2a3a, legs: 0x2c2a3a, hair: null, eyeColor: 0x7fe0a0
+    });
+    part(s.torso, 0.72 * u, 0.46 * u, 0.5 * u, 0, -0.06 * u, 0, 0x2c2a3a);   // robe hem
+    part(s.torso, 0.3 * u, 0.04 * u, 0.04, 0, 0.3 * u, 0.21 * u, C.boneDark);  // ribs
+    part(s.torso, 0.3 * u, 0.04 * u, 0.04, 0, 0.2 * u, 0.21 * u, C.boneDark);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      part(s.head, 0.1 * u, 0.22 * u, 0.1 * u,
+           Math.cos(a) * 0.3 * u, 0.9 * u, Math.sin(a) * 0.26 * u, C.gold);
+    }
+    for (let side = -1; side <= 1; side += 2) {
+      part(s.head, 0.09 * u, 0.09 * u, 0.05, side * 0.16 * u, 0.42 * u, 0.44 * u,
+           0x7fe0a0, { emissive: 0x7fe0a0, emissiveI: 1.4 });
+    }
+    const staff = new THREE.Group();
+    staff.position.set(-0.1 * u, -0.3 * u, 0.1 * u);
+    part(staff, 0.07 * u, 1.1 * u, 0.07 * u, 0, 0.3 * u, 0, C.woodDark);
+    part(staff, 0.18 * u, 0.16 * u, 0.16 * u, 0, 0.9 * u, 0, C.bone);
+    const orb = part(staff, 0.12 * u, 0.12 * u, 0.12 * u, 0, 1.05 * u, 0, 0x7fe0a0,
+                     { emissive: 0x7fe0a0, emissiveI: 1.4 });
+    s.armL.add(staff);
+    s.pulse = orb;
+    s.ritualRing = runeRing(0x7fe0a0, 1.1);
+    s.root.add(s.ritualRing);
+    return s;
+  }
+
+  function buildMagmaColossus() {
+    const u = 2.2;
+    const glow = { emissive: 0xe8743b, emissiveI: 1.1 };
+    const s = chibiSkeleton({
+      unit: u, skin: 0x3a2a24, body: 0x2a1a14, belt: 0x2a1a14,
+      arms: 0x3a2a24, legs: 0x2a1a14, hair: null, eyes: false
+    });
+    // Molten seams, a furnace heart, fists of slag, shoulder boulders.
+    part(s.torso, 0.08 * u, 0.3 * u, 0.03, -0.12 * u, 0.28 * u, 0.21 * u, 0xff9e38, glow);
+    part(s.torso, 0.3 * u, 0.06 * u, 0.03, 0.04 * u, 0.12 * u, 0.21 * u, 0xff9e38, glow);
+    s.pulse = part(s.torso, 0.16 * u, 0.16 * u, 0.04, 0.02 * u, 0.32 * u, 0.22 * u,
+                   0xffe066, { emissive: 0xff9e38, emissiveI: 1.6 });
+    part(s.armL, 0.3 * u, 0.3 * u, 0.3 * u, 0, -0.44 * u, 0, 0x2a1a14);
+    part(s.armR, 0.3 * u, 0.3 * u, 0.3 * u, 0, -0.44 * u, 0, 0x2a1a14);
+    part(s.armL, 0.04 * u, 0.2 * u, 0.03, 0, -0.2 * u, 0.1 * u, 0xff9e38, glow);
+    part(s.armR, 0.04 * u, 0.2 * u, 0.03, 0, -0.2 * u, 0.1 * u, 0xff9e38, glow);
+    for (let side = -1; side <= 1; side += 2) {
+      part(s.torso, 0.3 * u, 0.24 * u, 0.36 * u, side * 0.42 * u, 0.5 * u, 0, 0x3a2a24);
+      part(s.torso, 0.1 * u, 0.06 * u, 0.1 * u, side * 0.42 * u, 0.64 * u, 0, 0xff9e38, glow);
+      part(s.head, 0.1 * u, 0.06 * u, 0.04, side * 0.15 * u, 0.42 * u, 0.43 * u,
+           0xffe066, { emissive: 0xffe066, emissiveI: 1.4 });
+    }
+    for (let i = 0; i < 4; i++) {
+      part(s.head, 0.1 * u, 0.2 * u, 0.1 * u, -0.24 * u + i * 0.16 * u, 0.9 * u, 0, 0x2a1a14);
+      part(s.head, 0.06 * u, 0.06 * u, 0.06 * u, -0.24 * u + i * 0.16 * u, 1.02 * u, 0,
+           0xff9e38, glow);
+    }
+    const cracks = new THREE.Group();
+    part(cracks, 0.06 * u, 0.4 * u, 0.04, 0.14 * u, 0.2 * u, 0.2 * u, 0xffe066, glow);
+    part(cracks, 0.4 * u, 0.06 * u, 0.04, -0.04 * u, 0.06 * u, 0.2 * u, 0xffe066, glow);
+    cracks.visible = false;
+    s.root.add(cracks);
+    s.windCracks = cracks;
+    return s;
+  }
+
   // --- NPCs & props ----------------------------------------------------------
 
   function buildMerchant() {
@@ -709,7 +968,14 @@ window.DS = window.DS || {};
     warden: buildWarden,
     arbiter: buildArbiter,
     piranha: buildPiranha,
-    goldslime: buildGoldslime
+    goldslime: buildGoldslime,
+    icewisp: buildIceWisp,
+    harpy: buildHarpy,
+    cultist: buildCultist,
+    magmacrab: buildMagmaCrab,
+    frostwyrm: buildFrostWyrm,
+    lich: buildLich,
+    magmacolossus: buildMagmaColossus
   };
 
   /* Height of each kind standing, in world units — the pose code normalises
@@ -719,16 +985,21 @@ window.DS = window.DS || {};
     bat: 0.8, spider: 0.75, spitter: 1.3, bomber: 1.2, shielder: 1.35,
     wraith: 1.55, necromancer: 1.55, golem: 1.9, warden: 2.8, arbiter: 2.3,
     merchant: 1.28, table: 0.72, shrine: 1.9, chest: 1.02,
-    piranha: 0.62, goldslime: 0.9
+    piranha: 0.62, goldslime: 0.9,
+    icewisp: 1.5, harpy: 1.0, cultist: 1.55, magmacrab: 0.85,
+    frostwyrm: 2.2, lich: 2.9, magmacolossus: 3.5
+  };
+
+  /* Boss kind (DS.Bosses key) -> model. Anything unlisted is the Slime King,
+     whose entities carry no bossKey at all. */
+  const BOSS_MODELS = {
+    warden: 'warden', arbiter: 'arbiter',
+    wyrm: 'frostwyrm', lich: 'lich', magma: 'magmacolossus'
   };
 
   // kindForEntity maps any game entity onto a builder key.
   function keyFor(e) {
-    if (e.isBoss) {
-      if (e.bossKey === 'arbiter') return 'arbiter';
-      if (e.bossKey === 'warden') return 'warden';
-      return 'slimeking';
-    }
+    if (e.isBoss) return BOSS_MODELS[e.bossKey] || 'slimeking';
     if (e.kind === 'boss') return 'slimeking';
     if (e.voxKind) return e.voxKind;         // props set this directly
     return e.kind || 'slime';
@@ -773,6 +1044,9 @@ window.DS = window.DS || {};
     const wind = e.attackState === 'wind'
       ? 1 - (e.attackTimer || 0) / Math.max(1, e.cfg && e.cfg.wind || 20) : 0;
     const strike = e.attackState === 'strike';
+    /* Bosses run moves, not the wind/strike machine: anything but standing
+       and watching counts as "at work" for the tells below. */
+    const bossBusy = !!(e.isBoss && e.state && e.state !== 'IDLE' && e.state !== 'INTRO');
 
     if (p.legL) {
       p.legL.rotation.x = swing * 0.55;
@@ -821,7 +1095,7 @@ window.DS = window.DS || {};
     }
     if (p.shieldRim) p.shieldRim.visible = !!e.shieldUp;
     if (p.ritualRing) {
-      const casting = wind > 0 || strike;
+      const casting = wind > 0 || strike || bossBusy;
       p.ritualRing.visible = casting;
       if (casting) {
         p.ritualRing.rotation.y = time * 2.2;
@@ -829,7 +1103,19 @@ window.DS = window.DS || {};
         p.ritualRing.scale.setScalar(grow);
       }
     }
-    if (p.windCracks) p.windCracks.visible = wind > 0 || strike;
+    if (p.windCracks) p.windCracks.visible = wind > 0 || strike || bossBusy;
+
+    // The act II-III extras: a spinning core, a pulsing heart, a wyrm's jaw,
+    // tail and wings.
+    if (p.spin) p.spin.rotation.y = time * 2.5;
+    if (p.pulse) p.pulse.scale.setScalar(1 + Math.sin(time * 5) * 0.12 + (bossBusy ? 0.15 : 0));
+    if (p.maw) p.maw.rotation.z = (bossBusy || strike) ? -0.45 : -0.05;
+    if (p.swish) p.swish.rotation.y = Math.sin(time * 2.4 + (e.x || 0) * 0.01) * 0.3;
+    if (p.wingsX) {
+      const beat = Math.sin(time * (bossBusy ? 9 : 4)) * 0.45;
+      p.wingsX[0].rotation.x = -beat;
+      p.wingsX[1].rotation.x = beat;
+    }
 
     if (p.body && model.kind === 'slime' || model.kind === 'slimeking' || model.kind === 'goldslime') {
       const squash = 1 + Math.sin(time * 6 + (e.x || 0)) * 0.06;
@@ -1194,6 +1480,7 @@ window.DS = window.DS || {};
   DS.Voxel = {
     build: build,
     keyFor: keyFor,
+    has: function (kind) { return !!BUILDERS[kind]; },
     pose: pose,
     buildWeapon: buildWeapon,
     buildProjectile: buildProjectile,

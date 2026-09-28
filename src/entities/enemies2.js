@@ -558,12 +558,15 @@ window.DS = window.DS || {};
     l: '#e8743b', L: '#f2c14e', G: '#e8a05a', P: '#e8743b', K: '#4a2b1a'
   };
 
-  function define(key, cfg, frames) {
+  /* `pal` recolours the whole sheet: the deeper bestiary (enemies3.js) wears
+     these same silhouettes in its own colours, and its elite rank lays the
+     usual ember recolour over that. */
+  function define(key, cfg, frames, pal) {
     DS.Enemies.TYPES[key] = cfg;
 
     const S = DS.SPR;
-    S[key] = sheet(frames, null);
-    S.elite[key] = sheet(frames, ELITE_PAL);
+    S[key] = sheet(frames, pal || null);
+    S.elite[key] = sheet(frames, pal ? Object.assign({}, pal, ELITE_PAL) : ELITE_PAL);
     S.mini[key] = S[key].map(function (spr) { return A.scaled(spr, 2); });
 
     S.flip[key] = S[key].map(A.flipped);
@@ -917,4 +920,13 @@ window.DS = window.DS || {};
     hitbox: { w: 30, h: 18, oy: 0 },
     behavior: golem, drawExtra: drawGolemCracks, minDepth: 7
   }, [GOLEM, GOLEM_POUND, GOLEM_HURT]);
+
+  /* Shared with the act 2-3 bestiary, which is built from these bodies. */
+  DS.Enemies.defineArt = define;
+  DS.Enemies.ART = {
+    SPIDER: SPIDER, SPIDER_TUCK: SPIDER_TUCK, SPIDER_HURT: SPIDER_HURT,
+    WRAITH: WRAITH, WRAITH_HURT: WRAITH_HURT,
+    NECRO: NECRO, NECRO_HURT: NECRO_HURT,
+    GOLEM: GOLEM, GOLEM_POUND: GOLEM_POUND, GOLEM_HURT: GOLEM_HURT
+  };
 })(window.DS);

@@ -54,9 +54,36 @@ window.DS = window.DS || {};
                 damage: 2, footBox: 0.42 }
   };
 
+  /* Who lives where. A multiplier on a monster's weight in the spawn table for
+     each biome key of the ladder (difficulty.js), so the swamp crawls with
+     spitters and the forge with magma crabs - while depth still decides WHO
+     is allowed on a floor at all (minDepth). Anything not listed is 1. */
+  const BIOME_AFFINITY = {
+    shore:    { slime: 1.6, bat: 1.2 },
+    cave:     { bat: 1.5, spider: 1.6, skeleton: 1.2 },
+    caves:    { bat: 1.4, spider: 1.5, icewisp: 1.8, wraith: 1.2 },
+    puzzle:   { skeleton: 1.4, shielder: 1.4 },
+    swamp:    { slime: 1.5, spitter: 1.8, zombie: 1.3, bomber: 0.6, magmacrab: 0.2 },
+    mountain: { bat: 1.4, harpy: 2.2, golem: 1.4, spider: 0.6 },
+    flooded:  { zombie: 1.3, wraith: 1.5, icewisp: 2.2, bomber: 0.5, magmacrab: 0.2 },
+    volcanic: { bomber: 1.6, golem: 1.4, magmacrab: 2.4, icewisp: 0.2, cultist: 1.3 },
+    nest:     { spider: 2.0, bat: 1.4, harpy: 1.5 },
+    prison:   { skeleton: 1.5, shielder: 1.6, cultist: 1.8, harpy: 0.5 },
+    vault:    { wraith: 1.5, necromancer: 1.5, cultist: 1.6 },
+    throne:   { shielder: 1.4, necromancer: 1.4, cultist: 1.6, slime: 1.2 }
+  };
+
+  function biomeKeyFor(depth) {
+    const rung = DS.Difficulty && DS.Difficulty.biomeForDepth
+      ? DS.Difficulty.biomeForDepth(depth) : null;
+    return rung ? rung.key : null;
+  }
+
   /* The starting four thin out as the deeper bestiary unlocks, so floor 8 is
-     not still mostly slimes. Anything with a minDepth joins automatically. */
-  function spawnTable(depth) {
+     not still mostly slimes. Anything with a minDepth joins automatically.
+     `biome` defaults to the ladder's rung for the depth, so every caller -
+     ambushes, summons, keybearers - gets the local wildlife for free. */
+  function spawnTable(depth, biome) {
     const table = [
       // The starting four stay the spine of the table at every depth; everything
       // else ramps in over them (see the minDepth gate below).
@@ -71,10 +98,56 @@ window.DS = window.DS || {};
       const cfg = TYPES[key];
       if (cfg.noSpawn) continue;
       if (!cfg.minDepth || depth < cfg.minDepth) continue;
-      // Newer monsters ramp in rather than flooding the floor they unlock on.
-      table.push({ weight: 8 + (depth - cfg.minDepth) * 5, value: key });
+      /* Newer monsters ramp in rather than flooding the floor they unlock on,
+         and the ramp tops out so the endless floors keep a mixed crowd
+         instead of drowning in whatever unlocked first. */
+      table.push({ weight: Math.min(60, 8 + (depth - cfg.minDepth) * 5), value: key });
+    }
+
+    const affinity = BIOME_AFFINITY[biome || biomeKeyFor(depth)];
+    if (affinity) {
+      for (let i = 0; i < table.length; i++) {
+        const mult = affinity[table[i].value];
+        if (mult != null) table[i].weight *= mult;
+      }
     }
     return table;
+  }
+
+  /* Deal a floor's spawn markers out along its length.
+
+     The level hands its markers over in the order the rooms were built, so
+     "take markers until the budget runs out" put the whole population in the
+     first rooms. Here the floor is cut into equal stretches by x and the
+     markers are dealt one stretch at a time, round and round, so the first
+     `budget` picks cover the whole floor. Every marker is still in the result
+     (populate skips the ones over pits and needs something to fall back on);
+     only the order changes. Within a stretch the order is shuffled, so the
+     same room does not get the same corner every run. */
+  function spreadSpawns(spots, budget, rng) {
+    if (!spots || spots.length < 2) return (spots || []).slice();
+    let x0 = Infinity, x1 = -Infinity;
+    for (let i = 0; i < spots.length; i++) {
+      x0 = Math.min(x0, spots[i].x);
+      x1 = Math.max(x1, spots[i].x);
+    }
+    const n = M.clamp(Math.round(budget) || 1, 1, 8);
+    const span = Math.max(1, x1 - x0);
+    const buckets = [];
+    for (let i = 0; i < n; i++) buckets.push([]);
+    for (let i = 0; i < spots.length; i++) {
+      const b = Math.min(n - 1, Math.floor(((spots[i].x - x0) / span) * n));
+      buckets[b].push(spots[i]);
+    }
+    const lanes = buckets.map(function (b) { return rng ? rng.shuffle(b) : b; });
+
+    const out = [];
+    for (let round = 0; out.length < spots.length; round++) {
+      for (let b = 0; b < lanes.length; b++) {
+        if (round < lanes[b].length) out.push(lanes[b][round]);
+      }
+    }
+    return out;
   }
 
   function create(g, x, y, kind, rank) {
@@ -777,10 +850,14 @@ window.DS = window.DS || {};
     update: update,
     draw: draw,
     spawnTable: spawnTable,
+    spreadSpawns: spreadSpawns,
+    BIOME_AFFINITY: BIOME_AFFINITY,
     // Shared pieces the deep bestiary builds on.
     beginAttack: beginAttack,
     strikePlayer: strikePlayer,
     meleeBox: meleeBox,
-    walkToward: walkToward
+    walkToward: walkToward,
+    // The bat's hover-and-dive, which the harpy flies on.
+    flyerBrain: updateBat
   };
 })(window.DS);

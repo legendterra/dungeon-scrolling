@@ -25,8 +25,11 @@ window.DS = window.DS || {};
     /* The king used to fold in about as long as a mini-boss took, which made
        the last room of a run an anticlimax. He is now built to be survived
        rather than out-damaged: a deep pool, real armour, and both phases long
-       enough that the fight has a shape. */
-    e.maxHp = Math.round(420 * (1 + (g.depth - 1) * 0.26));
+       enough that the fight has a shape. Depth scaling is the shared boss
+       curve, so he keeps pace when the rotation brings him back in endless. */
+    const hpMult = DS.Difficulty ? DS.Difficulty.bossHpMult(g.depth)
+                                 : 1 + (g.depth - 1) * 0.26;
+    e.maxHp = Math.round(420 * hpMult);
     e.hp = e.maxHp;
     e.touchDamage = 2;
 
@@ -50,7 +53,7 @@ window.DS = window.DS || {};
       DS.R.shake(10);
       DS.FX.burst(Ent.centerX(e), Ent.centerY(e), 60,
         ['#c86ee0', '#7f45b8', '#ffffff'], { speed: 3.2, life: 40 });
-      gg.onBossDefeated();
+      gg.onBossDefeated(e);
     };
 
     g.enemies.push(e);

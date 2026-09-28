@@ -343,7 +343,8 @@ window.DS = window.DS || {};
     const R = DS.R;
 
     R.textSmall('DEPTH', 20, 24, MUTED);
-    R.textRight(String(g.depth) + ' / ' + C.FINAL_DEPTH, C.W - 20, 22, INK);
+    // The run has no last floor, so no "of N" - the act and the step within it.
+    R.textRight(DS.Acts ? DS.Acts.label(g.depth) : String(g.depth), C.W - 20, 22, INK);
     R.textSmall('KILLS', 20, 36, MUTED);
     R.textRight(String(g.kills), C.W - 20, 34, INK);
     R.textSmall('BEST MOMENTUM', 20, 48, MUTED);

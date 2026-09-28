@@ -623,7 +623,10 @@ window.DS = window.DS || {};
         const R = DS.R;
         backdrop(state);
 
-        R.textCenter(won ? 'THE DUNGEON IS CLEARED' : 'YOUR RUN ENDS HERE',
+        /* No floor ends a run any more - only death or walking away does. A
+           run that beat the third act's boss first still earns the gold
+           headline; everything else is a run that ended where it ended. */
+        R.textCenter(won ? 'ALL THREE ACTS CLEARED' : 'YOUR RUN ENDS HERE',
                      C.W / 2, 18, won ? GOLD : '#c0303c', 2);
 
         // The record badge sits under the headline instead of colliding with
@@ -643,8 +646,9 @@ window.DS = window.DS || {};
            what makes the ranking part of the screen instead of a second
            screen nobody opens. */
         R.panelS(20, 46, C.W - 40, 96);
-        R.text('DEPTH REACHED', 26, 54, MUTED);
-        R.textRight(String(g.depth), 150, 54, INK);
+        // 'III 10/10' is wider than a number, so the row label is short.
+        R.text('DEPTH', 26, 54, MUTED);
+        R.textRight(DS.Acts ? DS.Acts.shortLabel(g.depth) : String(g.depth), 150, 54, INK);
         R.text('ENEMIES SLAIN', 26, 66, MUTED);
         R.textRight(String(g.kills), 150, 66, INK);
         R.text('COINS', 26, 78, MUTED);

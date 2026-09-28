@@ -1,5 +1,8 @@
 /* The floor bosses: the Stone Warden at the bottom of the mountain shaft, and
-   the Arbiter chained in the trial chamber.
+   the Arbiter chained in the trial chamber - and, since the run grew into three
+   acts, the act bosses in the boss rooms too (the Warden and the Arbiter hold
+   the middle of acts I and II; bosses2.js adds the Frost Wyrm, the Lich and
+   the Magma Colossus). Only the Slime King keeps a module of his own.
 
    Both run the same brain. A boss is a rotation of telegraphed moves picked
    from a list, with a second, angrier list unlocked at half health - the same
@@ -39,6 +42,12 @@ window.DS = window.DS || {};
     }
   };
 
+  /* Moves a boss file can add without touching the brain: MOVES[state] runs
+     every frame the boss is in that state, the same as the cases below. A
+     kind can also carry `timers` (frames per move), `onEnrage(g, e)` for its
+     phase change and `init(g, e)` for anything it sets up at spawn. */
+  const MOVES = {};
+
   // --- construction ---------------------------------------------------------
 
   function artFor(cfg) {
@@ -51,7 +60,9 @@ window.DS = window.DS || {};
     return cfg.cache;
   }
 
-  function create(g, x, y, key) {
+  /* opts.actBoss: this boss holds a boss room. Its death opens the room's
+     door onward (g.onBossDefeated) instead of breaking a vault's seals. */
+  function create(g, x, y, key, opts) {
     const cfg = KINDS[key] || KINDS.warden;
     artFor(cfg);
 
@@ -68,10 +79,13 @@ window.DS = window.DS || {};
     e.heavy = true;
     e.armor = cfg.armor;
 
-    /* Depth scaling on top of an already deep pool. The floor a boss appears
-       on is never the first, so this is always at least a doubling. */
-    e.maxHp = Math.round(cfg.hp * (1 + (g.depth - 1) * 0.26) *
-                         DS.Modifiers.mult(g, 'enemyHp'));
+    e.actBoss = !!(opts && opts.actBoss);
+
+    /* Depth scaling on top of an already deep pool - the shared boss curve,
+       which keeps climbing through the acts and every lap of endless. */
+    const hpMult = DS.Difficulty ? DS.Difficulty.bossHpMult(g.depth)
+                                 : 1 + (g.depth - 1) * 0.26;
+    e.maxHp = Math.round(cfg.hp * hpMult * DS.Modifiers.mult(g, 'enemyHp'));
     e.hp = e.maxHp;
     e.touchDamage = cfg.touch;
     e.attackDamage = cfg.damage;
@@ -93,8 +107,11 @@ window.DS = window.DS || {};
       DS.R.flash('#ffffff', 14);
       DS.FX.burst(Ent.centerX(self), Ent.centerY(self), 60,
                   [cfg.color, '#ffffff', '#f2c14e'], { speed: 3.4, life: 44 });
-      if (gg.onFloorBossDown) gg.onFloorBossDown(self);
+      if (self.actBoss && gg.onBossDefeated) gg.onBossDefeated(self);
+      else if (gg.onFloorBossDown) gg.onFloorBossDown(self);
     };
+
+    if (cfg.init) cfg.init(g, e);
 
     g.enemies.push(e);
     g.boss = e;
@@ -122,6 +139,7 @@ window.DS = window.DS || {};
       DS.Audio.play('bossRoar');
       DS.R.shake(8);
       DS.FX.ring(Ent.centerX(e), Ent.centerY(e), 26, e.def.color, 2.6);
+      if (e.def.onEnrage) e.def.onEnrage(g, e);
     }
 
     const p = g.player;
@@ -138,7 +156,10 @@ window.DS = window.DS || {};
       case 'SUMMON':  summon(g, e); break;
       case 'SMITE':   smite(g, e); break;
       case 'CHARGE':  charge(g, e); break;
-      default:        go(e, 'IDLE', 30); break;
+      default:
+        if (MOVES[e.state]) MOVES[e.state](g, e, dx);
+        else go(e, 'IDLE', 30);
+        break;
     }
 
     updateSmites(g, e);
@@ -151,6 +172,8 @@ window.DS = window.DS || {};
     e.state = state;
     e.stateTimer = timer;
     e.actionDone = false;
+    // A registered move's first frame (see MOVES) reads this to wind up.
+    e.moveBegun = false;
   }
 
   /* Arenas are carved rooms with a door at one end. Without this a charging
@@ -184,7 +207,8 @@ window.DS = window.DS || {};
 
     const list = e.phase === 1 ? e.def.phase1 : e.def.phase2;
     const next = DS.rand.pick(list);
-    go(e, next, next === 'CHARGE' ? 74 : next === 'SMITE' ? 96 : 56);
+    const timers = e.def.timers || {};
+    go(e, next, timers[next] || (next === 'CHARGE' ? 74 : next === 'SMITE' ? 96 : 56));
 
     if (next === 'SLAM') { e.vy = -5.6; e.vx = M.sign(dx) * 1.5; }
     if (next === 'CHARGE') e.vx = e.facing * 3.2;
@@ -414,5 +438,12 @@ window.DS = window.DS || {};
     return 'rgba(' + r + ',' + gg + ',' + b + ',0.20)';
   }
 
-  DS.Bosses = { create: create, KINDS: KINDS };
+  DS.Bosses = {
+    create: create,
+    KINDS: KINDS,
+    MOVES: MOVES,
+    // For boss files that bring their own moves.
+    go: go,
+    keepInArena: keepInArena
+  };
 })(window.DS);

@@ -40,6 +40,18 @@ window.DS = window.DS || {};
 
   // --- damage ---------------------------------------------------------------
 
+  /* Flat armour, with a floor. Armour is subtracted from every hit, which is
+     what makes it feel like armour - but subtracted with nothing underneath,
+     a boss with armour 6 shrugged off a whole class of fast, light weapons
+     entirely, and a depth-30 boss would have been immune to anything that
+     was not a heavy crit. At least a quarter of every hit always lands. */
+  const ARMOR_FLOOR = 0.25;
+
+  function mitigate(dealt, armor) {
+    if (!armor || armor <= 0) return dealt;
+    return Math.max(1, dealt - armor, Math.ceil(dealt * ARMOR_FLOOR));
+  }
+
   /* opts: { crit, knockback, dir, element, procs, source, silent } */
   function damageEnemy(g, enemy, amount, opts) {
     if (enemy.dead || enemy.invuln > 0) return 0;
@@ -63,7 +75,7 @@ window.DS = window.DS || {};
     let dealt = Math.max(1, Math.round(amount * DS.Elements.damageScale(enemy)));
     const armor = DS.Elements.armorOf(enemy);
     if (armor && !(opts.procs && opts.procs.pierce)) {
-      dealt = Math.max(1, dealt - armor);
+      dealt = mitigate(dealt, armor);
     }
 
     enemy.hp -= dealt;
@@ -640,6 +652,7 @@ window.DS = window.DS || {};
     centerY: centerY,
     onScreen: onScreen,
     damageEnemy: damageEnemy,
+    mitigate: mitigate,
     killEnemy: killEnemy,
     tickStatus: tickStatus,
     speedScale: speedScale,
