@@ -54,7 +54,20 @@ window.DS = window.DS || {};
        which is how left/right facing reads without turning the creature away
        from the camera) has a negative determinant, and with front-face culling
        that renders a solid voxel monster inside out. */
-    const m = new THREE.MeshLambertMaterial({ color: color, side: THREE.DoubleSide });
+    /* Physically based, not Lambert: Lambert lights per VERTEX, and a box has
+       eight of them, so a whole face of a voxel body took one flat value and
+       the key, the rim from the backdrop and a torch beside it all averaged
+       into the same grey. Standard shades per pixel, so a face picks up the
+       falloff of a nearby flame and the grazing rim on its edge. Rough and
+       non-metallic: painted wood and cloth, not chrome. Emissive parts (eyes,
+       gems, element motes) keep their glow and are what the bloom picks up. */
+    const m = new THREE.MeshStandardMaterial({
+      color: color, side: THREE.DoubleSide, roughness: 0.85, metalness: 0
+    });
+    /* Double-sided for the mirror, but the shadow pass draws only the faces
+       turned AWAY from the key: every body part is a closed box, so its far
+       faces cast the same silhouette and a lit face can never shadow itself. */
+    m.shadowSide = THREE.BackSide;
     if (opts && opts.emissive) {
       m.emissive = new THREE.Color(opts.emissive);
       m.emissiveIntensity = (opts.emissiveI != null) ? opts.emissiveI : 0.7;

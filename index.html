@@ -36,6 +36,22 @@
 
 <!-- Loaded as classic scripts (not ES modules) so the game runs straight from file:// -->
 <script src="./libs/three.min.js?v=6.0.0"></script>
+<!-- three.js r128 post-processing (examples/js, classic THREE.* globals).
+     Shaders first, then the composer that defines THREE.Pass, then the passes
+     that extend it. Used by src/core/postfx.js. -->
+<script src="./libs/post/CopyShader.js?v=6.0.0"></script>
+<script src="./libs/post/LuminosityHighPassShader.js?v=6.0.0"></script>
+<script src="./libs/post/SAOShader.js?v=6.0.0"></script>
+<script src="./libs/post/DepthLimitedBlurShader.js?v=6.0.0"></script>
+<script src="./libs/post/UnpackDepthRGBAShader.js?v=6.0.0"></script>
+<script src="./libs/post/SMAAShader.js?v=6.0.0"></script>
+<script src="./libs/post/EffectComposer.js?v=6.0.0"></script>
+<script src="./libs/post/ShaderPass.js?v=6.0.0"></script>
+<script src="./libs/post/RenderPass.js?v=6.0.0"></script>
+<script src="./libs/post/MaskPass.js?v=6.0.0"></script>
+<script src="./libs/post/UnrealBloomPass.js?v=6.0.0"></script>
+<script src="./libs/post/SAOPass.js?v=6.0.0"></script>
+<script src="./libs/post/SMAAPass.js?v=6.0.0"></script>
 <script src="./src/core/rng.js?v=6.0.0"></script>
 <script src="./src/core/storage.js?v=6.0.0"></script>
 <!-- The player's identity and the online ladder. Pure HTTP client: the game
@@ -56,6 +72,8 @@
 <!-- The horizon: every theme's sky, light body, landmarks and texture. Loads
      before the renderer that calls it. -->
 <script src="./src/core/backdrop3d.js?v=6.0.0"></script>
+<!-- Post pipeline + quality presets (F8); the renderer below drives it. -->
+<script src="./src/core/postfx.js?v=6.0.0"></script>
 <script src="./src/core/renderer3d.js?v=6.0.0"></script>
 <!-- The screen layer: every HUD, menu and world-FX quad goes through it. -->
 <script src="./src/ui3/screen.js?v=6.0.0"></script>

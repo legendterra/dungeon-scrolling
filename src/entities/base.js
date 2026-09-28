@@ -544,8 +544,8 @@ window.DS = window.DS || {};
       const bob = Math.sin(p.frame * 0.06) * 1.5;
       // textSmall is a SCREEN-space call — the world position has to go through
       // the camera first, or the tag lands wherever the camera happens to be.
-      const x = Math.round(R.toScreenX(p.x + p.w * 0.5) - w / 2);
-      const y = Math.round(R.toScreenY(p.y) - 13 + bob);
+      const x = Math.round(R.toScreenX(p.x + p.w * 0.5, p.y) - w / 2);
+      const y = Math.round(R.toScreenY(p.y, p.x + p.w * 0.5) - 13 + bob);
       R.textSmall(label, x, y, cfg.color || '#ffffff');
     }
   }
@@ -559,8 +559,8 @@ window.DS = window.DS || {};
     const R = DS.R, p = g.player;
     const name = DS.Board.name;
     const w = R.textSmallWidth(name);
-    R.textSmall(name, Math.round(R.toScreenX(p.x + p.w * 0.5) - w / 2),
-                Math.round(R.toScreenY(p.y) - 10), '#f2c14e');
+    R.textSmall(name, Math.round(R.toScreenX(p.x + p.w * 0.5, p.y) - w / 2),
+                Math.round(R.toScreenY(p.y, p.x + p.w * 0.5) - 10), '#f2c14e');
   }
 
   function hexToGlow(hex) {

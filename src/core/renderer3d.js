@@ -140,8 +140,44 @@ window.DS = window.DS || {};
     { key: 'left',  label: 'SIDE 0/7',     yaw: 0,    pitch: 0.12, dist: 26, fov: 39.5 },
     { key: 'foot',  label: 'THREE-Q 40/24', yaw: 0.70, pitch: 0.42, dist: 26, fov: 39.5 },
     { key: 'wide',  label: 'STEEP 60/35',  yaw: 1.05, pitch: 0.61, dist: 24, fov: 42 },
-    { key: 'film',  label: 'FILM 20/16',   yaw: 0.35, pitch: 0.28, dist: 30, fov: 36 }
+    { key: 'film',  label: 'FILM 20/16',   yaw: 0.35, pitch: 0.28, dist: 30, fov: 36 },
+    /* The 2.5D action shot, and the one the game boots into. Still yaw 0 --
+       everything said above about a turned rig stands -- but closer, a little
+       more tilt so the floor slabs read as floor, a longer lens so the voxel
+       bodies are not bent by perspective at the frame edges, and the eye aimed
+       a touch above the hero so the head room is where the action is. It is
+       appended rather than inserted so the older presets keep their indices
+       (tools/qa/shoot-backdrop.js addresses them by number). */
+    { key: 'cine',  label: 'ACTION 0/11',  yaw: 0,    pitch: 0.19, dist: 18, fov: 35, lift: 0.45 }
   ];
+  const DEFAULT_PRESET = CAM_PRESETS.length - 1;
+
+  /* Dynamic framing on top of the preset: the rig eases IN when a fight is
+     close (a boss on the floor, or anything hostile within ENGAGE_PX of the
+     hero) and eases OUT when the hero is moving vertically fast or climbing, so
+     the landing is in frame before the fall ends. A critically damped spring,
+     so it settles without overshoot and never snaps. Only the action preset
+     breathes; the F6 presets are for looking at a room and hold still. */
+  const ZOOM_IN = 0.88;
+  const ZOOM_OUT = 1.15;
+  const ENGAGE_PX = 120;
+  const FAST_VY = 3.2;          // px/frame of vertical speed that counts as "fast"
+  const ZOOM_OMEGA = 3.2;       // spring stiffness (rad/s): about a second to settle
+
+  /* Screen shake and hit punch, now in the WORLD. DS.R.shake/punch used to move
+     only the 2D quad layer, so a hit shook the HUD numbers over a scene that
+     stood perfectly still. The amounts (world px) and their decay stay owned by
+     DS.R; the rig reads them each frame and moves the eye, and the 2D overlay
+     follows because it is projected through this same camera. */
+  const SHAKE_GAIN = 1.0;       // world px of shake -> world px of eye offset
+  const SHAKE_ROLL = 0.004;     // radians of roll per px of shake
+  /* The plane the gameplay bodies stand in: actors, pickups and projectiles all
+     sit at z = 0.3, so the 2D overlay (labels, damage numbers, FX) projects onto
+     it to stay glued to what it annotates. */
+  const ACTOR_Z = 0.3;
+  /* Retina-class screens: the post chain runs at device resolution, and past 2x
+     the fill cost buys nothing the eye can see at this art scale. */
+  const MAX_DPR = 2;
   /* The view ships STRAIGHT, and that is deliberate: the dungeon is a side-on
      platformer, so a turned camera slides the whole level diagonally and the
      frame stops agreeing with the physics the player is reading -- ledges look
@@ -151,7 +187,8 @@ window.DS = window.DS || {};
      The other presets are one keypress away for looking at a room, but nothing
      slanted is ever restored on boot: the pick is not persisted, so a fresh
      launch cannot come up crooked. */
-  const camRig = { yaw: 0, pitch: 0.12, dist: 26, fov: 39.5, preset: 0, show: 0 };
+  const camRig = { yaw: 0, pitch: 0.12, dist: 26, fov: 39.5, lift: 0, preset: 0, show: 0,
+                   zoom: 1, zoomV: 0, zoomTarget: 1 };
 
   function applyCameraPreset(i) {
     const p = CAM_PRESETS[M.clamp(i, 0, CAM_PRESETS.length - 1)];
@@ -160,6 +197,7 @@ window.DS = window.DS || {};
     camRig.pitch = p.pitch;
     camRig.dist = p.dist;
     camRig.fov = p.fov;
+    camRig.lift = p.lift || 0;
     camRig.show = 240;                 // frames the readout stays up
     if (camera) {
       camera.fov = camRig.fov;
@@ -234,6 +272,10 @@ window.DS = window.DS || {};
   const AMBIENT_I = 0.12;
   const HEMI_I = 0.24;
   const KEY_GAIN = 0.34;
+  /* On the presets with a real shadow pass the key is lifted and the sky wash
+     trimmed to pay for it (see render). */
+  const KEY_SHADOW_BOOST = 2.1;
+  const SKY_SHADOW_TRIM = 0.78;
   /* The two lamps that matter: what the hero carries, and what a torch throws. */
   const LAMP_I = 1.85;
   const TORCH_I = 2.30;
@@ -566,7 +608,12 @@ window.DS = window.DS || {};
         antialias: false,
         powerPreference: 'high-performance'
       });
-      renderer.setPixelRatio(window.devicePixelRatio || 1);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_DPR));
+      /* Real shadows from the key light. Whether they are ON is the quality
+         preset's call (see applyQuality): the low preset keeps the blob
+         shadows and never pays for a shadow pass. */
+      renderer.shadowMap.enabled = false;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       /* Filmic response and linear-correct output: without these, every
          material the scene lights is a Lambert face whose highlights clip to
          white and whose shadows sit on one flat value. */
@@ -582,14 +629,14 @@ window.DS = window.DS || {};
           applyCameraPreset((camRig.preset + 1) % CAM_PRESETS.length);
         } else if (e.code === 'F7') {
           e.preventDefault();
-          applyCameraPreset(0);   // back to the shipped side-on shot
+          applyCameraPreset(DEFAULT_PRESET);   // back to the shipped shot
         }
       });
       /* Straight side-on, always. `ds.cameraPreset` is cleared rather than
          read: an older build saved the angled preset, and restoring it is what
          made a returning player's game come up crooked. */
       try { localStorage.removeItem('ds.cameraPreset'); } catch (e) { /* private mode */ }
-      applyCameraPreset(0);
+      applyCameraPreset(DEFAULT_PRESET);
       camRig.show = 0;   // the readout is for F6, not for boot
     } catch (err) {
       console.warn('WebGL init failed:', err);
@@ -613,6 +660,10 @@ window.DS = window.DS || {};
     dirLight = new THREE.DirectionalLight(THEMES.forest.dir, THEMES.forest.dirI * KEY_GAIN);
     dirLight.position.set(15, 30, 25);
     scene.add(dirLight);
+    /* The target has to live in the graph: the key is re-aimed at the hero
+       every frame so its shadow frustum follows the play area. */
+    scene.add(dirLight.target);
+    configureKeyShadow();
 
     playerLight = new THREE.PointLight(0xffe2a0, LAMP_I, 12, 1.4);
 
@@ -624,6 +675,7 @@ window.DS = window.DS || {};
     backLight = new THREE.DirectionalLight(0x9fb0d0, 0.42);
     backLight.position.set(-12, 18, -26);
     scene.add(backLight);
+    scene.add(backLight.target);
 
     /* A soft fill from the camera side, so front faces are read rather than
        guessed. Deliberately weaker than the back light: the volume cue is the
@@ -679,9 +731,140 @@ window.DS = window.DS || {};
     scene.add(camera);
     vignetteMesh = buildVignette();
 
+    /* The post chain and the quality ladder. Without the module (or without
+       half-float targets) the game renders exactly as the low preset does. */
+    if (DS.PostFX) {
+      DS.PostFX.init(renderer, scene, camera);
+      DS.PostFX.onChange(applyQuality);
+    } else {
+      applyQuality('low');
+    }
+
     resize();
     enabled = true;
     return true;
+  }
+
+  /* --- quality: what each rung switches in the WORLD ------------------------
+
+     DS.PostFX owns the chain and the pick; the scene-side half lives here:
+     real shadows (and their map size) or the old blob discs, and the camera-
+     parented vignette plane, which the grade pass replaces on med/high. */
+  let blobShadows = true;
+  function applyQuality(q) {
+    const size = (DS.PostFX && DS.PostFX.SHADOW_SIZE[q]) || 0;
+    const real = size > 0;
+    blobShadows = !real;
+    if (shadowGroup) shadowGroup.visible = !real;
+    renderer.shadowMap.enabled = real;
+    dirLight.castShadow = real;
+    if (real && dirLight.shadow.mapSize.x !== size) {
+      dirLight.shadow.mapSize.set(size, size);
+      if (dirLight.shadow.map) { dirLight.shadow.map.dispose(); dirLight.shadow.map = null; }
+      shadowExtent.r = 0;   // force the frustum to be re-fitted at the new texel size
+    }
+    if (vignetteMesh) vignetteMesh.visible = q === 'low';
+    /* Shadow state is compiled into every lit program; one recompile per
+       switch, never per frame. */
+    scene.traverse(function (o) {
+      const m = o.material;
+      if (!m) return;
+      if (Array.isArray(m)) m.forEach(function (x) { x.needsUpdate = true; });
+      else m.needsUpdate = true;
+    });
+  }
+
+  /* --- the key light's shadow ------------------------------------------------
+
+     One directional light casts, and its orthographic frustum is fitted to the
+     box the camera can actually see around the actor plane -- not to the level,
+     which would spread 2048 texels over two hundred tiles. The box is re-centred
+     on the camera target every frame and its centre is SNAPPED to whole shadow
+     texels in the light's own axes, which is what keeps a standing wall's
+     shadow edge from crawling as the camera pans.
+
+     Bias for voxels: a small negative depth bias plus a normal offset of a few
+     hundredths of a unit. Boxes are flat-faced, so the normal offset alone
+     kills acne on lit faces, and it is small enough against a 0.2-unit limb
+     that nothing peter-pans off the floor. */
+  /* Mostly overhead, a little from the camera side and from the right: in a
+     side-on view the only surface a body's shadow can land on is the strip of
+     floor it stands on, so a key coming from the front (the old 15/30/25)
+     threw every shadow off the back edge of the paver into the void. From
+     here a hero's shadow lies on the walkway beside his feet, where it reads. */
+  const keyDir = new THREE.Vector3(0.36, 1, 0.3).normalize();
+  const shadowAxisR = new THREE.Vector3();
+  const shadowAxisU = new THREE.Vector3();
+  const shadowFocus = new THREE.Vector3();
+  const shadowExtent = { r: 0, u: 0 };
+  const SHADOW_BACKOFF = 40;          // light distance from the focus, units
+  const SHADOW_DEPTH = 2.2;           // half-depth of the receiving slab (z)
+  const SHADOW_MARGIN = 1.35;         // casters just off screen still cast in
+
+  function configureKeyShadow() {
+    const s = dirLight.shadow;
+    s.camera.near = 1;
+    s.camera.far = SHADOW_BACKOFF * 2 + 20;
+    s.bias = -0.0005;
+    s.normalBias = 0.035;
+    s.mapSize.set(1024, 1024);
+    shadowAxisR.crossVectors(new THREE.Vector3(0, 1, 0), keyDir).normalize();
+    shadowAxisU.crossVectors(keyDir, shadowAxisR).normalize();
+  }
+
+  function updateKeyShadow(cx, cy) {
+    if (!dirLight.castShadow) {
+      dirLight.position.copy(keyDir).multiplyScalar(40);
+      dirLight.target.position.set(0, 0, 0);
+      return;
+    }
+    const s = dirLight.shadow;
+    /* The visible half-extents at the actor plane, at the widest the dynamic
+       zoom can reach, with margin. Quantised to whole units so a zoom ease
+       does not change the texel size every frame (that would shimmer too). */
+    const dist = camRig.dist * Math.max(camRig.zoom, 1) + 2;
+    const hh = Math.tan(camRig.fov * Math.PI / 360) * dist * SHADOW_MARGIN;
+    const hw = hh * (DS.C.W / DS.C.H);
+    const R = shadowAxisR, U = shadowAxisU;
+    const er = Math.ceil(Math.abs(R.x) * hw + Math.abs(R.y) * hh + Math.abs(R.z) * SHADOW_DEPTH);
+    const eu = Math.ceil(Math.abs(U.x) * hw + Math.abs(U.y) * hh + Math.abs(U.z) * SHADOW_DEPTH);
+    if (er !== shadowExtent.r || eu !== shadowExtent.u) {
+      shadowExtent.r = er; shadowExtent.u = eu;
+      s.camera.left = -er; s.camera.right = er;
+      s.camera.top = eu; s.camera.bottom = -eu;
+      s.camera.updateProjectionMatrix();
+    }
+    const texR = (2 * er) / s.mapSize.x;
+    const texU = (2 * eu) / s.mapSize.y;
+    shadowFocus.set(cx, cy, ACTOR_Z);
+    const fr = shadowFocus.dot(R), fu = shadowFocus.dot(U);
+    shadowFocus.addScaledVector(R, Math.round(fr / texR) * texR - fr);
+    shadowFocus.addScaledVector(U, Math.round(fu / texU) * texU - fu);
+    dirLight.target.position.copy(shadowFocus);
+    dirLight.position.copy(shadowFocus).addScaledVector(keyDir, SHADOW_BACKOFF);
+  }
+
+  /* Everything solid in a model casts and receives; glows, beams, sprites and
+     anything see-through do neither (an additive halo with a shadow is a dark
+     disc on the floor). Called once per model, when it is built. */
+  function shadowize(root) {
+    if (!root) return root;
+    root.traverse(function (o) {
+      if (!o.isMesh || !o.material) return;
+      const m = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (!m || m.isMeshBasicMaterial || m.transparent || m.blending !== THREE.NormalBlending) return;
+      o.castShadow = true;
+      o.receiveShadow = true;
+    });
+    return root;
+  }
+
+  /* Props: the same physically based response the voxel models get, so a torch
+     pole and the hero standing next to it answer the light the same way. The
+     TILES stay Lambert: there are thousands of them and they are lit well
+     enough per vertex. */
+  function propMat(opts) {
+    return new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.85, metalness: 0 }, opts));
   }
 
   /* A soft screen-edge darkening, parented to the camera so it frames every
@@ -704,7 +887,8 @@ window.DS = window.DS || {};
     top.addColorStop(1, 'rgba(5,4,10,0)');
     ctx.fillStyle = top;
     ctx.fillRect(0, 0, 256, 40);
-    const tex = new THREE.CanvasTexture(cv);
+
+    const tex = new THREE.CanvasTexture(cv);
     // Size the frame to exactly overfill the frustum at 2 units out, so the
     // baked gradient maps to the screen edges whatever the aspect is.
     const dist = 2;
@@ -761,6 +945,7 @@ window.DS = window.DS || {};
        stopped lining up on anything but an exactly 16:9 screen. */
     const w = window.innerWidth || (DS.C.W * (DS.C.RS || 2));
     const h = window.innerHeight || (DS.C.H * (DS.C.RS || 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_DPR));
     renderer.setSize(w, h, false);
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
@@ -768,20 +953,32 @@ window.DS = window.DS || {};
     camera.updateProjectionMatrix();
   }
 
-  /* The play frame in device pixels: the same centred 16:9 rectangle the screen
-     layer draws into (ui3/screen.js computes it in CSS pixels), so the world and
-     its HUD share one coordinate system. */
+  /* The play frame: the same centred 16:9 rectangle the screen layer draws into
+     (ui3/screen.js), so the world and its HUD share one coordinate system.
+
+     x/y/w/h are CSS pixels from the bottom-left, because that is what
+     setViewport/setScissor take -- three.js multiplies by the pixel ratio
+     itself. (This used to hand it device pixels, which at any ratio other than
+     1 put the world at twice the size and off-centre.) dw/dh is the same
+     rectangle in device pixels, which is what the post chain's targets need. */
+  const pvScratch = { x: 0, y: 0, w: 1, h: 1, dw: 1, dh: 1, cw: 1, ch: 1 };
   function playViewport() {
     const el = renderer.domElement;
     const v = DS.UI3 && DS.UI3.view;
-    if (!v) return { x: 0, y: 0, w: el.width, h: el.height };
-    const dpr = el.width / Math.max(1, el.clientWidth || el.width);
-    return {
-      x: Math.round(v.x * dpr),
-      y: Math.round(el.height - (v.y + v.h) * dpr),
-      w: Math.max(1, Math.round(v.w * dpr)),
-      h: Math.max(1, Math.round(v.h * dpr))
-    };
+    const pr = renderer.getPixelRatio();
+    const cw = el.clientWidth || Math.round(el.width / pr);
+    const ch = el.clientHeight || Math.round(el.height / pr);
+    const out = pvScratch;
+    out.cw = cw; out.ch = ch;
+    if (!v) {
+      out.x = 0; out.y = 0; out.w = cw; out.h = ch;
+    } else {
+      out.x = v.x; out.y = ch - (v.y + v.h);
+      out.w = Math.max(1, v.w); out.h = Math.max(1, v.h);
+    }
+    out.dw = Math.max(1, Math.round(out.w * pr));
+    out.dh = Math.max(1, Math.round(out.h * pr));
+    return out;
   }
 
   /* Frees a subtree. It has to recurse: the backdrop is a group of groups, and
@@ -885,6 +1082,9 @@ window.DS = window.DS || {};
   function setupTheme(themeName, w, h, biome, anchorY) {
     const t = THEMES[themeName] || THEMES.forest;
     activeTheme = t;
+    /* The grade is derived from the same row: shadows lean to the fog's hue,
+       highlights to the key's (see DS.PostFX.setTheme). */
+    if (DS.PostFX) DS.PostFX.setTheme(t, themeName);
 
     scene.fog = new THREE.FogExp2(t.fog, FOG_DENSITY);
     ambientLight.color.setHex(t.ambient);
@@ -894,7 +1094,6 @@ window.DS = window.DS || {};
     hemiLight.intensity = HEMI_I;
     dirLight.color.setHex(t.dir);
     dirLight.intensity = t.dirI * KEY_GAIN;
-    dirLight.position.set(15, 30, 25);
 
     /* The key from BEHIND. It used to be a fixed dim key at (-12, 18, -26) tinted
        with the hemisphere colour, which kept a monster from matching the wall it
@@ -952,8 +1151,8 @@ window.DS = window.DS || {};
   function createDoorwayMesh() {
     const group = new THREE.Group();
 
-    const stoneMat = new THREE.MeshLambertMaterial({ color: 0x3d384c });
-    const archMat = new THREE.MeshLambertMaterial({ color: 0x564d72 });
+    const stoneMat = propMat({ color: 0x3d384c });
+    const archMat = propMat({ color: 0x564d72 });
 
     const pillarGeo = new THREE.BoxGeometry(0.5, 3.2, 0.65);
     const leftPillar = new THREE.Mesh(pillarGeo, stoneMat);
@@ -1002,9 +1201,12 @@ window.DS = window.DS || {};
     runeRing.position.set(0, 1.6, 0.14);
     group.add(runeRing);
 
-    const pLight = new THREE.PointLight(0x4ee2ec, 1.3, 8.0, 2.0);
-    pLight.position.set(0, 1.6, 0.8);
-    group.add(pLight);
+    /* No light of its own. A PointLight added per doorway changed the scene's
+       light count on every level load, which recompiles every lit material --
+       the hitch on entering a floor. The doorway is an EMITTER now, like a
+       torch: `light` carries the colour and brightness it wants, and the fixed
+       flame pool lights it when it is among the nearest (see assignFlameLights). */
+    const pLight = { color: new THREE.Color(0x4ee2ec), intensity: 1.3 };
 
     return {
       group: group,
@@ -1023,8 +1225,8 @@ window.DS = window.DS || {};
   function createTorchMesh(x, y) {
     const group = new THREE.Group();
 
-    const iron = new THREE.MeshLambertMaterial({ color: 0x2a2733 });
-    const ironLight = new THREE.MeshLambertMaterial({ color: 0x4a4658 });
+    const iron = propMat({ color: 0x2a2733 });
+    const ironLight = propMat({ color: 0x4a4658 });
 
     // Base plate and three stacked pole segments, each nudged a hair so the
     // pole reads as smith-made rather than extruded.
@@ -1083,9 +1285,9 @@ window.DS = window.DS || {};
      and point light, exactly like a wall torch. */
   function createBrazierMesh(b, map) {
     const group = new THREE.Group();
-    const iron = new THREE.MeshLambertMaterial({ color: 0x55506a });
-    const ironLight = new THREE.MeshLambertMaterial({ color: 0x8a84a8 });
-    const coalMat = new THREE.MeshLambertMaterial({ color: 0x2a1a18 });
+    const iron = propMat({ color: 0x55506a });
+    const ironLight = propMat({ color: 0x8a84a8 });
+    const coalMat = propMat({ color: 0x2a1a18 });
 
     part(group, 0.34, 0.1, 0.34, 0, 0.05, 0, iron);         // foot
     part(group, 0.12, 1.0, 0.12, 0, 0.6, 0, iron);          // post
@@ -1181,8 +1383,8 @@ window.DS = window.DS || {};
 
   function createGateMesh(gate) {
     const group = new THREE.Group();
-    const barMat = new THREE.MeshLambertMaterial({ color: 0x6f6a90 });
-    const barDark = new THREE.MeshLambertMaterial({ color: 0x3a3654 });
+    const barMat = propMat({ color: 0x6f6a90 });
+    const barDark = propMat({ color: 0x3a3654 });
     const uW = Math.max(0.5, gate.w * P2U);
     const uH = Math.max(0.8, gate.h * P2U);
     const bars = Math.max(3, Math.round(uW / 0.28));
@@ -1212,8 +1414,8 @@ window.DS = window.DS || {};
 
   function createLeverMesh(lever, map) {
     const group = new THREE.Group();
-    const baseMat = new THREE.MeshLambertMaterial({ color: 0x3a3654 });
-    const stickMat = new THREE.MeshLambertMaterial({ color: 0x8a6340 });
+    const baseMat = propMat({ color: 0x3a3654 });
+    const stickMat = propMat({ color: 0x8a6340 });
     part(group, 0.42, 0.12, 0.42, 0, 0.06, 0, baseMat);
     const pivot = new THREE.Group();
     pivot.position.set(0, 0.12, 0);
@@ -1221,7 +1423,7 @@ window.DS = window.DS || {};
     const stick = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.62, 0.07), stickMat);
     stick.position.y = 0.31;
     pivot.add(stick);
-    const knobMat = new THREE.MeshLambertMaterial({ color: 0xc0303c });
+    const knobMat = propMat({ color: 0xc0303c });
     const knob = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 0.16), knobMat);
     knob.position.y = 0.66;
     pivot.add(knob);
@@ -1239,8 +1441,8 @@ window.DS = window.DS || {};
   function createCrateMesh(crate) {
     const group = new THREE.Group();
     const uS = Math.max(0.6, crate.w * P2U);
-    const wood = new THREE.MeshLambertMaterial({ color: 0x8a6340 });
-    const woodDark = new THREE.MeshLambertMaterial({ color: 0x5c3f2a });
+    const wood = propMat({ color: 0x8a6340 });
+    const woodDark = propMat({ color: 0x5c3f2a });
     part(group, uS, uS, uS, 0, uS / 2, 0, wood);
     // Frame edges + a cross plank per face reads as a shipping crate.
     for (let i = -1; i <= 1; i += 2) {
@@ -1258,9 +1460,9 @@ window.DS = window.DS || {};
   function createPressurePlateMesh(px, py, map) {
     const group = new THREE.Group();
 
-    const frameMat = new THREE.MeshLambertMaterial({ color: 0x2c2838 });
-    const rimMat = new THREE.MeshLambertMaterial({ color: 0x6f6a90 });
-    const slabMat = new THREE.MeshLambertMaterial({ color: 0x8a84a8 });
+    const frameMat = propMat({ color: 0x2c2838 });
+    const rimMat = propMat({ color: 0x6f6a90 });
+    const slabMat = propMat({ color: 0x8a84a8 });
 
     const frame = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.16, 1.7), frameMat);
     frame.position.y = 0.08;
@@ -1357,13 +1559,13 @@ window.DS = window.DS || {};
     const model = (DS.Voxel && DS.Voxel.build)
       ? DS.Voxel.build('chest', { tier: chestRef && chestRef.tier })
       : null;
-    const group = model ? model.root : new THREE.Group();
+    const group = shadowize(model ? model.root : new THREE.Group());
 
     // Fallback so chests still exist if the voxel layer ever goes away.
     let lidGroup = model && model.lid;
     if (!model) {
-      const woodMat = new THREE.MeshLambertMaterial({ color: 0x5c3d26 });
-      const trimMat = new THREE.MeshLambertMaterial({ color: 0xd4a046 });
+      const woodMat = propMat({ color: 0x5c3d26 });
+      const trimMat = propMat({ color: 0xd4a046 });
       const base = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.85), woodMat);
       base.position.set(0, 0.3, 0);
       group.add(base);
@@ -1409,13 +1611,13 @@ window.DS = window.DS || {};
   function createFloorSpikesMesh(ux, uy) {
     const group = new THREE.Group();
     const baseGeo = new THREE.BoxGeometry(1.5, 0.12, 1.4);
-    const baseMat = new THREE.MeshLambertMaterial({ color: 0x24202c });
+    const baseMat = propMat({ color: 0x24202c });
     const base = new THREE.Mesh(baseGeo, baseMat);
     base.position.set(0, 0.06, 0);
     group.add(base);
 
     const coneGeo = new THREE.ConeGeometry(0.18, 0.72, 4);
-    const coneMat = new THREE.MeshLambertMaterial({ color: 0xc8c3d8 });
+    const coneMat = propMat({ color: 0xc8c3d8 });
     const offsets = [[-0.4, -0.3], [0.4, -0.3], [-0.2, 0.3], [0.3, 0.2]];
     offsets.forEach(([ox, oz]) => {
       const cone = new THREE.Mesh(coneGeo, coneMat);
@@ -1431,13 +1633,13 @@ window.DS = window.DS || {};
   function createDeathSpikesMesh(ux, uy) {
     const group = new THREE.Group();
     const baseGeo = new THREE.BoxGeometry(1.5, 0.16, 1.4);
-    const baseMat = new THREE.MeshLambertMaterial({ color: 0x1a060a });
+    const baseMat = propMat({ color: 0x1a060a });
     const base = new THREE.Mesh(baseGeo, baseMat);
     base.position.set(0, 0.08, 0);
     group.add(base);
 
     const spikeGeo = new THREE.ConeGeometry(0.24, 1.28, 5);
-    const spikeMat = new THREE.MeshLambertMaterial({ color: 0x6e1b24, emissive: 0x3d0a10, emissiveIntensity: 0.45 });
+    const spikeMat = propMat({ color: 0x6e1b24, emissive: 0x3d0a10, emissiveIntensity: 0.45 });
 
     const offsets = [[-0.45, -0.2], [0.0, 0.22], [0.45, -0.15]];
     offsets.forEach(([ox, oz]) => {
@@ -1454,13 +1656,13 @@ window.DS = window.DS || {};
     const group = new THREE.Group();
     const uW = w * P2U;
     const slabGeo = new THREE.BoxGeometry(uW, 0.34, 1.25);
-    const slabMat = new THREE.MeshLambertMaterial({ color: 0x7a5634 });
+    const slabMat = propMat({ color: 0x7a5634 });
     const slab = new THREE.Mesh(slabGeo, slabMat);
     slab.position.set(0, 0.17, 0);
     group.add(slab);
 
     const chainGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.0, 6);
-    const chainMat = new THREE.MeshLambertMaterial({ color: 0x484256 });
+    const chainMat = propMat({ color: 0x484256 });
     const leftChain = new THREE.Mesh(chainGeo, chainMat);
     const rightChain = new THREE.Mesh(chainGeo, chainMat);
     leftChain.position.set(-uW * 0.4, 0, -0.1);
@@ -1475,12 +1677,12 @@ window.DS = window.DS || {};
   function createSpikedBallMesh() {
     const group = new THREE.Group();
     const sphereGeo = new THREE.SphereGeometry(0.55, 8, 8);
-    const ballMat = new THREE.MeshLambertMaterial({ color: 0x3e3a4e });
+    const ballMat = propMat({ color: 0x3e3a4e });
     const sphere = new THREE.Mesh(sphereGeo, ballMat);
     group.add(sphere);
 
     const spikeGeo = new THREE.ConeGeometry(0.12, 0.4, 4);
-    const spikeMat = new THREE.MeshLambertMaterial({ color: 0xd0cce0 });
+    const spikeMat = propMat({ color: 0xd0cce0 });
     const dirs = [
       [1,0,0], [-1,0,0], [0,1,0], [0,-1,0],
       [0.7,0.7,0], [-0.7,0.7,0], [0.7,-0.7,0], [-0.7,-0.7,0],
@@ -1494,7 +1696,7 @@ window.DS = window.DS || {};
     });
 
     const chainGeo = new THREE.CylinderGeometry(0.035, 0.035, 1.0, 6);
-    const chainMat = new THREE.MeshLambertMaterial({ color: 0x484256 });
+    const chainMat = propMat({ color: 0x484256 });
     const chain = new THREE.Mesh(chainGeo, chainMat);
     group.add(chain);
 
@@ -1505,14 +1707,14 @@ window.DS = window.DS || {};
   function createSawMesh() {
     const group = new THREE.Group();
     const diskGeo = new THREE.CylinderGeometry(0.65, 0.65, 0.08, 16);
-    const sawMat = new THREE.MeshLambertMaterial({ color: 0xa8a4be });
+    const sawMat = propMat({ color: 0xa8a4be });
     const disk = new THREE.Mesh(diskGeo, sawMat);
     disk.rotation.x = Math.PI / 2;
     group.add(disk);
 
     // Hub cap
     const hubGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.12, 8);
-    const hubMat = new THREE.MeshLambertMaterial({ color: 0x3d394e });
+    const hubMat = propMat({ color: 0x3d394e });
     const hub = new THREE.Mesh(hubGeo, hubMat);
     hub.rotation.x = Math.PI / 2;
     group.add(hub);
@@ -1535,7 +1737,7 @@ window.DS = window.DS || {};
     const group = new THREE.Group();
     const uW = w * P2U;
     const slabGeo = new THREE.BoxGeometry(uW, 0.32, 1.2);
-    const slabMat = new THREE.MeshLambertMaterial({ color: 0x6e5239 });
+    const slabMat = propMat({ color: 0x6e5239 });
     const slab = new THREE.Mesh(slabGeo, slabMat);
     slab.position.set(0, 0.16, 0);
     group.add(slab);
@@ -1563,12 +1765,14 @@ window.DS = window.DS || {};
     clearElemRigs();
     elemBolts.forEach(function (eb) { if (eb.mesh.parent) eb.mesh.parent.remove(eb.mesh); });
     elemBolts = [];
-    groundBursts.forEach(function (gb) { if (gb.group.parent) gb.group.parent.remove(gb.group); });
-    groundBursts = [];
-    swingFx.forEach(function (s) { if (s.group.parent) s.group.parent.remove(s.group); });
-    swingFx = [];
+    /* Pooled FX go back to their pools rather than to the garbage collector. */
+    releasePooledFx();
     shrineMesh = null;
-    if (fxGroup) fxGroup.children.length = 0;
+    /* Detached properly (parent cleared), not by truncating the children array:
+       a truncated child kept `parent === fxGroup`, so a pooled element rig
+       reacquired on the next floor believed it was still in the scene and was
+       never drawn again. */
+    if (fxGroup) while (fxGroup.children.length) fxGroup.remove(fxGroup.children[0]);
 
     torchLights = [];   // the pool they point at outlives the level, by design
 
@@ -1675,6 +1879,16 @@ window.DS = window.DS || {};
     wallMesh.instanceMatrix.needsUpdate = true;
     platMesh.instanceMatrix.needsUpdate = true;
     paverMesh.instanceMatrix.needsUpdate = true;
+    /* The level casts everywhere and receives where things STAND: the paver
+       caps and the platforms take the actors' shadows and an overhang's, three
+       instanced draws in the shadow pass whatever the size of the floor. The
+       wall FACES do not receive. The paver juts almost a unit in front of them,
+       so under a key that is mostly overhead its lip threw a shadow two tiles
+       down every wall front (the whole level went dark), and every actor's
+       shadow that missed the paver landed on the face below it as a smudge. */
+    wallMesh.castShadow = true;
+    platMesh.castShadow = platMesh.receiveShadow = true;
+    paverMesh.castShadow = paverMesh.receiveShadow = true;
     dungeonGroup.add(wallMesh);
     dungeonGroup.add(platMesh);
     dungeonGroup.add(paverMesh);
@@ -1725,7 +1939,7 @@ window.DS = window.DS || {};
           if (model) {
             const mFloor = snapToFloor(map, d.x + 8, d.y);
             model.root.position.set((d.x + 8) * P2U, -mFloor * P2U, 0.3);
-            actorGroup.add(model.root);
+            actorGroup.add(shadowize(model.root));
             if (d.kind === 'merchant') d.vox3d = model;
           }
         }
@@ -1780,7 +1994,7 @@ window.DS = window.DS || {};
       // not a surface) so the plinth never floats or drowns.
       const sFloor = snapToFloor(g.map, g.shrine.x + 8, g.shrine.y);
       shrineMesh.root.position.set((g.shrine.x + 8) * P2U, -sFloor * P2U, 0.12);
-      actorGroup.add(shrineMesh.root);
+      actorGroup.add(shadowize(shrineMesh.root));
     }
 
     if (g && g.chests) {
@@ -1860,8 +2074,8 @@ window.DS = window.DS || {};
        supposed to be tied to. The strand now runs up to whatever is above it,
        and it says what that was, so a QA pass can check the claim. */
     if (map.isRope) {
-      const ropeMat = new THREE.MeshLambertMaterial({ color: 0xa87848 });
-      const ropeDark = new THREE.MeshLambertMaterial({ color: 0x5c3f2a });
+      const ropeMat = propMat({ color: 0xa87848 });
+      const ropeDark = propMat({ color: 0x5c3f2a });
       let ty = 0;
       while (ty < h) {
         let tx = 0;
@@ -1926,8 +2140,8 @@ window.DS = window.DS || {};
        means the tiles never touch, so a "vertical run" test finds nothing at
        all and the whole dungeon comes out with zero ladders. */
     if (map.get) {
-      const railMat = new THREE.MeshLambertMaterial({ color: 0x9a7444 });
-      const railDark = new THREE.MeshLambertMaterial({ color: 0x5b452c });
+      const railMat = propMat({ color: 0x9a7444 });
+      const railDark = propMat({ color: 0x5b452c });
       const platAt = function (tx, ty) {
         if (tx < 0 || ty < 0 || tx >= w || ty >= h) return 0;
         return map.get(tx, ty);
@@ -2002,6 +2216,12 @@ window.DS = window.DS || {};
         }
       }
     }
+
+    /* Every solid prop built above casts and takes the key's shadow. */
+    shadowize(propsGroup);
+    /* Uploads and first-use compiles make a level's opening seconds slow on
+       any machine; they are not a reason to lower the quality. */
+    if (DS.PostFX) DS.PostFX.warm();
   }
 
   /* Every prop this renderer built, tagged with what it is. The audit below
@@ -2095,6 +2315,7 @@ window.DS = window.DS || {};
     if (!arm || !item) return null;
     const base = DS.Weapons.WEAPONS[item.type];
     const mesh = DS.Voxel.buildWeapon(item.type, DS.Weapons.rarityColor(item.rarity));
+    shadowize(mesh);
     mesh.position.y = -0.34;   // the hand, at arm's end
     /* Hold it like a tool, not a plank glued to the forearm: blades rise over
        the shoulder with a slight forward cant, and the broad face yaws back
@@ -2113,7 +2334,7 @@ window.DS = window.DS || {};
     if (!heroModel) {
       heroModel = DS.Voxel.build('hero', { armor: p.inv.armor });
       heroArmorKey = key;
-      actorGroup.add(heroModel.root);
+      actorGroup.add(shadowize(heroModel.root));
       heroWeaponRef = null;
       heroWeaponMesh = null;
     } else if (key !== heroArmorKey) {
@@ -2122,7 +2343,7 @@ window.DS = window.DS || {};
       actorGroup.remove(heroModel.root);
       disposeModel(heroModel);
       heroModel = DS.Voxel.build('hero', { armor: p.inv.armor });
-      actorGroup.add(heroModel.root);
+      actorGroup.add(shadowize(heroModel.root));
       heroWeaponMesh = wpn;   // reattach below on the next pose pass
     }
 
@@ -2168,7 +2389,7 @@ window.DS = window.DS || {};
       model = DS.Voxel.build(key, { tier: e.tier, tint: e.barColor });
       if (!model) return null;
       enemyModels.set(e, model);
-      actorGroup.add(model.root);
+      actorGroup.add(shadowize(model.root));
     }
     return model;
   }
@@ -2593,7 +2814,7 @@ window.DS = window.DS || {};
       } else if (rec.shape === 'rubble') {
         const s = rnd(0.07, 0.16);
         mesh = new THREE.Mesh(new THREE.BoxGeometry(s, s * 1.3, s),
-          new THREE.MeshLambertMaterial({ color: col }));
+          propMat({ color: col }));
         mesh.position.set(Math.cos(a) * r, s * 0.65, Math.sin(a) * r);
         mesh.rotation.set(rnd(-0.4, 0.4), a, rnd(-0.4, 0.4));
       } else if (rec.shape === 'vines') {
@@ -2635,6 +2856,7 @@ window.DS = window.DS || {};
     for (let i = 0; i < pool.length; i++) {
       if (pool[i].key === null) {
         pool[i].group.visible = true;
+        if (pool[i].group.parent !== fxGroup) fxGroup.add(pool[i].group);
         liveRigs.push(pool[i]);
         return pool[i];
       }
@@ -2721,6 +2943,8 @@ window.DS = window.DS || {};
     for (let i = 0; i < liveRigs.length; i++) animateRig(liveRigs[i], t);
   }
 
+  const liveFieldSet = new Set();
+
   // Ground field: the burning patch / poison cloud the player stood in.
   function syncElemFields(g, time) {
     if (!g.fields) g.fields = [];
@@ -2728,13 +2952,18 @@ window.DS = window.DS || {};
 
     // Retire rigs whose field is gone (fields are compacted, so match by index
     // through the record we stored on the field itself).
+    liveFieldSet.clear();
+    for (let i = 0; i < fields.length; i++) liveFieldSet.add(fields[i]);
+    let holes = 0;
     for (let i = 0; i < elemFields.length; i++) {
       const entry = elemFields[i];
-      if (entry && entry.field && fields.indexOf(entry.field) < 0) {
+      if (entry && entry.field && !liveFieldSet.has(entry.field)) {
         releaseRig(entry.rig);
         elemFields[i] = null;
       }
+      if (!elemFields[i]) holes++;
     }
+    if (holes > 16) elemFields = elemFields.filter(Boolean);
 
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
@@ -2796,52 +3025,91 @@ window.DS = window.DS || {};
     }
   }
 
+  /* --- pooled one-shot FX ------------------------------------------------------
+
+     Ground bursts, swing arcs and smoke used to build a fresh BoxGeometry and a
+     fresh material for every piece of every hit, and dispose them twenty frames
+     later -- hundreds of GPU buffer uploads a second in a busy fight, and the
+     GC sawtooth that came with them. They now share ONE unit box (scaled per
+     piece) and come from free lists; a burst or an arc owns one material for all
+     its pieces because its pieces always fade together. */
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);   // shared, never disposed
+
+  function fxMaterial(color, opacity, additive) {
+    return new THREE.MeshBasicMaterial({
+      color: color, transparent: true, opacity: opacity, depthWrite: false,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending
+    });
+  }
+
+  function attachFx(obj) {
+    if (obj.parent !== fxGroup) fxGroup.add(obj);
+    obj.visible = true;
+  }
+
   /* Skill FX on the floor, in 3D: a short-lived ring of glowing voxel shards
      that scatter along the ground from an elemental hit. Called automatically
      from the FX.element hook so every 2D emitter also dirties the 3D floor. */
+  const BURST_PIECES = 14;
+  const burstFree = [];
+
+  function makeBurst() {
+    const mat = fxMaterial(0xffffff, 0.95, true);
+    const group = new THREE.Group();
+    const pieces = [];
+    for (let i = 0; i < BURST_PIECES; i++) {
+      const m = new THREE.Mesh(unitBox, mat);
+      m.userData.vx = 0; m.userData.vy = 0; m.userData.vz = 0;
+      group.add(m);
+      pieces.push(m);
+    }
+    return { group: group, mat: mat, pieces: pieces, n: 0, life: 0, maxLife: 26 };
+  }
+
   function spawnGroundBurst(element, px, py, power) {
     if (!fxGroup || !DS.Voxel) return;
-    const elCol = DS.Voxel.elementColorHex(element) || 0xffffff;
-    const group = new THREE.Group();
-    const n = Math.min(14, 7 + Math.round((power || 1) * 3));
-    for (let i = 0; i < n; i++) {
+    const gb = burstFree.pop() || makeBurst();
+    gb.mat.color.setHex(DS.Voxel.elementColorHex(element) || 0xffffff);
+    gb.mat.opacity = 0.95;
+    const n = Math.min(BURST_PIECES, 7 + Math.round((power || 1) * 3));
+    for (let i = 0; i < BURST_PIECES; i++) {
+      const m = gb.pieces[i];
+      m.visible = i < n;
+      if (i >= n) continue;
       const s = 0.09 + Math.random() * 0.1;
-      const m = new THREE.Mesh(
-        new THREE.BoxGeometry(s, s * 0.55, s),
-        new THREE.MeshBasicMaterial({ color: elCol, transparent: true,
-          opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false }));
+      m.scale.set(s, s * 0.55, s);
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.5;
       const d = 0.3 + Math.random() * 0.9 * (power || 1);
       m.position.set(Math.cos(a) * d, 0.05, Math.sin(a) * d * 0.45);
       m.userData.vx = Math.cos(a) * (0.014 + Math.random() * 0.024);
       m.userData.vz = Math.sin(a) * (0.007 + Math.random() * 0.012);
       m.userData.vy = 0.025 + Math.random() * 0.06;
-      group.add(m);
     }
-    group.position.set(px * P2U, -py * P2U, 0.1);
-    fxGroup.add(group);
-    groundBursts.push({ group: group, life: 26, maxLife: 26 });
+    gb.n = n;
+    gb.life = gb.maxLife = 26;
+    gb.group.position.set(px * P2U, -py * P2U, 0.1);
+    attachFx(gb.group);
+    groundBursts.push(gb);
   }
 
   function updateGroundBursts() {
     for (let i = groundBursts.length - 1; i >= 0; i--) {
       const gb = groundBursts[i];
       gb.life--;
-      const t = gb.life / gb.maxLife;
-      gb.group.children.forEach(function (m) {
+      const t = Math.max(0, gb.life / gb.maxLife);
+      for (let k = 0; k < gb.n; k++) {
+        const m = gb.pieces[k];
         m.position.x += m.userData.vx;
         m.position.z += m.userData.vz;
         m.userData.vy -= 0.004;              // gravity back to the floor
         m.position.y += m.userData.vy;
         if (m.position.y < 0.03) { m.position.y = 0.03; m.userData.vy = 0; }
-        m.material.opacity = 0.95 * t;
-      });
+      }
+      gb.mat.opacity = 0.95 * t;
       if (gb.life <= 0) {
-        if (gb.group.parent) gb.group.parent.remove(gb.group);
-        gb.group.traverse(function (o) {
-          if (o.geometry) o.geometry.dispose();
-          if (o.material) o.material.dispose();
-        });
+        gb.group.visible = false;
+        fxGroup.remove(gb.group);
+        burstFree.push(gb);
         groundBursts.splice(i, 1);
       }
     }
@@ -2849,25 +3117,26 @@ window.DS = window.DS || {};
 
   /* Smoke, in 3D: a puff of drifts that rises and slows. Emitted by the charge
      wind-up (FX.smoke) so holding an attack leaves a real wake in the world
-     instead of only 2D dots on top of it. Pooled boxes, no allocation per hit. */
+     instead of only 2D dots on top of it. Each puff fades on its own clock, so
+     each pooled puff keeps its own material -- created once, reused forever. */
   let smokePuffs = [];
+  const smokeFree = [];
   const MAX_SMOKE = 90;
 
   function spawnSmokePuff(px, py, vx, vy, opts) {
     if (!fxGroup || smokePuffs.length >= MAX_SMOKE) return;
     opts = opts || {};
     const s = (opts.size || 2) * 0.055;
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(s, s, s),
-      new THREE.MeshBasicMaterial({
-        color: new THREE.Color(opts.color || '#9b96b8'),
-        transparent: true, opacity: 0.5, depthWrite: false
-      })
-    );
+    const mesh = smokeFree.pop() || new THREE.Mesh(unitBox, fxMaterial(0x9b96b8, 0.5, false));
+    mesh.material.color.set(opts.color || '#9b96b8');
+    mesh.material.opacity = 0.5;
+    mesh.rotation.set(0, 0, 0);
+    mesh.scale.setScalar(s);
     mesh.position.set(px * P2U, -py * P2U, 0.28);
-    fxGroup.add(mesh);
+    attachFx(mesh);
     smokePuffs.push({
       mesh: mesh,
+      size: s,
       // Screen px per frame -> world units, and a slow rise.
       vx: (vx || 0) * P2U * 0.05,
       vy: -(vy || 0) * P2U * 0.05 + 0.012,
@@ -2885,15 +3154,34 @@ window.DS = window.DS || {};
       p.mesh.position.x += p.vx * (1.6 - t);
       p.mesh.position.y += p.vy * (1.6 - t);
       p.mesh.rotation.y += 0.03;
-      p.mesh.scale.setScalar(1 + (1 - t) * p.grow);
+      p.mesh.scale.setScalar(p.size * (1 + (1 - t) * p.grow));
       p.mesh.material.opacity = 0.5 * t * t;
       if (p.life <= 0) {
-        if (p.mesh.parent) p.mesh.parent.remove(p.mesh);
-        p.mesh.geometry.dispose();
-        p.mesh.material.dispose();
+        p.mesh.visible = false;
+        fxGroup.remove(p.mesh);
+        smokeFree.push(p.mesh);
         smokePuffs.splice(i, 1);
       }
     }
+  }
+
+  /* A level swap hands every live one-shot back to its pool. */
+  function releasePooledFx() {
+    for (let i = 0; i < groundBursts.length; i++) {
+      groundBursts[i].group.visible = false;
+      burstFree.push(groundBursts[i]);
+    }
+    groundBursts = [];
+    for (let i = 0; i < swingFx.length; i++) {
+      swingFx[i].group.visible = false;
+      swingFree.push(swingFx[i]);
+    }
+    swingFx = [];
+    for (let i = 0; i < smokePuffs.length; i++) {
+      smokePuffs[i].mesh.visible = false;
+      smokeFree.push(smokePuffs[i].mesh);
+    }
+    smokePuffs = [];
   }
 
   // Per-enemy status puddle API used by Elements.tick.
@@ -2957,38 +3245,59 @@ window.DS = window.DS || {};
   }
 
   /* Melee swing arc: a fan of additive boxes sweeping the hit area, spawned
-     on an actual hit so the blow reads in 3D the way the 2D trail did. */
-  function spawnSwingArc(x, y, dir, heavy) {
-    const col = heavy ? 0xfff0a8 : 0xe8e8f4;
+     on an actual hit so the blow reads in 3D the way the 2D trail did. Pooled:
+     one group of segments and one material per arc, reused. */
+  const SWING_SEGS = 6;
+  const swingFree = [];
+
+  function makeSwing() {
+    const mat = fxMaterial(0xe8e8f4, 0.85, true);
     const group = new THREE.Group();
+    const segs = [];
+    for (let i = 0; i < SWING_SEGS; i++) {
+      const seg = new THREE.Mesh(unitBox, mat);
+      group.add(seg);
+      segs.push(seg);
+    }
+    return { group: group, mat: mat, segs: segs, life: 0, maxLife: 10 };
+  }
+
+  function spawnSwingArc(x, y, dir, heavy) {
+    if (!fxGroup) return;
+    const sw = swingFree.pop() || makeSwing();
+    sw.mat.color.setHex(heavy ? 0xfff0a8 : 0xe8e8f4);
+    sw.mat.opacity = 0.85;
     const R = heavy ? 2.3 : 1.7;
     const count = heavy ? 6 : 5;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < SWING_SEGS; i++) {
+      const seg = sw.segs[i];
+      seg.visible = i < count;
+      if (i >= count) continue;
       const a = (-0.95 + (i / (count - 1)) * 1.9) * dir;
-      const seg = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3, heavy ? 0.17 : 0.11, 0.03),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.85,
-          blending: THREE.AdditiveBlending, depthWrite: false }));
+      seg.scale.set(0.3, heavy ? 0.17 : 0.11, 0.03);
       seg.position.set(Math.sin(a) * R, Math.cos(a) * R * 0.6, 0);
-      seg.rotation.z = -a;
-      group.add(seg);
+      seg.rotation.set(0, 0, -a);
     }
-    group.position.set(x * P2U, -y * P2U, 0.4);
-    fxGroup.add(group);
-    swingFx.push({ group: group, life: 10, maxLife: 10 });
+    sw.group.scale.setScalar(1);
+    sw.group.position.set(x * P2U, -y * P2U, 0.4);
+    sw.life = sw.maxLife = 10;
+    attachFx(sw.group);
+    swingFx.push(sw);
   }
 
   function updateSwingFx() {
     for (let i = swingFx.length - 1; i >= 0; i--) {
-      const s = swingFx[i];
-      s.life--;
-      const t = Math.max(0, s.life / s.maxLife);
-      s.group.traverse(function (o) {
-        if (o.material) o.material.opacity = 0.85 * t;
-        if (o.geometry && s.life <= 0) o.geometry.dispose();
-      });
-      s.group.scale.setScalar(1 + (1 - t) * 0.45);
-      if (s.life <= 0) { fxGroup.remove(s.group); swingFx.splice(i, 1); }
+      const sw = swingFx[i];
+      sw.life--;
+      const t = Math.max(0, sw.life / sw.maxLife);
+      sw.mat.opacity = 0.85 * t;
+      sw.group.scale.setScalar(1 + (1 - t) * 0.45);
+      if (sw.life <= 0) {
+        sw.group.visible = false;
+        fxGroup.remove(sw.group);
+        swingFree.push(sw);
+        swingFx.splice(i, 1);
+      }
     }
   }
 
@@ -3039,8 +3348,8 @@ window.DS = window.DS || {};
     let pm = pickupMeshes[i];
     if (!pm || pm.kind !== pk.kind) {
       if (pm && pm.mesh.parent) pm.mesh.parent.remove(pm.mesh);
-      const mesh = DS.Voxel.buildPickup(pk.kind,
-        pk.kind === 'item' ? DS.Weapons.rarityColor(pk.item.rarity) : null);
+      const mesh = shadowize(DS.Voxel.buildPickup(pk.kind,
+        pk.kind === 'item' ? DS.Weapons.rarityColor(pk.item.rarity) : null));
       const col = dropColor(pk);
 
       // A pool of light on the floor, so the drop is not a speck lost in the
@@ -3155,7 +3464,10 @@ window.DS = window.DS || {};
       bm.smooth += ((lit ? 1 : 0) - bm.smooth) * 0.12;
       bm.flame.visible = bm.smooth > 0.05;
       bm.flame.scale.set(0.85 + bm.smooth * 0.25, 1.05 + bm.smooth * 0.5, 1);
-      bm.light.intensity = bm.smooth * TORCH_I;
+      /* A brazier has no light of its own (the flame pool lights it; see
+         assignFlameLights), so there is no `light` to write -- this line used
+         to throw on every floor that had one. */
+      if (bm.light) bm.light.intensity = bm.smooth * TORCH_I;
       bm.coalMat.emissive.setRGB(bm.smooth * 0.85, bm.smooth * 0.3, 0);
     }
   }
@@ -3199,6 +3511,9 @@ window.DS = window.DS || {};
   const flameBestX = [];
   const flameBestY = [];
   const flameBestI = [];
+  const flameBestC = [];        // null = the torch colour, else the emitter's own
+  const TORCH_COL = 0xff9e38;
+  const doorEmitters = [];      // 0 or 1 entries: the exit portal, as an emitter
 
   /* Point the fixed pool at the nearest flames. Pure SELECTION: nothing is
      created, added or removed, so the light count the shaders were compiled
@@ -3210,15 +3525,19 @@ window.DS = window.DS || {};
     if (!n) return;
     for (let k = 0; k < n; k++) flameBestD2[k] = Infinity;
 
-    /* Two emitter lists, one rule: the closest lit ones win. A brazier's
-       brightness is its own smooth ramp times the torch intensity. */
-    for (let pass = 0; pass < 2; pass++) {
-      const list = pass ? brazierMeshes : torchLights;
+    /* Three emitter lists, one rule: the closest lit ones win. A brazier's
+       brightness is its own smooth ramp times the torch intensity; the exit
+       portal brings its own colour and pulse. */
+    doorEmitters.length = 0;
+    if (doorPortalObj) doorEmitters.push(doorPortalObj);
+    for (let pass = 0; pass < 3; pass++) {
+      const list = pass === 0 ? torchLights : (pass === 1 ? brazierMeshes : doorEmitters);
       for (let i = 0; i < list.length; i++) {
         const e = list[i];
         const gp = e.group && e.group.position;
         if (!gp) continue;
-        const lit = pass ? e.smooth * TORCH_I : e.smooth;
+        const lit = pass === 0 ? e.smooth
+          : (pass === 1 ? e.smooth * TORCH_I : e.light.intensity);
         if (lit <= 0.02) continue;
         const dx = gp.x - camX;
         const dy = gp.y + (e.lift || 1.6) - camY;
@@ -3230,6 +3549,7 @@ window.DS = window.DS || {};
           flameBestX[worst] = gp.x;
           flameBestY[worst] = gp.y + (e.lift || 1.6);
           flameBestI[worst] = lit;
+          flameBestC[worst] = pass === 2 ? e.light.color : null;
         }
       }
     }
@@ -3244,9 +3564,180 @@ window.DS = window.DS || {};
       /* Same gate as the element pool: an intensity that is not a finite
          number is worse than no light at all. */
       const lit = flameBestI[k];
+      if (flameBestC[k]) l.color.copy(flameBestC[k]);
+      else l.color.setHex(TORCH_COL);
       l.position.set(flameBestX[k], flameBestY[k], 0.3);
       l.intensity = Number.isFinite(lit) && lit > 0 ? lit : 0;
     }
+  }
+
+  const liveEnemySet = new Set();
+  function retireEnemyModel(model, e) {
+    if (!liveEnemySet.has(e)) {
+      disposeModel(model);
+      enemyModels.delete(e);
+    }
+  }
+
+  /* --- the camera rig, per frame ----------------------------------------------
+
+     Preset + dynamic zoom + DS.R's shake and punch, then the projection the 2D
+     overlay goes through. Everything that maps a world point to the screen this
+     frame reads `viewProj`, so a damage number and the monster it came off are
+     projected by the same matrix. */
+  const viewProj = new THREE.Matrix4();
+  const viewProjInv = new THREE.Matrix4();
+
+  function fightIsClose(g, p) {
+    const px = p.x + p.w * 0.5, py = p.y + p.h * 0.5;
+    for (let i = 0; i < g.enemies.length; i++) {
+      const e = g.enemies[i];
+      if (e.dead) continue;
+      if (e.isBoss) return true;
+      if (Math.abs(e.x + e.w * 0.5 - px) < ENGAGE_PX && Math.abs(e.y + e.h * 0.5 - py) < ENGAGE_PX) return true;
+    }
+    return false;
+  }
+
+  function updateRig(g, camX, camY) {
+    const dt = 1 / 60;
+    const p = g.player;
+    let target = 1;
+    if (p && camRig.preset === DEFAULT_PRESET && !p.dead) {
+      if (p.onRope || Math.abs(p.vy || 0) > FAST_VY) target = ZOOM_OUT;
+      else if (fightIsClose(g, p)) target = ZOOM_IN;
+    }
+    camRig.zoomTarget = target;
+    /* Critically damped: x'' = w^2 (target - x) - 2 w x'. */
+    const w = ZOOM_OMEGA;
+    camRig.zoomV += (w * w * (target - camRig.zoom) - 2 * w * camRig.zoomV) * dt;
+    camRig.zoom += camRig.zoomV * dt;
+    const dist = camRig.dist * camRig.zoom;
+
+    const R = DS.R;
+    const sv = R && R.shakeOffset ? R.shakeOffset() : null;
+    const shx = sv ? sv.x * SHAKE_GAIN : 0;
+    const shy = sv ? sv.y * SHAKE_GAIN : 0;
+    /* The punch is a lens change, not a dolly: the FOV narrows by the punch
+       factor, so the whole frame kicks in around its centre. */
+    const punch = R && R.zoom ? Math.max(1, R.zoom()) : 1;
+    const fov = 2 * Math.atan(Math.tan(camRig.fov * Math.PI / 360) / punch) * 180 / Math.PI;
+    if (Math.abs(camera.fov - fov) > 1e-4) {
+      camera.fov = fov;
+      camera.updateProjectionMatrix();
+    }
+
+    const tx = camX + shx * P2U;
+    const ty = camY + camRig.lift - shy * P2U;
+    const cp = Math.cos(camRig.pitch);
+    camera.position.set(tx + Math.sin(camRig.yaw) * dist * cp,
+                        ty + Math.sin(camRig.pitch) * dist,
+                        Math.cos(camRig.yaw) * dist * cp);
+    const roll = shx * SHAKE_ROLL;
+    camera.up.set(Math.sin(roll), Math.cos(roll), 0);
+    camera.lookAt(tx, ty, 0);
+    camera.updateMatrixWorld();
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+    viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    viewProjInv.copy(viewProj).invert();
+  }
+
+  /* A point in the level's own pixels (on the actor plane) -> logical 320x180
+     screen coordinates, plus `k`, how many logical pixels one world pixel spans
+     THERE (the perspective scale, so a sprite drawn at that point is sized the
+     way the models around it are). Allocation-free: pass `out` to reuse. */
+  function worldToScreen(x, y, out) {
+    out = out || { x: 0, y: 0, k: 1 };
+    const e = viewProj.elements;
+    const wx = x * P2U, wy = -y * P2U, wz = ACTOR_Z;
+    const cx = e[0] * wx + e[4] * wy + e[8] * wz + e[12];
+    const cy = e[1] * wx + e[5] * wy + e[9] * wz + e[13];
+    const cw = e[3] * wx + e[7] * wy + e[11] * wz + e[15];
+    const iw = cw > 1e-5 ? 1 / cw : 1e5;
+    out.x = (cx * iw * 0.5 + 0.5) * DS.C.W;
+    out.y = (0.5 - cy * iw * 0.5) * DS.C.H;
+    out.k = camera.projectionMatrix.elements[5] * 0.5 * DS.C.H * P2U * iw;
+    return out;
+  }
+
+  /* What the rig can see on the actor plane, in level pixels, around the point
+     it aims at: half the width, how far up and how far down (a tilted lens
+     does not see the same distance both ways), and the aim's lift above
+     DS.R.cam. Analytic, from the rig's own numbers, so it is valid before the
+     frame's camera is placed and carries no shake. DS.R.clampCam uses it. */
+  function visibleExtent(out) {
+    out = out || {};
+    const f = camRig.fov * Math.PI / 180, p = camRig.pitch;
+    const dist = camRig.dist * camRig.zoom;
+    const D = dist * Math.cos(p) - ACTOR_Z;
+    out.up = (dist * Math.sin(p) - D * Math.tan(p - f / 2)) / P2U;
+    out.down = (D * Math.tan(p + f / 2) - dist * Math.sin(p)) / P2U;
+    out.half = dist * Math.tan(f / 2) * (DS.C.W / DS.C.H) * Math.cos(camRig.yaw) / P2U;
+    out.lift = camRig.lift / P2U;
+    return out;
+  }
+
+  /* The inverse: a logical screen point -> the level pixel on the actor plane
+     under it (the aim reticle's question). */
+  const rayA = new THREE.Vector3(), rayB = new THREE.Vector3();
+  function screenToWorld(sx, sy, out) {
+    out = out || { x: 0, y: 0 };
+    const nx = (sx / DS.C.W) * 2 - 1, ny = 1 - (sy / DS.C.H) * 2;
+    rayA.set(nx, ny, -1).applyMatrix4(viewProjInv);
+    rayB.set(nx, ny, 1).applyMatrix4(viewProjInv);
+    const dz = rayB.z - rayA.z;
+    const t = Math.abs(dz) > 1e-6 ? (ACTOR_Z - rayA.z) / dz : 0;
+    out.x = (rayA.x + (rayB.x - rayA.x) * t) / P2U;
+    out.y = -(rayA.y + (rayB.y - rayA.y) * t) / P2U;
+    return out;
+  }
+
+  /* --- the backdrop's hero light: rim + god rays --------------------------------
+
+     The horizon module can say where its celestial body is (heroInfo(): world
+     position, colour, intensity). When it can, the back light is aimed FROM the
+     body TOWARD the eye, so every silhouette between the two catches a rim in
+     the body's colour, and the post chain smears a few rays out of the body
+     while it is on screen. When it cannot (older backdrop, or a theme with no
+     body), the back light keeps the direction setupTheme gave it and no rays
+     are drawn. */
+  const sunNdc = new THREE.Vector3();
+  const sunView = new THREE.Vector3();
+  const RAYS_STRENGTH = 0.55;
+  const RAYS_EDGE = 1.15;            // NDC reach where the rays have faded out
+
+  function heroInfoSource() {
+    if (DS.Backdrop3D && typeof DS.Backdrop3D.heroInfo === 'function') return DS.Backdrop3D;
+    if (DS.Backdrop && typeof DS.Backdrop.heroInfo === 'function') return DS.Backdrop;
+    return null;
+  }
+
+  function updateHeroLight() {
+    const src = heroInfoSource();
+    let info = null;
+    if (src) {
+      try { info = src.heroInfo(); } catch (err) { info = null; }
+    }
+    if (!info || !info.worldPos || !Number.isFinite(info.worldPos.x)) {
+      if (DS.PostFX) DS.PostFX.setRays(null);
+      return;
+    }
+    const gain = M.clamp(Number.isFinite(info.intensity) ? info.intensity : 1, 0, 2);
+    if (backLight) {
+      backLight.position.copy(info.worldPos);
+      backLight.target.position.copy(camera.position);
+      if (info.color) backLight.color.copy(info.color);
+      backLight.intensity *= gain;
+    }
+    if (!DS.PostFX) return;
+    sunView.copy(info.worldPos).applyMatrix4(camera.matrixWorldInverse);
+    if (sunView.z >= 0) { DS.PostFX.setRays(null); return; }   // behind the eye
+    sunNdc.copy(info.worldPos).applyMatrix4(viewProj);
+    const edge = Math.max(Math.abs(sunNdc.x), Math.abs(sunNdc.y));
+    if (edge > RAYS_EDGE) { DS.PostFX.setRays(null); return; }
+    const fade = M.clamp((RAYS_EDGE - edge) / 0.35, 0, 1);
+    DS.PostFX.setRays(sunNdc.x * 0.5 + 0.5, sunNdc.y * 0.5 + 0.5,
+                      info.color || null, RAYS_STRENGTH * gain * fade);
   }
 
   function render(g) {
@@ -3255,11 +3746,10 @@ window.DS = window.DS || {};
     /* Lay the frame out before anything is drawn: wipe the whole window in the
        theme's own background colour (the letterbox bars are this colour, not
        yesterday's pixels), then clip the world pass to the 16:9 play frame. */
-    const el = renderer.domElement;
     const pv = playViewport();
     renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, el.width, el.height);
-    renderer.setScissor(0, 0, el.width, el.height);
+    renderer.setViewport(0, 0, pv.cw, pv.ch);
+    renderer.setScissor(0, 0, pv.cw, pv.ch);
     renderer.setClearColor(scene.background || 0x000000, 1);
     renderer.clear(true, true, true);
     renderer.setScissorTest(true);
@@ -3275,19 +3765,18 @@ window.DS = window.DS || {};
       if (g.player) poseHero(g, g.player, time);
       else if (heroModel) heroModel.root.visible = false;
 
-      // Spawn models for any new enemy; retire models whose entity is gone.
+      /* Spawn models for any new enemy; retire models whose entity is gone.
+         Membership is a Set built in the same pass, not an indexOf per model:
+         that was O(models x enemies) every frame of every fight. */
+      liveEnemySet.clear();
       for (let i = 0; i < g.enemies.length; i++) {
         const e = g.enemies[i];
         if (e.dead) continue;
+        liveEnemySet.add(e);
         const model = ensureEnemyModel(g, e);
         if (model) poseEnemy(e, model, time, g.map);
       }
-      enemyModels.forEach(function (model, e) {
-        if (e.dead || g.enemies.indexOf(e) < 0) {
-          disposeModel(model);
-          enemyModels.delete(e);
-        }
-      });
+      enemyModels.forEach(retireEnemyModel);
 
       syncProjectiles(g, time);
 
@@ -3313,13 +3802,11 @@ window.DS = window.DS || {};
     }
 
     /* The rig: orbit the eye around the camera target by (yaw, pitch) at the
-       preset's distance, and always aim back at the target. With yaw at 0 and
-       pitch at 7 degrees this is exactly the shot the game shipped before. */
-    const cp = Math.cos(camRig.pitch);
-    camera.position.set(camX + Math.sin(camRig.yaw) * camRig.dist * cp,
-                        camY + Math.sin(camRig.pitch) * camRig.dist,
-                        Math.cos(camRig.yaw) * camRig.dist * cp);
-    camera.lookAt(camX, camY, 0);
+       preset's distance (breathing with the dynamic zoom, kicked by shake and
+       punch), and always aim back at the target. The 2D overlay projects
+       through the result from here on (DS.R.attach3D). */
+    updateRig(g, camX, camY);
+    if (DS.R && DS.R.attach3D) DS.R.attach3D(true);
     if (camRig.show > 0) camRig.show--;
 
     const t = activeTheme || THEMES.forest;
@@ -3336,9 +3823,14 @@ window.DS = window.DS || {};
     const fill = 1 - 0.58 * mood;
     const lamp = 1 + 0.62 * mood;
     const sky = 1 - 0.20 * mood;
+    /* With real shadows the key has to carry enough of the light for its
+       shadow to read -- a shadow cast by a fifth of the illumination is a
+       smudge. The sky wash gives back what the key takes, so the frame keeps
+       its exposure and only the direction of the light changes. */
+    const keyBoost = blobShadows ? 1 : KEY_SHADOW_BOOST;
     if (ambientLight) ambientLight.intensity = AMBIENT_I * fill;
-    if (hemiLight) hemiLight.intensity = HEMI_I * sky;
-    if (dirLight) dirLight.intensity = t.dirI * KEY_GAIN * (1 - 0.50 * mood);
+    if (hemiLight) hemiLight.intensity = HEMI_I * sky * (blobShadows ? 1 : SKY_SHADOW_TRIM);
+    if (dirLight) dirLight.intensity = t.dirI * KEY_GAIN * (1 - 0.50 * mood) * keyBoost;
     if (backLight) {
       /* The light from the BACKGROUND. Its direction and colour were set once per
          level (see setupTheme: it follows the theme's celestial body), so the only
@@ -3347,6 +3839,10 @@ window.DS = window.DS || {};
          and by whatever is behind it. */
       backLight.intensity = 0.55 + 0.35 * mood;
     }
+    /* Aim the rim at the eye from the backdrop's body (when it can say where
+       that is), and fit the key's shadow to what the camera sees. */
+    updateHeroLight();
+    updateKeyShadow(camX, camY + camRig.lift);
 
     /* The sky rides the eye line (see the sky rig in buildBackdrop) -- in the
        THEME GROUP'S OWN SPACE, not the world's.
@@ -3457,7 +3953,7 @@ window.DS = window.DS || {};
         else if (h.kind === 'ball') hm = createSpikedBallMesh();
         else if (h.kind === 'saw') hm = createSawMesh();
         else if (h.kind === 'crumble') hm = createCrumbleMesh(h.w);
-        if (hm) hazardMeshes.push(hm);
+        if (hm) { shadowize(hm.group); hazardMeshes.push(hm); }
         else break;
       }
 
@@ -3562,8 +4058,11 @@ window.DS = window.DS || {};
     /* No parallax scroll to drive any more: the backdrop bands are solid
        geometry at fixed depth, so the camera's own pan produces the parallax. */
 
+    /* Blob shadows: the low preset's stand-in for a shadow pass. With real
+       shadows on they are not drawn at all (their group is hidden by
+       applyQuality), so none of this runs. */
     let sIdx = 0;
-    if (g.player) {
+    if (blobShadows && g.player) {
       const p = g.player;
       const pcx = p.x + p.w * 0.5;
       const ptx = Math.floor(pcx / 16);
@@ -3584,7 +4083,7 @@ window.DS = window.DS || {};
       }
     }
 
-    for (let i = 0; i < g.enemies.length; i++) {
+    for (let i = 0; blobShadows && i < g.enemies.length; i++) {
       const e = g.enemies[i];
       if (e.dead) continue;
 
@@ -3619,10 +4118,15 @@ window.DS = window.DS || {};
       shadowPool[i].visible = false;
     }
 
-    renderer.render(scene, camera);
+    /* Through the post chain when the preset has one (it writes into the play
+       viewport only), otherwise the plain render into the same viewport. */
+    if (!(DS.PostFX && DS.PostFX.render(pv, pv.dw, pv.dh))) {
+      renderer.render(scene, camera);
+    }
+    if (DS.PostFX) DS.PostFX.track();
     /* Hand the full canvas back for the screen layer and its overlay. */
     renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, el.width, el.height);
+    renderer.setViewport(0, 0, pv.cw, pv.ch);
   }
 
   DS.R3D = {
@@ -3631,7 +4135,13 @@ window.DS = window.DS || {};
     /* Camera rig: presets + the live readout the HUD shows. */
     get rig() { return camRig; },
     presets: CAM_PRESETS,
+    defaultPreset: DEFAULT_PRESET,
     setPreset: applyCameraPreset,
+    /* The 2D overlay's projection: level pixels on the actor plane <-> logical
+       320x180 screen pixels, through this frame's camera (see updateRig). */
+    worldToScreen: worldToScreen,
+    screenToWorld: screenToWorld,
+    visibleExtent: visibleExtent,
     loadLevel: loadLevel,
     render: render,
     spawnElemPuddle: spawnElemPuddle,

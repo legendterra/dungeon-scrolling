@@ -232,7 +232,9 @@ window.DS = window.DS || {};
       const n = numbers[i];
       if (n.life <= 0) continue;
       const w = R2.textWidth(n.text, n.scale);
-      R2.text(n.text, n.x - w / 2 - R2.camOffsetX(), n.y - R2.camOffsetY(), n.color, n.scale);
+      /* Through the world camera, both coordinates at once: under the 3D
+         lens a number placed with a flat offset drifted off its target. */
+      R2.text(n.text, R2.toScreenX(n.x, n.y) - w / 2, R2.toScreenY(n.y, n.x), n.color, n.scale);
     }
   }
 

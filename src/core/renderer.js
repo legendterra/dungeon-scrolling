@@ -97,12 +97,21 @@ window.DS = window.DS || {};
 
   function setCam(x, y) { cam.x = x; cam.y = y; }
 
+  /* Keep the view inside the level. The extents are the 3D camera's own when
+     the world is live: the action lens sees far less than the 320x180 logical
+     frame (and not symmetrically -- it is tilted and aimed a little above the
+     hero), so clamping by half the logical frame kept the camera up to 60px
+     away from an edge the hero was standing against and walked him out of
+     shot at the start of every floor. */
+  const ext = { half: C.W / 2, up: C.H / 2, down: C.H / 2, lift: 0 };
   function clampCam(minX, maxX, minY, maxY) {
-    const halfW = C.W / 2, halfH = C.H / 2;
-    if (maxX - minX < C.W) cam.x = (minX + maxX) / 2;
+    const v = (DS.R3D && DS.R3D.isEnabled && DS.R3D.visibleExtent) ? DS.R3D.visibleExtent(ext) : null;
+    const halfW = v ? v.half : C.W / 2;
+    const up = v ? v.up : C.H / 2, down = v ? v.down : C.H / 2, lift = v ? v.lift : 0;
+    if (maxX - minX < halfW * 2) cam.x = (minX + maxX) / 2;
     else cam.x = DS.M.clamp(cam.x, minX + halfW, maxX - halfW);
-    if (maxY - minY < C.H) cam.y = (minY + maxY) / 2;
-    else cam.y = DS.M.clamp(cam.y, minY + halfH, maxY - halfH);
+    if (maxY - minY < up + down) cam.y = (minY + maxY) / 2 + lift;
+    else cam.y = DS.M.clamp(cam.y, minY + up + lift, maxY - down + lift);
   }
 
   function shake(amount) {
@@ -111,6 +120,43 @@ window.DS = window.DS || {};
 
   let zoomLevel = 1, zoomTarget = 1;
   let flashFrames = 0, flashMax = 1, flashColorLight = 0xffffff;
+
+  /* --- one camera for both layers ------------------------------------------
+
+     World-space marks (FX, labels, HP bars, damage numbers) used to be placed
+     with a flat 320x180 mapping of the level while the world itself was drawn
+     by a perspective camera at a different scale -- the two drifted ~4% apart
+     and a hit spark landed beside the monster it came off. While the 3D world
+     is live, every world-space call here goes through the SAME camera instead
+     (DS.R3D.worldToScreen), and `k` -- the perspective scale at that point --
+     sizes what is drawn there. Shake and punch are then the camera's (the rig
+     reads shakeOffset()/zoom() below), so the overlay shakes with the world
+     rather than on its own.
+
+     attach3D(true) is called by the 3D renderer after it has placed this
+     frame's camera; begin() detaches, so a screen that never renders the world
+     (menus, cutscenes) keeps the flat mapping. */
+  let world3D = false;
+  const P = { x: 0, y: 0, k: 1 };
+  const W2 = { x: 0, y: 0 };
+  const shakeVec = { x: 0, y: 0 };
+
+  function attach3D(on) { world3D = !!on && !!(DS.R3D && DS.R3D.worldToScreen); }
+
+  /* World pixel -> logical screen pixel, into the shared P (read it before the
+     next call). */
+  function proj(x, y) {
+    if (world3D) return DS.R3D.worldToScreen(x, y, P);
+    P.x = (x - offX - C.W / 2) * zoomLevel + C.W / 2;
+    P.y = (y - offY - C.H / 2) * zoomLevel + C.H / 2;
+    P.k = zoomLevel;
+    return P;
+  }
+
+  function shakeOffset() {
+    shakeVec.x = shakeX; shakeVec.y = shakeY;
+    return shakeVec;
+  }
 
   function punch(amount) {
     zoomLevel = Math.max(zoomLevel, 1 + amount);
@@ -122,6 +168,7 @@ window.DS = window.DS || {};
   }
 
   function begin() {
+    world3D = false;
     if (shakeAmount > 0.1) {
       shakeX = (DS.rand.next() * 2 - 1) * shakeAmount;
       shakeY = (DS.rand.next() * 2 - 1) * shakeAmount;
@@ -161,16 +208,29 @@ window.DS = window.DS || {};
     if (DS.UI3 && DS.UI3.ready) DS.UI3.render(time);
   }
 
-  function toScreenX(worldX) {
-    return (worldX - offX - C.W / 2) * zoomLevel + C.W / 2;
+  /* The other coordinate is optional: under a perspective camera x and y are
+     not independent (the lens is tilted), so a caller that has both should pass
+     both. Without it the camera's own centre line is assumed. */
+  function toScreenX(worldX, worldY) {
+    if (!world3D) return (worldX - offX - C.W / 2) * zoomLevel + C.W / 2;
+    return proj(worldX, worldY == null ? cam.y : worldY).x;
   }
 
-  function toScreenY(worldY) {
-    return (worldY - offY - C.H / 2) * zoomLevel + C.H / 2;
+  function toScreenY(worldY, worldX) {
+    if (!world3D) return (worldY - offY - C.H / 2) * zoomLevel + C.H / 2;
+    return proj(worldX == null ? cam.x : worldX, worldY).y;
   }
 
-  function camOffsetX() { return offX; }
-  function camOffsetY() { return offY; }
+  /* The world pixel at the screen's top-left corner. Under the 3D camera that
+     is where the frustum meets the actor plane, not cam - W/2. */
+  function camOffsetX() {
+    if (!world3D) return offX;
+    return DS.R3D.screenToWorld(0, 0, W2).x;
+  }
+  function camOffsetY() {
+    if (!world3D) return offY;
+    return DS.R3D.screenToWorld(0, 0, W2).y;
+  }
 
   // --- primitives -----------------------------------------------------------
 
@@ -185,8 +245,8 @@ window.DS = window.DS || {};
 
   function spr(img, x, y) {
     if (!img || !DS.UI3) return;
-    DS.UI3.quad(DS.UI3.texFor(img), toScreenX(x), toScreenY(y),
-                uw(img) * zoomLevel, uh(img) * zoomLevel,
+    const p = proj(x, y);
+    DS.UI3.quad(DS.UI3.texFor(img), p.x, p.y, uw(img) * p.k, uh(img) * p.k,
                 0, 1, 1, 0, '#ffffff', 1);
   }
 
@@ -204,29 +264,32 @@ window.DS = window.DS || {};
 
   function sprAlpha(img, x, y, alpha) {
     if (!img || !DS.UI3) return;
-    DS.UI3.quad(DS.UI3.texFor(img), toScreenX(x), toScreenY(y),
-                uw(img) * zoomLevel, uh(img) * zoomLevel,
+    const p = proj(x, y);
+    DS.UI3.quad(DS.UI3.texFor(img), p.x, p.y, uw(img) * p.k, uh(img) * p.k,
                 0, 1, 1, 0, '#ffffff', alpha);
   }
 
   /* A sprite rotated about a pivot given in sprite-local pixels. */
   function sprRot(img, x, y, angle, flip, pivotX, pivotY) {
     if (!img || !DS.UI3) return;
-    const w = uw(img) * zoomLevel, h = uh(img) * zoomLevel;
-    const px = (pivotX == null ? uw(img) / 2 : pivotX) * zoomLevel;
-    const py = (pivotY == null ? uh(img) / 2 : pivotY) * zoomLevel;
-    const sx = toScreenX(x), sy = toScreenY(y);
+    const p = proj(x, y);
+    const k = p.k, sx = p.x, sy = p.y;
+    const w = uw(img) * k, h = uh(img) * k;
+    const px = (pivotX == null ? uw(img) / 2 : pivotX) * k;
+    const py = (pivotY == null ? uh(img) / 2 : pivotY) * k;
     DS.UI3.quadAt(DS.UI3.texFor(img), sx - px, sy - py, w, h,
                   0, 1, 1, 0, '#ffffff', 1, angle, flip, false, px, py);
   }
 
   function sprScaled(img, x, y, scaleX, scaleY, flip, pivotX, pivotY) {
     if (!img || !DS.UI3) return;
-    const w = uw(img) * zoomLevel * (scaleX || 1);
-    const h = uh(img) * zoomLevel * (scaleY || 1);
-    const px = (pivotX == null ? uw(img) / 2 : pivotX) * zoomLevel;
-    const py = (pivotY == null ? uh(img) : pivotY) * zoomLevel;
-    DS.UI3.quadAt(DS.UI3.texFor(img), toScreenX(x) - px, toScreenY(y) - py, w, h,
+    const p = proj(x, y);
+    const k = p.k, sx = p.x, sy = p.y;
+    const w = uw(img) * k * (scaleX || 1);
+    const h = uh(img) * k * (scaleY || 1);
+    const px = (pivotX == null ? uw(img) / 2 : pivotX) * k;
+    const py = (pivotY == null ? uh(img) : pivotY) * k;
+    DS.UI3.quadAt(DS.UI3.texFor(img), sx - px, sy - py, w, h,
                   0, 1, 1, 0, '#ffffff', 1, 0, flip, false, px, py);
   }
 
@@ -234,9 +297,10 @@ window.DS = window.DS || {};
      the arc, which is what the 2D stroker did anyway. */
   function arc(x, y, radius, from, to, color, width, flip) {
     if (!DS.UI3) return;
-    const cx = toScreenX(x), cy = toScreenY(y);
-    const r = radius * zoomLevel;
-    const w = Math.max(1, width || 2) * zoomLevel;
+    const p = proj(x, y);
+    const cx = p.x, cy = p.y;
+    const r = radius * p.k;
+    const w = Math.max(1, width || 2) * p.k;
     const steps = 12;
     const span = to - from;
     const dir = flip ? -1 : 1;
@@ -259,8 +323,10 @@ window.DS = window.DS || {};
 
   function line(x1, y1, x2, y2, color, width) {
     if (!DS.UI3) return;
-    seg(toScreenX(x1), toScreenY(y1), toScreenX(x2), toScreenY(y2),
-        Math.max(1, width || 1) * zoomLevel, color);
+    const a = proj(x1, y1);
+    const ax = a.x, ay = a.y, k = a.k;
+    const b = proj(x2, y2);
+    seg(ax, ay, b.x, b.y, Math.max(1, width || 1) * k, color);
   }
 
   function fillQuad(x, y, w, h, color, alpha) {
@@ -277,8 +343,8 @@ window.DS = window.DS || {};
   }
 
   function rect(x, y, w, h, color) {
-    fillQuad(toScreenX(x), toScreenY(y), Math.round(w) * zoomLevel,
-             Math.round(h) * zoomLevel, color);
+    const p = proj(x, y);
+    fillQuad(p.x, p.y, Math.round(w) * p.k, Math.round(h) * p.k, color);
   }
 
   function rectS(x, y, w, h, color) {
@@ -436,9 +502,11 @@ window.DS = window.DS || {};
      shared radial texture. */
   function glow(x, y, radius, color, alpha, screenSpace) {
     if (!DS.UI3) return;
-    const cx = screenSpace ? x : toScreenX(x);
-    const cy = screenSpace ? y : toScreenY(y);
-    const r = radius * (screenSpace ? 1 : zoomLevel);
+    let cx = x, cy = y, r = radius;
+    if (!screenSpace) {
+      const p = proj(x, y);
+      cx = p.x; cy = p.y; r = radius * p.k;
+    }
     DS.UI3.quad(DS.UI3.radial(), cx - r, cy - r, r * 2, r * 2,
                 0, 1, 1, 0, color, alpha == null ? 1 : alpha);
   }
@@ -480,11 +548,13 @@ window.DS = window.DS || {};
 
   // Screen pixels back to world pixels — the exact inverse of toScreenX/Y, so
   // an aim reticle drawn in UI space points at the world tile under it.
-  function toWorldX(screenX) {
+  function toWorldX(screenX, screenY) {
+    if (world3D) return DS.R3D.screenToWorld(screenX, screenY == null ? C.H / 2 : screenY, W2).x;
     return (screenX - C.W / 2) / zoomLevel + C.W / 2 + offX;
   }
 
-  function toWorldY(screenY) {
+  function toWorldY(screenY, screenX) {
+    if (world3D) return DS.R3D.screenToWorld(screenX == null ? C.W / 2 : screenX, screenY, W2).y;
     return (screenY - C.H / 2) / zoomLevel + C.H / 2 + offY;
   }
 
@@ -525,6 +595,9 @@ window.DS = window.DS || {};
     zoom: function () { return zoomLevel; },
     toScreenX: toScreenX,
     toScreenY: toScreenY,
+    attach3D: attach3D,
+    shakeOffset: shakeOffset,
+    get projected() { return world3D; },
     toWorldX: toWorldX,
     toWorldY: toWorldY,
     begin: begin,
