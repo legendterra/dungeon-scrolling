@@ -16,8 +16,9 @@
    is a dead run.
 
    Two rules, applied once, after all terrain is final:
-     - every step up taller than the free rise gets rungs beside it (a climb the
-       player can make, on the approach side);
+     - every cliff on the route the hero cannot already get up gets a climb
+       bolted to its face - a rope tied at the lip, or a whole ladder of rungs
+       touching the rock - never scaffolding in open air;
      - the exit column must be in reach of the spawn; where it is not, a step is
        placed at the frontier, then a passage is cut, and if neither fits, the
        floor the hero is standing on is simply extended.
@@ -390,150 +391,155 @@ window.DS = window.DS || {};
     return null;
   }
 
-  /* The surface tile row of a column - the rock the player walks on - or -1 for
-     a column with no floor at all. groundBelow skips a roof first, which is what
-     makes this right in a cave (from row 0 the first solid is the ceiling). */
+  /* The surface tile row of a column - the ROCK the player walks on - or -1 for
+     a column with no floor at all. solidBelow skips a roof first, which is what
+     makes this right in a cave (from row 0 the first solid is the ceiling), and
+     it looks past one-way platforms: a ledge floating over the floor is not the
+     top of a cliff, and reading it as one is how a ladder got built up to a
+     plank in mid-air. */
   function surfaceRow(map, tx) {
     if (tx < 0 || tx >= map.w) return -1;
-    const y = map.groundBelow(tx);
+    const y = map.solidBelow ? map.solidBelow(tx) : map.groundBelow(tx);
     if (y >= map.pixelH) return -1;
     const row = Math.floor(y / T);
-    return map.isBlocked(tx, row) ? row : -1;
+    return map.isSolid(tx, row) ? row : -1;
   }
 
-  /* --- the climb rule ------------------------------------------------------- */
+  /* --- the climb rule -------------------------------------------------------
+
+     A climb is FURNITURE BOLTED TO A CLIFF, never scaffolding in the air. Both
+     kinds are built against a face of rock and only ever whole:
+
+       rope    one column hung beside the face, tied level with the lip and
+               reaching down to the floor at the foot;
+       ladder  two-tile rungs every two rows, each touching the face, from level
+               with the lip down to a hop above the foot.
+
+     Atomic, because a ladder with a rung missing is the worst shape the game
+     can ship: it reads as a way up and is not one. So every cell is checked
+     first and nothing is written unless all of them fit. */
 
   const CLIMB_STEP = 2;    // rows between rungs
   const RUNG_W = 2;        // tiles of landing room each rung offers
 
   /* A face this tall is climbed by a rope, not by a ladder of platforms: the
      rope is one column of art hung against the cliff, where six rungs read as
-     scaffolding in mid-air. The move model knows ropes (buildRopes above), so
-     the route is real rather than decorative. */
+     scaffolding. The move model knows ropes (buildRopes above). */
   const ROPE_RISE = 4;     // rows of rise that earn a rope instead of rungs
 
-  /* Hang a rope down a cliff face: the column beside the face, from the lip to
-     one tile above the foot, so a body standing at the bottom is already
-     overlapping it -- which is exactly how the grab works in player.js. Only
-     empty cells are written to, and a column with anything but air in it is
-     left alone (the caller falls back to rungs). */
-  function ropeDown(map, tx, fromRow, toRow) {
-    if (tx < 1 || tx >= map.w - 1 || fromRow <= CEIL_ROW || toRow <= fromRow) return false;
-    for (let row = fromRow; row <= toRow; row++) {
-      if (map.get(tx, row) !== TILE.EMPTY) return false;
-    }
-    for (let row = fromRow; row <= toRow; row++) map.set(tx, row, TILE.ROPE);
-    return true;
-  }
-
-  /* A rung is a platform tile, and only ever in empty air: nothing authored is
-     overwritten to make a climb work. Both the tile and the cell the body would
-     stand in above it have to be clear - a rung tucked under an existing ledge
-     is scenery, not a step, and that is the one way this rule silently did
-     nothing. Two tiles of landing room is what a hop wants; one is enough when
-     the level left no room for more. */
-  function rungIn(map, tx, row, w) {
-    if (row <= CEIL_ROW || tx < 1) return false;
-    for (let width = w; width >= 1; width--) {
-      let fits = true;
-      for (let i = 0; i < width && fits; i++) {
-        const x = tx + i;
-        if (x < 1 || x >= map.w - 1) fits = false;
-        else if (map.get(x, row) !== TILE.EMPTY || map.isSpike(x, row)) fits = false;
-        else if (!clearCell(map, x, row - 1)) fits = false;
+  /* A rope already hanging against this face - the mountain hangs its own -
+     or a designed route already built in front of it (a parkour staircase, the
+     ledges up the coin tower). Either way the climb exists, and a second one
+     beside it is how a cliff ended up with a rope AND a ladder. */
+  function climbServed(map, faceX, side, topRow, footRow) {
+    for (let d = 1; d <= 3; d++) {
+      const x = faceX + side * d;
+      if (x < 0 || x >= map.w) break;
+      for (let row = topRow - 1; row <= footRow - 1; row++) {
+        if (map.isRope(x, row)) return true;
+        if (map.isPlatform(x, row) && map.isDesigned && map.isDesigned(x, row)) return true;
       }
-      if (!fits) continue;
-      for (let i = 0; i < width; i++) map.set(tx + i, row, TILE.PLATFORM);
-      return true;
     }
     return false;
   }
 
-  function rung(map, tx, row) { return rungIn(map, tx, row, RUNG_W); }
+  function writer(map, put) { return put || defaultPut(map); }
 
-  /* The column asked for first, then the ones beside it: a level that already
-     built its own steps two tiles wide leaves no room directly under them. */
-  function placeRung(map, tx, row) {
-    if (rung(map, tx, row)) return tx;
-    for (let d = 1; d <= 2; d++) {
-      if (rung(map, tx - d, row)) return tx - d;
-      if (rung(map, tx + d, row)) return tx + d;
+  /* Plan (and, if every cell fits, build) a climb up the face of rock at
+     column `faceX`, whose lip is the surface row `topRow` and whose foot is the
+     floor at `footRow`. `side` is where the climber stands: -1 for a cliff that
+     rises to the right (climbed from its left), +1 for one that rises to the
+     left. Returns what was built: { kind, cells } or null. */
+  function buildClimb(map, faceX, side, topRow, footRow, put) {
+    const rise = footRow - topRow;
+    if (rise <= MAX_RISE || topRow <= CEIL_ROW) return null;
+    if (!map.isSolid(faceX, topRow)) return null;
+    const set = writer(map, put);
+
+    if (rise >= ROPE_RISE) {
+      const rx = faceX + side;
+      let fits = rx >= 1 && rx < map.w - 1;
+      for (let row = topRow; row <= footRow - 1 && fits; row++) {
+        if (map.get(rx, row) !== TILE.EMPTY) fits = false;
+      }
+      // The foot has to be ground a body stands on, or the rope hangs into air.
+      if (fits && !(map.isSolid(rx, footRow) || map.isPlatform(rx, footRow))) fits = false;
+      if (fits) {
+        const cells = [];
+        for (let row = topRow; row <= footRow - 1; row++) { set(rx, row, TILE.ROPE); cells.push(rx, row); }
+        return { kind: 'rope', cells: cells };
+      }
+    }
+
+    /* The ladder, top down: the highest rung is level with the lip, so walking
+       off it is a step, and each rung below is CLIMB_STEP under the last. */
+    const plan = [];
+    for (let row = topRow; row <= footRow - 2; row += CLIMB_STEP) {
+      const at = rungFor(map, faceX, side, row);
+      if (!at) return null;                   // one missing rung: no ladder
+      plan.push(at);
+    }
+    if (!plan.length) return null;
+    const cells = [];
+    for (let i = 0; i < plan.length; i++) {
+      for (let k = 0; k < plan[i].w; k++) {
+        set(plan[i].x + k, plan[i].row, TILE.PLATFORM);
+        cells.push(plan[i].x + k, plan[i].row);
+      }
+    }
+    return { kind: 'ladder', cells: cells };
+  }
+
+  /* One rung against the face: two tiles if they fit, one if the level left no
+     room for more, never anywhere that does not touch the rock. */
+  function rungFor(map, faceX, side, row) {
+    if (row <= CEIL_ROW || !map.isSolid(faceX, row)) return null;
+    for (let w = RUNG_W; w >= 1; w--) {
+      const x = side < 0 ? faceX - w : faceX + 1;
+      let fits = x >= 1 && x + w - 1 < map.w - 1;
+      for (let k = 0; k < w && fits; k++) {
+        if (map.get(x + k, row) !== TILE.EMPTY) fits = false;
+        else if (!clearCell(map, x + k, row - 1)) fits = false;
+      }
+      if (fits) return { x: x, row: row, w: w };
     }
     return null;
   }
 
-  /* Rungs beside every cliff the hero cannot take in one jump.
+  /* Climbs up the cliffs the hero actually meets and cannot get up, on the
+     approach side. `seen` is the flood from the spawn: a cliff whose foot the
+     hero never stands at is not on the route, and a cliff whose top they
+     already reach some other way - a staircase, a step, the plinth in front of
+     a vault - needs nothing bolted to it. Building a climb on every tall face
+     regardless is what hung ropes in doorways and ladders beside stairs.
 
-     The ladder is built from the cliff TOP downward, because that is the end
-     that has to line up: the highest rung sits level with the ledge, so walking
-     off it is a step, and each rung below is exactly CLIMB_STEP under the last,
-     so climbing it is a hop the model above already accepts. */
-  /* `placed` collects the rung tiles this pass wrote, as flat [tx, row] pairs,
-     so the pass that knows what the hero can actually stand on can prune the
-     ones that turn out to be scenery. */
-  let ropeCount = 0;      // ropes hung this level; reported, never pruned
+     A cliff rising to the LEFT is only ever a problem if dropping off it
+     strands the hero, and that is the pocket repair's question, which builds
+     the same climb when the answer is yes. `placed` collects each ladder as a
+     unit so pruning can take a whole ladder or none of it. */
+  let ropeCount = 0;      // ropes hung this level
+  let rungCount = 0;      // rungs placed this level
 
-  function ensureClimbs(map, placed) {
-    let rungs = 0;
-    ropeCount = 0;
+  function ensureClimbs(map, placed, seen) {
+    let built = 0;
     for (let tx = 3; tx < map.w - 1; tx++) {
       const here = surfaceRow(map, tx);
       const prev = surfaceRow(map, tx - 1);
       if (here < 0 || prev < 0) continue;
-      const rise = prev - here;
-      if (rise <= MAX_RISE) continue;
+      if (prev - here <= MAX_RISE) continue;
+      if (seen && (!seen.has((tx - 1) + ',' + (prev - 1)) || seen.has(tx + ',' + (here - 1)))) continue;
       // A cliff whose foot is under water is climbed by swimming, not by rungs.
       if (map.isWater(tx - 1, prev - 1)) continue;
+      if (climbServed(map, tx, -1, here, prev)) continue;
 
-      if (rise >= ROPE_RISE && ropeDown(map, tx - 1, here, prev - 1)) {
-        ropeCount++;
-        continue;
-      }
-
-      for (let row = here; row <= prev - 2; row += CLIMB_STEP) {
-        const at = placeRung(map, tx - 2, row);
-        if (at == null) continue;
-        rungs++;
-        if (placed) placed.push(at, row);
-      }
+      const made = buildClimb(map, tx, -1, here, prev);
+      if (!made) continue;
+      built++;
+      if (made.kind === 'rope') { ropeCount++; continue; }
+      rungCount += made.cells.length / 2;
+      if (placed) placed.push(made.cells);
     }
-    return rungs;
-  }
-
-  /* Every ledge the hero would have to stand on if the air jump did not exist.
-
-     A cliff of solid rock is a wall and gets the ladder above; a LEDGE is a
-     platform tile, and a platform three rows above its own floor is the shape
-     that reads as "I cannot get up there" - the hero has to spend the air jump
-     to reach it, and a level should not open with a demand like that. So each
-     ledge is walked down to the surface under it and, if the gap is taller than
-     one jump, a rung is placed between them: two rows, then two more, until the
-     ledge is ordinary. Only empty air is written to, and only a small gap is
-     stepped in: a ledge a long way up is a climb the level built on purpose,
-     with its own platforms leading to it, and the rung rule has no business
-     paving over that. */
-  const STEP_GAP = MAX_RISE + 2;   // the tallest gap this rule will step in
-
-  function ensureLedges(map, placed) {
-    let rungs = 0;
-    for (let tx = 2; tx < map.w - 1; tx++) {
-      let below = -1;
-      for (let ty = map.h - 2; ty > CEIL_ROW; ty--) {
-        if (!standable(map, tx, ty)) continue;
-        const gap = below - ty;
-        if (below > 0 && gap > MAX_RISE && gap <= STEP_GAP &&
-            map.isPlatform(tx, ty + 1) && !map.isWater(tx, ty)) {
-          for (let f = below - CLIMB_STEP; f > ty; f -= CLIMB_STEP) {
-            const at = placeRung(map, tx, f + 1);
-            if (at == null) continue;
-            rungs++;
-            if (placed) placed.push(at, f + 1);
-          }
-        }
-        below = ty;
-      }
-    }
-    return rungs;
+    return built;
   }
 
   /* --- the exit rule -------------------------------------------------------- */
@@ -584,9 +590,40 @@ window.DS = window.DS || {};
     [1, -1], [1, -2], [2, 1], [3, 1], [4, -2], [4, 0]
   ];
 
+  /* Is a two-tile step at (x, row) held by anything: rock at either end, or
+     rock or a platform under it? */
+  function stepHeld(map, x, row) {
+    if (map.isSolid(x - 1, row) || map.isSolid(x + RUNG_W, row)) return true;
+    for (let k = 0; k < RUNG_W; k++) {
+      if (map.isSolid(x + k, row + 1) || map.isPlatform(x + k, row + 1)) return true;
+    }
+    return false;
+  }
+
+  /* Make a step honest. Held already: leave it. A short drop to rock under it:
+     the step becomes the top of a block of stone standing on that rock. Neither:
+     the step is refused, because a plank in mid-air is the shape this game must
+     never ship - and a repair is the last place it should come from. */
+  const BLOCK_DROP = 2;    // rows of air a step may be filled down through
+
+  function groundStep(map, x, row, put) {
+    if (stepHeld(map, x, row)) return true;
+    for (let k = 0; k < RUNG_W; k++) {
+      let gy = row + 1;
+      while (gy <= row + BLOCK_DROP && map.get(x + k, gy) === TILE.EMPTY) gy++;
+      if (gy > row + BLOCK_DROP || !map.isSolid(x + k, gy)) return false;
+    }
+    for (let k = 0; k < RUNG_W; k++) {
+      put(x + k, row, TILE.WALL);
+      for (let y = row + 1; map.get(x + k, y) === TILE.EMPTY; y++) put(x + k, y, TILE.WALL);
+    }
+    return true;
+  }
+
   /* `dir` mirrors the candidates, because the exit rule only ever steps toward
      the door while a pocket has to be climbed out of on the side it was entered
-     from. One implementation, two directions. */
+     from. One implementation, two directions. Each candidate is written through
+     a local journal so a refused one leaves nothing behind. */
   function step(map, fx, fy, put, dir) {
     if (!put) put = defaultPut(map);
     for (let i = 0; i < CANDIDATES.length; i++) {
@@ -595,9 +632,13 @@ window.DS = window.DS || {};
       if (x < 1 || x + 1 >= map.w - 1 || y <= CEIL_ROW || y >= map.h - 1) continue;
       if (!clearCell(map, x, y) || !clearCell(map, x + 1, y)) continue;
       if (map.isSpike(x, y) || map.isSpike(x + 1, y)) continue;
-      for (let k = 0; k < RUNG_W; k++) put(x + k, y + 1, TILE.PLATFORM);
-      if (hopOk(map, fx, fy, dx, dy)) return true;
-      for (let k = 0; k < RUNG_W; k++) put(x + k, y + 1, TILE.EMPTY);
+      if (map.get(x, y + 1) !== TILE.EMPTY || map.get(x + 1, y + 1) !== TILE.EMPTY) continue;
+
+      const undo = [];
+      const local = function (tx, ty, value) { undo.push(tx, ty, map.get(tx, ty)); put(tx, ty, value); };
+      for (let k = 0; k < RUNG_W; k++) local(x + k, y + 1, TILE.PLATFORM);
+      if (groundStep(map, x, y + 1, local) && hopOk(map, fx, fy, dx, dy)) return true;
+      for (let j = undo.length - 3; j >= 0; j -= 3) put(undo[j], undo[j + 1], undo[j + 2]);
     }
     return false;
   }
@@ -612,20 +653,27 @@ window.DS = window.DS || {};
 
      Rock is load bearing. `cut` clears five rows at a time, so any walkway
      inside that band is deleted -- a repair meant to open a passage can sever
-     the floor the hero is walking on, and the level arrives at the door with the
-     hero stranded on the wrong side of a hole. That is not theoretical: it is
-     what the first version of the pocket repair did to depth 9.
-
-     So every repair writes through a journal, and is rolled back unless the hero
-     can still reach at least as far, and stand in at least as many places, as
-     before it. A refused repair costs a flood and nothing else. */
+     the floor the hero is walking on. So every repair writes through a journal,
+     and is rolled back unless the hero can still reach at least as far, and
+     stand in at least as many places, as before it. */
   function applyRepair(map, spawns, reach, make, accept) {
     const log = [];
     const put = function (tx, ty, value) {
       log.push(tx, ty, map.get(tx, ty));
       map.set(tx, ty, value);
     };
-    if (!make(put)) return { ok: false, reach: reach };
+    const floatersBefore = floaters(map);
+    if (!make(put)) {
+      for (let i = log.length - 3; i >= 0; i -= 3) map.set(log[i], log[i + 1], log[i + 2]);
+      return { ok: false, reach: reach };
+    }
+    /* A repair that leaves something hanging is no repair: a tunnel cut through
+       the stone bracket a ledge was hung on turns the ledge into a plank in
+       mid-air. Refused before the flood is even asked. */
+    if (floaters(map) > floatersBefore) {
+      for (let i = log.length - 3; i >= 0; i -= 3) map.set(log[i], log[i + 1], log[i + 2]);
+      return { ok: false, reach: reach };
+    }
 
     const next = reachable(map, spawns.player);
     const good = accept ? accept(next, reach) :
@@ -637,50 +685,70 @@ window.DS = window.DS || {};
 
   const BASE_REPAIRS = 6;    // repairs allowed before a level is called stuck
 
-  /* Last resort for a pocket nothing can climb out of: raise its floor.
-
-     A platform in the offending cell means the hero standing there is one tile
-     higher, which is the difference between a hole the run ends in and a block
-     in the floor -- and unlike walling the entrance off, it cannot seal a route
-     by accident. Accepted only if the cell really stops being standable and the
-     door is no further away than it was. */
+  /* Last resort for a pocket nothing can climb out of: raise its floor. A
+     platform laid on the floor the hero is standing on, which is held by that
+     floor, so even the last resort is not left in the air. */
   function plug(map, tx, ty, put) {
+    if (!(map.isSolid(tx, ty + 1) || map.isPlatform(tx, ty + 1))) return false;
     put(tx, ty, TILE.PLATFORM);
     return true;
   }
 
-  /* Rungs nothing can stand on, removed.
-
-     A rung is written into empty air, before anyone has asked whether the hero
-     can get onto it -- and the greedy ladder above can leave a gap when a rung
-     does not fit, which turns the rest of that ladder into decoration that
-     reads as a climb. The flood is the whole move set, so a rung the flood never
-     reached was never on any route: dropping it cannot make anything else
-     unreachable, it only stops the level from promising a step that is not
-     there. Both of a rung's two cells count, because the hero may be standing
-     on either half of it. */
+  /* Climbs nothing can stand on, removed - whole. A ladder is kept if the
+     flood touched ANY of its rungs and dropped if it touched none: taking the
+     unreached rungs off one by one is exactly how a ladder lost its bottom half
+     and became a promise of a climb that is not there. */
   function pruneRungs(map, placed, seen) {
     let gone = 0;
-    for (let i = 0; i < placed.length; i += 2) {
-      const tx = placed[i], row = placed[i + 1];
-      if (seen.has(tx + ',' + (row - 1)) || seen.has((tx + 1) + ',' + (row - 1))) continue;
-      if (map.get(tx, row) === TILE.PLATFORM) { map.set(tx, row, TILE.EMPTY); gone++; }
-      if (map.get(tx + 1, row) === TILE.PLATFORM) { map.set(tx + 1, row, TILE.EMPTY); gone++; }
+    for (let i = 0; i < placed.length; i++) {
+      const cells = placed[i];
+      if (!cells) continue;
+      let used = false;
+      for (let c = 0; c < cells.length && !used; c += 2) {
+        if (seen.has(cells[c] + ',' + (cells[c + 1] - 1))) used = true;
+      }
+      if (used) continue;
+      for (let c = 0; c < cells.length; c += 2) {
+        if (map.get(cells[c], cells[c + 1]) === TILE.PLATFORM) { map.set(cells[c], cells[c + 1], TILE.EMPTY); gone++; }
+      }
+      placed[i] = null;
     }
     return gone;
   }
 
   const POCKET_BUDGET = 6;   // repairs before a level is called as stuck as it is
 
+  /* The way out of a pocket that a designer would have built: the nearest cliff
+     beside it gets a rope or a ladder, bolted to its face. Only a cliff that
+     actually rises out of the pocket's own floor counts. */
+  const CLIMB_SEARCH = 8;    // columns either side a pocket looks for its wall
+
+  function climbOut(map, px, py, put) {
+    const floor = py + 1;
+    if (surfaceRow(map, px) !== floor) return false;
+    const dirs = [-1, 1];
+    for (let i = 0; i < dirs.length; i++) {
+      const dir = dirs[i];
+      for (let d = 1; d <= CLIMB_SEARCH; d++) {
+        const x = px + dir * d;
+        const top = surfaceRow(map, x);
+        if (top === floor) continue;
+        if (top < 0 || floor - top <= MAX_RISE) break;
+        if (map.isWater(x - dir, floor - 1)) break;
+        if (buildClimb(map, x, -dir, top, floor, put)) return true;
+        break;
+      }
+    }
+    return false;
+  }
+
   /* Pockets: cells the hero can get INTO and not back OUT of.
 
-     This is the shape that ends a run with no death to explain it -- step down
-     into a hollow, and the only way on is a climb two rows taller than the jump.
-     Repaired with the same verified step the exit rule uses (a ledge the hop
-     model has already agreed to), then with a tunnel, so a repair is always
-     something the player can really take. A pocket with no room beside it is
-     left alone rather than walled off, and counted, so the number is reported
-     instead of assumed. */
+     Repaired with a climb up the wall that traps it first - rope or ladder,
+     bolted to the rock like every other climb - then with the same verified
+     step the exit rule uses, then with a tunnel, and last by raising the floor.
+     A pocket nothing fixes is counted, so the number is reported instead of
+     assumed. */
   function repairPockets(map, spawns, doorTx, first) {
     const hopeless = new Set();
     let reach = first || reachable(map, spawns.player);
@@ -700,10 +768,6 @@ window.DS = window.DS || {};
       });
       if (!pocket) return { fixed: fixed, stuck: stuck, left: 0 };
 
-      /* Four ways out, tried in order: a step to the right, the same step
-         mirrored, a tunnel, and finally raising the floor the pocket itself sits
-         on. Each is verified and rolled back on its own, so a refusal costs
-         nothing but the flood that judged it. */
       const key = pocket[0] + ',' + pocket[1];
       /* A plug raises one cell, so the flood loses that cell and gains the one a
          body now stands in above it. Anything worse than that trade is the plug
@@ -712,7 +776,12 @@ window.DS = window.DS || {};
         return next && next.maxX >= reach.maxX &&
                !next.seen.has(key) && next.seen.size >= reach.seen.size - 2;
       };
+      // A climb is only worth keeping if it really lets this cell out.
+      const freed = function (next) {
+        return next && next.maxX >= reach.maxX && escapes(map, next, doorTx).has(key);
+      };
       const ways = [
+        { make: function (put) { return climbOut(map, pocket[0], pocket[1], put); }, accept: freed },
         { make: function (put) { return step(map, pocket[0], pocket[1], put); } },
         { make: function (put) { return step(map, pocket[0], pocket[1], put, -1); } },
         { make: function (put) { return cut(map, pocket[0], pocket[1], put); } },
@@ -745,53 +814,59 @@ window.DS = window.DS || {};
   /* The guarantee. Called once, after every terrain pass has finished.
 
      Four questions, asked in rounds until all of them answer yes:
-       1. is there a way up every cliff the level built (rungs);
+       1. is there a way up every cliff the level built (ropes and ladders);
        2. can the hero walk to the door, and if not, is the rock repaired until
           they can -- step, then cut, then bridge;
-       3. are the steps that repair added usable, or scenery (prune);
+       3. are the climbs that repair added used, or scenery (prune, whole);
        4. can the hero get back out of everywhere they can get into (pockets).
 
      Rounds, rather than one pass in a fixed order, because repairs are not
-     monotone: a step placed in a one-tile corridor seals it, and a cut that
-     opens a passage can delete the walkway inside its own band. Each repair is
-     journaled and rolled back unless the flood says the level is no worse, but
-     'no worse by the flood that judged it' is still a local judgement -- so the
-     round ends by flooding again, and anything a round broke, the next round
-     repairs. Three rounds is far past convergence in practice; a level that still
-     fails is reported, not papered over. */
+     monotone. Each repair is journaled and rolled back unless the flood says the
+     level is no worse, and each round ends by flooding again. */
   function ensureExit(map, spawns) {
     if (!map || !spawns || !spawns.player) return { ok: false, reason: 'no spawn' };
     const doorTx = doorColumn(spawns);
     if (doorTx == null) return { ok: false, reason: 'no door' };
 
     const placed = [];
-    const climbRungs = ensureClimbs(map, placed);
-    const ledgeRungs = ensureLedges(map, placed);
-    const rungs = climbRungs + ledgeRungs;
+    ropeCount = 0;
+    rungCount = 0;
+    const before = furniture(map);
     const maxRepairs = Math.max(BASE_REPAIRS, Math.min(32, Math.floor(map.w / 3)));
     const trace = [];
     let repairs = 0;
     let reach = reachable(map, spawns.player);
-    if (!reach) return { ok: false, reason: 'no floor at spawn', rungs: rungs };
+    if (!reach) return { ok: false, reason: 'no floor at spawn', rungs: 0 };
+    /* Climbs where the route needs them, flooding again after each batch:
+       the top of one climb is the foot of the next. */
+    for (let pass = 0; pass < 4; pass++) {
+      if (!ensureClimbs(map, placed, reach.seen)) break;
+      reach = reachable(map, spawns.player);
+    }
+    const climbRungs = rungCount;
 
     let deadRungs = 0, pocketCount = 0, stuck = 0, left = 0;
     let ok = false;
 
     for (let round = 0; round < 3 && !ok; round++) {
-      /* The door first: step, then cut, then bridge, once per round of the loop
-         above -- each repair verified and rolled back unless the flood agrees. */
       let gaveUp = null;
       while (repairs <= maxRepairs && reach.maxX < doorTx) {
         const fx = reach.front[0], fy = reach.front[1];
-        const kinds = ['step', 'cut', 'bridge'];
+        const kinds = ['climb', 'step', 'cut', 'bridge'];
         let used = null;
         for (let k = 0; k < kinds.length && !used; k++) {
           const kind = kinds[k];
+          /* A climb is kept only if it moves the frontier: a rope that is
+             merely no worse is clutter on a wall nobody needed to climb. */
+          const accept = kind !== 'climb' ? null : function (next, before) {
+            return next && next.maxX > before.maxX && next.seen.size >= before.seen.size;
+          };
           const made = applyRepair(map, spawns, reach, function (put) {
+            if (kind === 'climb') return climbAhead(map, fx, fy, put);
             if (kind === 'step') return step(map, fx, fy, put);
             if (kind === 'cut') return cut(map, fx, fy, put);
             return bridge(map, fx, fy, put);
-          });
+          }, accept);
           if (made.ok) { used = kind; reach = made.reach; }
         }
         if (!used) { gaveUp = 'no way forward'; break; }
@@ -800,8 +875,6 @@ window.DS = window.DS || {};
       }
       if (gaveUp || reach.maxX < doorTx) break;
 
-      /* Scenery out, then pockets out -- and ask the flood again afterwards, so
-         the next round sees what these two did rather than what they meant. */
       deadRungs += pruneRungs(map, placed, reach.seen);
       reach = reachable(map, spawns.player);
       const pockets = repairPockets(map, spawns, doorTx, reach);
@@ -812,13 +885,173 @@ window.DS = window.DS || {};
       ok = reach.maxX >= doorTx && left === 0;
     }
 
+    /* What this pass added to the level, counted off the map rather than
+       tallied by each builder, so a repair a later round rolled back is not
+       counted and one the pocket rule built is. */
+    const after = furniture(map);
     return {
-      ok: ok, rungs: rungs, ropes: ropeCount,
-      climbRungs: climbRungs, ledgeRungs: ledgeRungs,
+      ok: ok, rungs: Math.max(0, after.planks - before.planks),
+      ropes: Math.max(0, after.ropes - before.ropes),
+      climbRungs: climbRungs, ledgeRungs: 0,
       deadRungs: deadRungs, repairs: repairs,
       pockets: pocketCount, stuck: stuck, trapped: left,
       maxX: reach.maxX, trace: trace
     };
+  }
+
+  /* Platform runs nobody designed that nothing holds up: no rock at either
+     end, no rock or platform under any of it. */
+  function floaters(map) {
+    let n = 0;
+    for (let ty = 0; ty < map.h; ty++) {
+      let tx = 0;
+      while (tx < map.w) {
+        if (!map.isPlatform(tx, ty)) { tx++; continue; }
+        const x0 = tx;
+        while (tx + 1 < map.w && map.isPlatform(tx + 1, ty)) tx++;
+        const x1 = tx;
+        tx++;
+        let held = map.isSolid(x0 - 1, ty) || map.isSolid(x1 + 1, ty);
+        for (let x = x0; x <= x1 && !held; x++) {
+          if (map.isDesigned && map.isDesigned(x, ty)) held = true;
+          else if (map.isSolid(x, ty + 1) || map.isPlatform(x, ty + 1)) held = true;
+        }
+        if (!held) n++;
+      }
+    }
+    return n;
+  }
+
+  /* Rope segments, and platform tiles nobody designed, on the whole map. */
+  function furniture(map) {
+    let ropes = 0, planks = 0;
+    for (let tx = 0; tx < map.w; tx++) {
+      for (let ty = 0; ty < map.h; ty++) {
+        if (map.isRope(tx, ty) && !map.isRope(tx, ty - 1)) ropes++;
+        if (map.isPlatform(tx, ty) && !(map.isDesigned && map.isDesigned(tx, ty))) planks++;
+      }
+    }
+    return { ropes: ropes, planks: planks };
+  }
+
+  /* The frontier is stopped by a wall too tall to jump: bolt a climb to it,
+     exactly as the cliff rule would have, before reaching for anything generic. */
+  function climbAhead(map, fx, fy, put) {
+    const floor = fy + 1;
+    for (let d = 1; d <= 3; d++) {
+      const x = fx + d;
+      const top = surfaceRow(map, x);
+      if (top === floor) continue;
+      if (top < 0 || floor - top <= MAX_RISE) return false;
+      if (surfaceRow(map, x - 1) !== floor) return false;
+      return !!buildClimb(map, x, -1, top, floor, put);
+    }
+    return false;
+  }
+
+  /* --- the anchoring audit --------------------------------------------------
+
+     The last word on the terrain. Every repair above is built anchored, so this
+     should find nothing; it exists so that "nothing floats" is checked on the
+     finished map rather than promised by each builder. What it finds it fixes
+     in the least disturbing way - a rope that stops short of its lip or its
+     floor is lengthened, a plank a row or two over rock becomes a block on it -
+     and every fix is taken back if the door stops being reachable. */
+  const ANCHOR_REACH = 3;    // cells a rope may be lengthened by
+
+  function ropeTied(map, tx, top) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (map.isSolid(tx + dx, top - 1)) return true;
+      if (dx && map.isSolid(tx + dx, top)) return true;
+    }
+    return false;
+  }
+
+  function ropeFooted(map, tx, bottom) {
+    const below = map.get(tx, bottom + 1);
+    return below === TILE.WALL || below === TILE.PLATFORM || below === TILE.WATER;
+  }
+
+  function anchorRopes(map, put) {
+    let fixed = 0, loose = 0;
+    for (let tx = 1; tx < map.w - 1; tx++) {
+      let ty = 0;
+      while (ty < map.h) {
+        if (!map.isRope(tx, ty)) { ty++; continue; }
+        const top = ty;
+        while (ty < map.h && map.isRope(tx, ty)) ty++;
+        const bottom = ty - 1;
+
+        let t = top, ok = true;
+        for (let n = 0; !ropeTied(map, tx, t) && n < ANCHOR_REACH; n++) {
+          if (t - 1 <= CEIL_ROW || map.get(tx, t - 1) !== TILE.EMPTY) break;
+          t--; put(tx, t, TILE.ROPE); fixed++;
+        }
+        if (!ropeTied(map, tx, t)) ok = false;
+        let b = bottom;
+        for (let n = 0; !ropeFooted(map, tx, b) && n < ANCHOR_REACH; n++) {
+          if (b + 1 >= map.h - 1 || map.get(tx, b + 1) !== TILE.EMPTY) break;
+          b++; put(tx, b, TILE.ROPE); fixed++;
+        }
+        if (!ropeFooted(map, tx, b)) ok = false;
+        if (!ok) loose++;
+        ty = b + 1;
+      }
+    }
+    return { fixed: fixed, loose: loose };
+  }
+
+  function anchorPlanks(map, put) {
+    let fixed = 0, loose = 0;
+    for (let ty = CEIL_ROW; ty < map.h - 1; ty++) {
+      let tx = 0;
+      while (tx < map.w) {
+        if (!map.isPlatform(tx, ty)) { tx++; continue; }
+        const x0 = tx;
+        while (tx + 1 < map.w && map.isPlatform(tx + 1, ty)) tx++;
+        const x1 = tx;
+        tx++;
+        let designed = false, held = map.isSolid(x0 - 1, ty) || map.isSolid(x1 + 1, ty);
+        for (let x = x0; x <= x1; x++) {
+          if (map.isDesigned && map.isDesigned(x, ty)) designed = true;
+          if (map.isSolid(x, ty + 1) || map.isPlatform(x, ty + 1)) held = true;
+        }
+        if (designed || held) continue;
+        // Rock a short drop below every tile: stand the plank on it as a block.
+        let ground = true;
+        for (let x = x0; x <= x1 && ground; x++) {
+          let gy = ty + 1;
+          while (gy <= ty + BLOCK_DROP && map.get(x, gy) === TILE.EMPTY) gy++;
+          if (gy > ty + BLOCK_DROP || !map.isSolid(x, gy)) ground = false;
+        }
+        if (!ground) { loose++; continue; }
+        for (let x = x0; x <= x1; x++) {
+          put(x, ty, TILE.WALL);
+          for (let y = ty + 1; map.get(x, y) === TILE.EMPTY; y++) put(x, y, TILE.WALL);
+        }
+        fixed++;
+      }
+    }
+    return { fixed: fixed, loose: loose };
+  }
+
+  function anchor(map, spawns) {
+    const log = [];
+    const put = function (tx, ty, value) { log.push(tx, ty, map.get(tx, ty)); map.set(tx, ty, value); };
+    const ropes = anchorRopes(map, put);
+    const planks = anchorPlanks(map, put);
+    const report = {
+      ropesFixed: ropes.fixed, ropesLoose: ropes.loose,
+      planksFixed: planks.fixed, planksLoose: planks.loose, rolledBack: false
+    };
+    if (!log.length || !spawns || !spawns.player) return report;
+    const doorTx = doorColumn(spawns);
+    const reach = reachable(map, spawns.player);
+    if (doorTx != null && (!reach || reach.maxX < doorTx)) {
+      for (let i = log.length - 3; i >= 0; i -= 3) map.set(log[i], log[i + 1], log[i + 2]);
+      report.rolledBack = true;
+    }
+    return report;
   }
 
   DS.Reach = {
@@ -826,6 +1059,8 @@ window.DS = window.DS || {};
     escapes: escapes,
     ensureExit: ensureExit,
     ensureClimbs: ensureClimbs,
+    buildClimb: buildClimb,
+    anchor: anchor,
     standable: standable,
     surfaceRow: surfaceRow,
     doorColumn: doorColumn,

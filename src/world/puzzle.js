@@ -22,16 +22,28 @@ window.DS = window.DS || {};
 
   // --- construction ---------------------------------------------------------
 
+  /* The vault is a box of rock four rows tall standing in the corridor, and
+     the way on is over its roof - taller than a jump. So it is built with its
+     own step: a two-high block of stone in front of the gate, two rows under
+     the roof, which also stops a crate shoved past the plate. The roof used to
+     be climbed on whatever the reach pass could improvise afterwards. */
   function buildVault(map, tx, floorRow) {
     const top = floorRow - GATE_TILES;
 
-    // Ceiling over the vault and its doorway.
-    for (let x = tx - 1; x <= tx + 3; x++) map.set(x, top - 1, TILE.WALL);
+    /* Ceiling over the vault. It used to overhang the doorway by a tile, which
+       left a body walking out of the vault a ceiling too low to hop back up
+       onto the step - a treasure room you could get into and not out of. */
+    for (let x = tx; x <= tx + 3; x++) map.set(x, top - 1, TILE.WALL);
     // Back wall.
     for (let y = top; y < floorRow; y++) map.set(tx + 3, y, TILE.WALL);
     // Clear the interior in case a template put something there.
     for (let y = top; y < floorRow; y++) {
       for (let x = tx; x <= tx + 2; x++) map.set(x, y, TILE.EMPTY);
+    }
+    // The step up to the roof.
+    for (let y = floorRow - 2; y < floorRow; y++) {
+      map.set(tx - 3, y, TILE.WALL);
+      map.set(tx - 2, y, TILE.WALL);
     }
   }
 
@@ -117,45 +129,62 @@ window.DS = window.DS || {};
     };
   }
 
-  /* One puzzle per level at most. Placed in a middle room with enough clear
-     floor, and skipped entirely if the room is too busy. */
-  function generate(g, level) {
-    g.puzzles = [];
-    g.crates = [];
-    if (level.kind !== 'normal') return;
-    if (!g.rng.chance(0.7)) return;
+  /* One puzzle per level at most, in a middle room with enough clear floor.
 
-    const map = g.map;
+     Split in two, because the vault is terrain and the puzzle is props. The
+     terrain half (planVault) runs inside the level generator, BEFORE the passes
+     that prove a floor can be finished, so a vault roof can never cut a route
+     that was already signed off. The props half (generate) runs in the scene
+     and only furnishes what the plan built: gate, chest, lever or crate. */
+  function planVault(level, rng) {
+    if (level.kind !== 'normal' || level.noProps) return null;
+    if (!rng.chance(0.7)) return null;
+
+    const map = level.map;
     const rooms = level.roomCount;
-    if (rooms < 4) return;
+    if (rooms < 4) return null;
 
     // Try every middle room in a random order and take the first that has a
-    // long enough clear stretch of floor. Picking one room blindly rejected
-    // most levels outright.
+    // long enough clear stretch of floor, with open air where the vault goes.
     const candidates = [];
     for (let i = 1; i <= rooms - 2; i++) candidates.push(i);
-
-    /* Carved floors change height every few tiles, so the run has to be found
-       at whatever height that stretch happens to sit at rather than at one
-       floor row for the whole map. */
-    let baseTx = -1, vaultTx = -1, floorRow = -1;
-    const order = g.rng.shuffle(candidates);
+    const order = rng.shuffle(candidates);
     for (let i = 0; i < order.length; i++) {
       const tx = order[i] * DS.LevelGen.ROOM_W;
       const row = DS.LevelGen.floorRowAt(map, tx + 3);
       if (row < 0) continue;
-      if (floorRunClear(map, tx + 3, tx + 17, row)) {
-        baseTx = tx;
-        vaultTx = tx + 14;
-        floorRow = row;
-        break;
+      if (!floorRunClear(map, tx + 3, tx + 17, row)) continue;
+      if (!airClear(map, tx + 11, tx + 17, row - GATE_TILES - 2, row - 1)) continue;
+
+      const vaultTx = tx + 14;
+      buildVault(map, vaultTx, row);
+      return {
+        baseTx: tx, vaultTx: vaultTx, floorRow: row,
+        useLever: rng.chance(0.45), spareCrate: rng.chance(0.6)
+      };
+    }
+    return null;
+  }
+
+  function airClear(map, x0, x1, y0, y1) {
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if (map.get(x, y) !== TILE.EMPTY) return false;
       }
     }
-    if (baseTx < 0) return;
-    const floorY = floorRow * T;
+    return true;
+  }
 
-    buildVault(map, vaultTx, floorRow);
-    const gate = makeGate(map, vaultTx, floorRow);
+  function generate(g, level) {
+    g.puzzles = [];
+    g.crates = [];
+    const plan = level.puzzleVault;
+    if (!plan) return;
+
+    const map = g.map;
+    const baseTx = plan.baseTx, vaultTx = plan.vaultTx;
+    const floorY = plan.floorRow * T;
+    const gate = makeGate(map, vaultTx, plan.floorRow);
 
     /* Clear any chest the room template already dropped in this stretch — two
        chests sharing a tile was what made the vault and the lever overlap. */
@@ -166,10 +195,9 @@ window.DS = window.DS || {};
 
     DS.Ent.makeChest(g, (vaultTx + 1) * T + 1, floorY - T, DS.Loot.rollChestTier(g.rng));
 
-    const useLever = g.rng.chance(0.45);
-    const puzzle = { gate: gate, kind: useLever ? 'lever' : 'plate' };
+    const puzzle = { gate: gate, kind: plan.useLever ? 'lever' : 'plate' };
 
-    if (useLever) {
+    if (plan.useLever) {
       // Slide the lever along the approach until it is clear of every chest.
       let leverX = (baseTx + 8) * T;
       for (let tries = 0; tries < 6; tries++) {
@@ -190,7 +218,7 @@ window.DS = window.DS || {};
     g.puzzles.push(puzzle);
 
     // A spare crate near the vault doubles as a step for reaching high ledges.
-    if (g.rng.chance(0.6)) {
+    if (plan.spareCrate) {
       g.crates.push(makeCrate(map, (baseTx + 6) * T, floorY - 14));
     }
   }
@@ -368,14 +396,32 @@ window.DS = window.DS || {};
      inside the same room, and each answer is guaranteed to survive:
 
        keygate   the warden holding the key never spawns over, or falls into, a pit
-       plates    a crate that drops into a pit reappears where it started
+       plates    two crates for two plates; a crate lost in a pit comes back, a
+                 crate shoved into a corner can be heaved home
        braziers  lighting them takes any hit at all, not a particular element
+       beacons   the Torch Hall's braziers, set on brackets high on the barrier
+                 wall - the bow the hall hands over is the easy way to reach them
+
+     The barrier is a WALL, not a fence: bars at the bottom and rock from the
+     top of the bars to the top of the map. It used to be four tiles of bars
+     with open air above them, which the double jump (four and a half tiles)
+     cleared without looking at the puzzle at all.
 
      On top of that there is a last-resort timer: stand at a sealed gate long
      enough with the puzzle unsolved and it grinds open anyway. A run should
      never end because a puzzle broke. */
   const BARRIER_H = 4;
   const FAILSAFE = 60 * 45;
+  /* The wall stops at the top of the map, and the sky above it is open, so the
+     floor in front of it has to sit low enough that no jump from it clears
+     row 0. Twelve rows of wall is well past a double jump off any ledge. */
+  const BARRIER_MIN_ROW = 12;
+  const BEACON_ROWS = [3, 6];        // brackets, in rows above the floor
+  const BARRIER_KINDS = [
+    { weight: 40, value: 'keygate' },
+    { weight: 30, value: 'plates' },
+    { weight: 30, value: 'braziers' }
+  ];
 
   /* Gates are drawn as a solid column of bars, so anything the level generator
      already put in that column — a wooden ledge, a stone platform, a torch —
@@ -400,9 +446,47 @@ window.DS = window.DS || {};
     });
   }
 
+  /* The terrain of a barrier: the shaft, the wall over it, and for the Torch
+     Hall the brackets its beacons stand on. Runs inside the level generator,
+     before the support and reach passes (see planVault). */
+  function planBarrier(level, rng, force) {
+    if (level.kind !== 'normal' || level.noProps) return null;
+    if (!force && !rng.chance(0.45)) return null;
+
+    const map = level.map;
+    const rooms = level.roomCount;
+    if (rooms < 4) return null;
+
+    const order = rng.shuffle([1, 2, 3].slice(0, Math.max(1, rooms - 3)));
+    for (let i = 0; i < order.length; i++) {
+      const baseTx = order[i] * DS.LevelGen.ROOM_W;
+      const gateTx = baseTx + 15;
+      const floorRow = DS.LevelGen.floorRowAt(map, baseTx + 2);
+      if (floorRow < BARRIER_MIN_ROW) continue;
+      if (!floorRunClear(map, baseTx + 2, gateTx + 2, floorRow)) continue;
+
+      clearShaft(map, gateTx, floorRow);
+      for (let ty = 0; ty < floorRow - BARRIER_H; ty++) map.set(gateTx, ty, TILE.WALL);
+
+      let kind = force ? 'beacons' : rng.weighted(BARRIER_KINDS);
+      const beacons = [];
+      if (kind === 'beacons') {
+        for (let b = 0; b < BEACON_ROWS.length; b++) {
+          const row = floorRow - BEACON_ROWS[b];
+          if (map.get(gateTx - 1, row) !== TILE.EMPTY) continue;
+          map.setDesigned(gateTx - 1, row, TILE.PLATFORM);
+          beacons.push(row);
+        }
+        if (!beacons.length) kind = 'braziers';
+      }
+      return { baseTx: baseTx, gateTx: gateTx, floorRow: floorRow, kind: kind,
+               hall: !!force, beacons: beacons };
+    }
+    return null;
+  }
+
   function makeBarrier(map, tx, floorRow) {
     const top = floorRow - BARRIER_H;
-    clearShaft(map, tx, floorRow);
     const gate = {
       kind: 'gate', barrier: true,
       x: tx * T, y: top * T, closedY: top * T,
@@ -413,64 +497,62 @@ window.DS = window.DS || {};
     return gate;
   }
 
-  /* force: the biome ladder can REQUIRE a puzzle on a floor (the Torch Hall),
-     instead of leaving the only guaranteed obstacle in the game to a 45% roll. */
+  /* The props half of a barrier: the gate and whatever opens it, furnished
+     from the plan the generator left on the level. `force` is kept for the
+     scene's call; the plan already knows whether this is the Torch Hall. */
   function generateBarrier(g, level, force) {
-    if (level.kind !== 'normal') return;
-    if (!force && !g.rng.chance(0.45)) return;
+    const plan = level.barrier;
+    if (!plan) return;
 
     const map = g.map;
-    const rooms = level.roomCount;
-    if (rooms < 4) return;
-
-    const order = g.rng.shuffle([1, 2, 3].slice(0, Math.max(1, rooms - 3)));
-
-    for (let i = 0; i < order.length; i++) {
-      const baseTx = order[i] * DS.LevelGen.ROOM_W;
-      const gateTx = baseTx + 15;
-      const floorRow = DS.LevelGen.floorRowAt(map, baseTx + 2);
-      if (floorRow < 0) continue;
-      if (!floorRunClear(map, baseTx + 2, gateTx + 2, floorRow)) continue;
-
-      const gate = makeBarrier(map, gateTx, floorRow);
-      /* Always a keygate. A barred cage that opens from a pressure plate or a
-         brazier down the corridor reads as broken — the player looks at bars
-         and expects to find whoever is holding the key. */
-      const kind = 'keygate';
-
+    const baseTx = plan.baseTx, gateTx = plan.gateTx;
+    const gate = makeBarrier(map, gateTx, plan.floorRow);
+    const kind = plan.kind === 'plates' ? 'plateset' : plan.kind;
     const puzzle = { gate: gate, kind: kind, barrier: true, failsafe: FAILSAFE };
-    const floorY = floorRow * T;
-    if (force) puzzle.hall = true;
+    const floorY = plan.floorRow * T;
+    if (plan.hall || force) puzzle.hall = true;
 
-      if (kind === 'keygate') {
-        // Two tiles in front of the bars, never further, so it is always the
-        // first thing between the player and the cage.
-        const warden = DS.Enemies.create(g, (gateTx - 3) * T, floorY - T,
-          g.rng.weighted(DS.Enemies.spawnTable(g.depth)), 'miniboss');
-        warden.gateWarden = puzzle;
-        warden.flying = false;
-        warden.homeX = warden.x;
-        puzzle.warden = warden;
+    if (kind === 'keygate') {
+      // Two tiles in front of the bars, never further, so it is always the
+      // first thing between the player and the cage.
+      const warden = DS.Enemies.create(g, (gateTx - 3) * T, floorY - T,
+        g.rng.weighted(DS.Enemies.spawnTable(g.depth)), 'miniboss');
+      warden.gateWarden = puzzle;
+      warden.flying = false;
+      warden.homeX = warden.x;
+      puzzle.warden = warden;
 
-      } else if (kind === 'plates') {
-        puzzle.plates = [
-          makePlate((baseTx + 7) * T, floorY),
-          makePlate((baseTx + 11) * T, floorY)
-        ];
-        const crate = makeCrate(map, (baseTx + 4) * T, floorY - 14);
+    } else if (kind === 'plateset') {
+      /* A plate for every crate, and a brazier over each plate as the readout.
+         One crate for two plates meant the player had to stand on the second
+         plate to hold the gate - and the gate shut the moment they stepped off
+         it to walk through. */
+      const plates = [7, 11];
+      const crates = [4, 9];
+      puzzle.plates = [];
+      puzzle.braziers = [];
+      for (let i = 0; i < plates.length; i++) {
+        puzzle.plates.push(makePlate((baseTx + plates[i]) * T, floorY));
+        puzzle.braziers.push({ x: (baseTx + plates[i]) * T + 18, y: floorY - 18, lit: false });
+        const crate = makeCrate(map, (baseTx + crates[i]) * T, floorY - 14);
         crate.homeX = crate.x;
         crate.homeY = crate.y;
         g.crates.push(crate);
-
-      } else {
-        puzzle.braziers = [4, 8, 12].map(function (offset) {
-          return { x: (baseTx + offset) * T, y: floorY - 18, lit: false };
-        });
       }
 
-      g.puzzles.push(puzzle);
-      return;
+    } else if (kind === 'beacons') {
+      // Each beacon stands on its bracket on the face of the barrier wall.
+      puzzle.braziers = plan.beacons.map(function (row) {
+        return { x: (gateTx - 1) * T + 3, y: row * T - 18, lit: false, high: true };
+      });
+
+    } else {
+      puzzle.braziers = [4, 8, 12].map(function (offset) {
+        return { x: (baseTx + offset) * T, y: floorY - 18, lit: false };
+      });
     }
+
+    g.puzzles.push(puzzle);
   }
 
   /* Crates are the only solution that can physically leave the level, so they
@@ -645,6 +727,8 @@ window.DS = window.DS || {};
   }
 
   DS.Puzzle = {
+    planVault: planVault,
+    planBarrier: planBarrier,
     generate: generate,
     generateBarrier: generateBarrier,
     update: update,

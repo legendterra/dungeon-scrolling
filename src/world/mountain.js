@@ -55,21 +55,34 @@ window.DS = window.DS || {};
 
   // --- the climb ------------------------------------------------------------
 
+  const SUMMIT = 13;          // the highest a plateau may stand
+
+  /* The plateaus, left to right. Every rise between two of them is a real
+     cliff, four to six rows - the rope's reason to exist. The climb used to
+     clamp its row at the summit and carry on, so the last few plateaus stood
+     one to three rows apart, or level, each with a rope hung over a step you
+     could walk up. The climb now stops rising when the next plateau would
+     pass the summit, and the summit plateau runs on to the rock. */
   function plateaus(rng) {
     const steps = [];
     let row = GROUND;
     let x = 0;
     while (x < CLIMB_W) {
       const w = rng.int(8, 12);
-      steps.push({ from: x, to: Math.min(CLIMB_W, x + w), row: row });
+      const next = row - rng.int(4, 6);
+      if (x + w >= CLIMB_W || next < SUMMIT) {
+        steps.push({ from: x, to: CLIMB_W, row: row });
+        break;
+      }
+      steps.push({ from: x, to: x + w, row: row });
       x += w;
-      row -= rng.int(4, 6);
-      if (row < 13) row = 13;
+      row = next;
     }
     return steps;
   }
 
   function buildClimb(map, rng, steps, out) {
+    const boulders = [];
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       for (let tx = step.from; tx <= step.to; tx++) fillColumn(map, tx, step.row);
@@ -77,21 +90,28 @@ window.DS = window.DS || {};
       if (i === 0) continue;
       const below = steps[i - 1];
 
-      /* The rope hangs against the cliff face and reaches down to head height
-         over the plateau below, so it can be grabbed from the ground you are
-         already standing on and stepped off three rows above the ledge it
-         serves - enough clearance to walk onto the top rather than fall back
-         down the face. */
+      /* The rope hangs against the cliff face from the LIP - tied off level
+         with the top of the rock it serves - to the plateau below, so it is
+         grabbed from the ground you are already standing on and ridden up to
+         where the top of the cliff is a step to the side. It used to start
+         three rows above the lip, a rope tied to nothing, in the open air. */
       const tx = step.from - 1;
-      rope(map, tx, step.row - 3, below.row - 1);
+      rope(map, tx, step.row, below.row - 1);
 
-      // A ledge halfway up, for anyone who would rather jump than climb.
+      /* A boulder at the foot of the cliff, for anyone who would rather jump
+         than climb: a block of rock standing on the plateau, half the cliff's
+         height, clear of the rope's column. It used to be a two-tile ledge in
+         mid-air, which the support pass then strapped to the cliff with a
+         finger of rock - straight through the rope. */
       if (rng.chance(0.55)) {
-        const mid = Math.round((step.row + below.row) / 2);
-        const at = step.from - rng.int(4, 6);
+        const rise = below.row - step.row;
+        const tall = Math.ceil(rise / 2);
+        const at = step.from - rng.int(4, 5);
         if (at > below.from + 1) {
-          map.set(at, mid, TILE.PLATFORM);
-          map.set(at + 1, mid, TILE.PLATFORM);
+          for (let x = at; x <= at + 1; x++) {
+            for (let y = below.row - tall; y < below.row; y++) map.set(x, y, TILE.WALL);
+          }
+          boulders.push(at, at + 1);
         }
       }
     }
@@ -105,10 +125,10 @@ window.DS = window.DS || {};
       if (span < 5) continue;
       const count = i === 0 ? 1 : rng.int(1, 2);
       for (let e = 0; e < count; e++) {
-        out.enemies.push({
-          x: (step.from + rng.int(3, Math.max(3, span - 2))) * T,
-          y: (step.row - 1) * T
-        });
+        let ex = step.from + rng.int(3, Math.max(3, span - 2));
+        // Never inside a boulder: stand the monster in front of it instead.
+        while (boulders.indexOf(ex) >= 0) ex -= 2;
+        out.enemies.push({ x: ex * T, y: (step.row - 1) * T });
       }
     }
 
@@ -152,7 +172,7 @@ window.DS = window.DS || {};
     let side = 0;
     for (let row = mouthRow + 4; row < vaultTop - 2; row += rng.int(4, 6)) {
       const from = side % 2 === 0 ? SHAFT_L : SHAFT_R - 2;
-      for (let i = 0; i < 3; i++) map.set(from + i, row, TILE.PLATFORM);
+      for (let i = 0; i < 3; i++) map.setDesigned(from + i, row, TILE.PLATFORM);
       if (rng.chance(0.7)) out.enemies.push({ x: (from + 1) * T, y: (row - 1) * T });
       side++;
     }

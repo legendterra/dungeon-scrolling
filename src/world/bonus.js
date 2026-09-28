@@ -1,7 +1,8 @@
 /* Bonus rounds — two small, optional pockets of income.
 
-   Coin Vault  a walled alcove above the level, reached by a platform climb.
-               No enemies, no items, just coins for the detour.
+   Coin Vault  a walled niche on top of a stone tower, climbed by the ledges
+               set into its face. No enemies, no items, just coins for the
+               climb.
    Gold Slime  a rare runner that bolts the moment it sees you and vanishes
                after ten seconds. Catch it and it pays.
 
@@ -114,64 +115,92 @@ window.DS = window.DS || {};
 
   // --- coin vault -----------------------------------------------------------
 
-  /* Carves a small sealed room near the ceiling and a staircase of platforms
-     leading up to it, then fills it with coins. Only built where the columns
-     above the floor are genuinely empty, so it never eats level geometry. */
-  function buildVault(g, level) {
-    if (!g.rng.chance(VAULT_CHANCE)) return;
+  /* A stone tower standing on the floor, with a walled treasure niche on its
+     top and a stack of ledges set into its face to climb it by.
 
-    const map = g.map;
+     It used to be a sealed box at the top of the map, walled on both sides and
+     roofed, reached by a zig-zag of platforms in open air that stopped a row
+     short of its floor - a room nobody could enter, up a climb that floated.
+     Everything here stands on something: the tower on the floor, the ledges in
+     its face, the parapet on its top. The way on goes over it, down the far
+     side. Split like the puzzle vault: the generator plans and carves the
+     tower (planVault), the scene only lays the coins (buildVault). */
+  const TOWER_W = 4;         // columns of rock
+  const TOWER_H = 6;         // rows above the floor it stands on: three ledges
+
+  function planVault(level, rng) {
+    if (level.kind !== 'normal' || level.noProps) return null;
+    if (!rng.chance(VAULT_CHANCE)) return null;
+
+    const map = level.map;
     const rooms = level.roomCount;
-    if (rooms < 4) return;
+    if (rooms < 4) return null;
 
-    const order = g.rng.shuffle([1, 2, 3, 4].slice(0, Math.max(1, rooms - 2)));
+    const order = rng.shuffle([1, 2, 3, 4].slice(0, Math.max(1, rooms - 2)));
+    // Never in the room a puzzle already furnishes: its crates, plates and
+    // warden stand on that floor.
+    const taken = [level.barrier, level.puzzleVault].filter(Boolean).map(function (p) {
+      return p.baseTx;
+    });
+    const offsets = [6, 3, 10, 12];
+    for (let i = 0; i < order.length * offsets.length; i++) {
+      const roomTx = order[i % order.length] * DS.LevelGen.ROOM_W;
+      if (taken.indexOf(roomTx) >= 0) continue;
+      const x0 = roomTx + offsets[Math.floor(i / order.length)];
+      const floorRow = DS.LevelGen.floorRowAt(map, x0);
+      if (floorRow < 0) continue;
+      const top = floorRow - TOWER_H;
+      if (!siteClear(map, level.spawns, x0, floorRow, top)) continue;
 
-    for (let i = 0; i < order.length; i++) {
-      const baseTx = order[i] * DS.LevelGen.ROOM_W + 6;
-      if (!clearAbove(map, baseTx, 7)) continue;
-
-      const floorRow = Math.floor(map.groundBelow(baseTx) / T);
-      if (floorRow >= map.h) continue;
-
-      // Vault shell: three tiles of floor with walls at either end.
-      const vaultRow = 2;
-      map.fill(baseTx, vaultRow + 1, 5, 1, DS.TILE.WALL);
-      map.set(baseTx - 1, vaultRow, DS.TILE.WALL);
-      map.set(baseTx + 5, vaultRow, DS.TILE.WALL);
-      map.fill(baseTx - 1, vaultRow - 1, 7, 1, DS.TILE.WALL);
-
-      // The climb: alternating platforms from the floor up to the lip.
-      let row = floorRow - 3;
-      let side = 0;
-      while (row > vaultRow + 1) {
-        const px = baseTx + (side % 2 === 0 ? -2 : 3);
-        map.fill(px, row, 2, 1, DS.TILE.PLATFORM);
-        row -= 3;
-        side++;
+      for (let x = x0; x < x0 + TOWER_W; x++) {
+        for (let y = top; y < floorRow; y++) map.set(x, y, DS.TILE.WALL);
       }
-
-      g.vault = { x: baseTx * T, y: vaultRow * T, w: 5 * T };
-      for (let c = 0; c < g.rng.int(14, 22); c++) {
-        Ent.addPickup(g, (baseTx + g.rng.float(0.5, 4.5)) * T,
-                      vaultRow * T + 8, 'coin', null, 1);
+      // The parapet: a merlon at each end of the top, the coins between them.
+      map.set(x0, top - 1, DS.TILE.WALL);
+      map.set(x0 + TOWER_W - 1, top - 1, DS.TILE.WALL);
+      // Ledges set into the face, every two rows, the last level with the top.
+      for (let y = floorRow - 2; y >= top; y -= 2) {
+        map.setDesigned(x0 - 2, y, DS.TILE.PLATFORM);
+        map.setDesigned(x0 - 1, y, DS.TILE.PLATFORM);
       }
-      if (g.rng.chance(0.5)) {
-        Ent.addPickup(g, (baseTx + 2.5) * T, vaultRow * T + 8, 'shard', null, 1);
-      }
-      return;
+      return { x0: x0, top: top, floorRow: floorRow };
     }
+    return null;
   }
 
-  /* Only the vault shell itself has to be empty — the climb can weave past
-     whatever platforms the room template already has. Checking the whole
-     column down to the floor rejected almost every room. */
-  function clearAbove(map, tx, width) {
-    for (let x = tx - 2; x < tx + width; x++) {
-      for (let ty = 1; ty <= 4; ty++) {
-        if (map.isBlocked(x, ty)) return false;
+  /* Flat floor under the whole footprint, open air over it, and no spawn marker
+     that the rock would bury. */
+  function siteClear(map, spawns, x0, floorRow, top) {
+    if (top - 2 <= 3) return false;
+    for (let x = x0 - 3; x <= x0 + TOWER_W; x++) {
+      if (!map.isSolid(x, floorRow)) return false;
+      for (let y = top - 2; y < floorRow; y++) {
+        if (map.get(x, y) !== DS.TILE.EMPTY) return false;
+      }
+    }
+    const lists = [spawns.enemies || [], spawns.chests || []];
+    for (let l = 0; l < lists.length; l++) {
+      for (let i = 0; i < lists[l].length; i++) {
+        const tx = Math.floor(lists[l][i].x / T);
+        if (tx >= x0 - 2 && tx < x0 + TOWER_W) return false;
       }
     }
     return true;
+  }
+
+  function buildVault(g, level) {
+    const plan = level.bonusVault;
+    if (!plan) return;
+    const x0 = plan.x0, row = plan.top - 1;
+
+    g.vault = { x: x0 * T, y: row * T, w: TOWER_W * T };
+    for (let c = 0; c < g.rng.int(14, 22); c++) {
+      Ent.addPickup(g, (x0 + g.rng.float(1.2, TOWER_W - 1.2)) * T,
+                    row * T + 8, 'coin', null, 1);
+    }
+    if (g.rng.chance(0.5)) {
+      Ent.addPickup(g, (x0 + TOWER_W / 2) * T, row * T + 8, 'shard', null, 1);
+    }
   }
 
   function draw(g) {
@@ -190,5 +219,5 @@ window.DS = window.DS || {};
 
   registerGoldSlime();
 
-  DS.Bonus = { generate: generate, draw: draw };
+  DS.Bonus = { planVault: planVault, generate: generate, draw: draw };
 })(window.DS);

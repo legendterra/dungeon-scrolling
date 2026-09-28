@@ -21,60 +21,67 @@ window.DS = window.DS || {};
        #  solid   =  platform   ^  spike   .  empty
        E  enemy   C  chest      T  torch
        P  player  D  door       M  merchant   N  enchant table          */
+  /* The rooms are built the way a mason would build them: every surface you
+     can stand on is either rock that reaches the floor, or a plank that rests
+     on rock. They used to be full of `===` ledges at head height, over solid
+     floor, that nothing held up and nothing led to - and the passes that run
+     afterwards "fixed" each one with a stone pillar that walled the corridor
+     off, then hung a rope beside the pillar to get over it. A room that is
+     honest as authored needs none of that. */
   const ROOMS = [
-    [ // open hall with two ledges
+    [ // open hall with a stone dais
       '....................',
       '....................',
       '....................',
       '....................',
-      '.....===............',
-      '....................',
-      '..........===.......',
       '....................',
       '....................',
-      '.....E........E.....',
+      '....................',
+      '....................',
+      '.......######.......',
+      '..E....######....E..',
       '####################',
       '####################'
     ],
-    [ // pit with a platform bridge
+    [ // pit with a broken plank bridge: each plank rests on a bank
       '....................',
       '....................',
       '....................',
       '....................',
       '....................',
       '....................',
-      '........====........',
+      '....................',
       '....................',
       '....................',
       '..E..............E..',
-      '########....########',
+      '########=..=########',
       '########....########'
     ],
-    [ // spike floor
+    [ // spike floor, and a block to climb once you are past it
       '....................',
       '....................',
       '....................',
       '....................',
-      '.......======.......',
       '....................',
       '....................',
       '....................',
       '....................',
-      '...E.....^^.....E...',
+      '..............##....',
+      '...E.....^^...##.E..',
       '####################',
       '####################'
     ],
-    [ // treasure alcove
+    [ // treasure mound: the chest sits on top of a stepped rise
       '....................',
       '....................',
       '....................',
-      '...====.......====..',
       '....................',
       '....................',
-      '.......======.......',
       '....................',
-      '....................',
-      '..E.......C......E..',
+      '..........C.........',
+      '.........####.......',
+      '.......######.......',
+      '..E....######....E..',
       '####################',
       '####################'
     ],
@@ -92,17 +99,17 @@ window.DS = window.DS || {};
       '####################',
       '####################'
     ],
-    [ // stepped climb
+    [ // stepped climb: two steps of rock, each one jump high
       '....................',
       '....................',
       '....................',
       '....................',
-      '................E...',
-      '..............######',
       '....................',
-      '........######......',
-      '....................',
-      '..E.....C...........',
+      '...............E....',
+      '.............#######',
+      '.........C...#######',
+      '.......#############',
+      '..E....#############',
       '####################',
       '####################'
     ],
@@ -111,7 +118,7 @@ window.DS = window.DS || {};
       '....................',
       '....................',
       '....................',
-      '....===....===......',
+      '....................',
       '....................',
       '....................',
       '....................',
@@ -120,17 +127,45 @@ window.DS = window.DS || {};
       '####...####...######',
       '####...####...######'
     ],
+    [ // quiet hall: a long flat floor, which is what a puzzle vault needs
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '...E............E...',
+      '####################',
+      '####################'
+    ],
+    [ // ambush hall
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '....................',
+      '..E......E......E...',
+      '####################',
+      '####################'
+    ],
     [ // gauntlet
       '....................',
       '....................',
       '....................',
       '....................',
-      '.........====.......',
-      '....................',
-      '...====.............',
       '....................',
       '....................',
-      '..E...E......^^..E..',
+      '....................',
+      '....................',
+      '.........##.........',
+      '..E...E..##..^^..E..',
       '####################',
       '####################'
     ]
@@ -234,7 +269,7 @@ window.DS = window.DS || {};
     '........................................',
     '........................................',
     '........................................',
-    '.....====......................====.....',
+    '........................................',
     '........................................',
     '........................................',
     '..T..................................T..',
@@ -262,6 +297,7 @@ window.DS = window.DS || {};
      columns are collected during decode and planted on the floor afterwards,
      once the floor for that column actually exists. */
   const PADDED_ROOMS = padAll(ROOMS);
+  const QUIET_HALL = 7;       // index of the flat hall in ROOMS
   const PADDED_PITS = padAll(PIT_ROOMS);
   const PADDED_START = padTemplate(START_ROOM);
   const PADDED_EXIT = padTemplate(EXIT_ROOM);
@@ -347,7 +383,8 @@ window.DS = window.DS || {};
     let gapStart = -1;
 
     for (let tx = 0; tx <= map.w; tx++) {
-      const solid = tx < map.w && map.isSolid(tx, floorRow);
+      // A plank laid level with the floor (the broken bridge) is floor too.
+      const solid = tx < map.w && (map.isSolid(tx, floorRow) || map.isPlatform(tx, floorRow));
 
       if (!solid && gapStart < 0) {
         gapStart = tx;
@@ -356,9 +393,10 @@ window.DS = window.DS || {};
         // A pit that already has a platform chain over it is a designed
         // crossing, not an accident — leave it exactly as authored.
         if (width > MAX_GAP && !gapHasPath(map, gapStart, tx, floorRow)) {
-          // Bridge the middle of the gap two tiles above the floor line.
+          // Bridge the middle of the gap two tiles above the floor line. It is
+          // a crossing on purpose, and says so, so the tidy-up leaves it be.
           const mid = gapStart + Math.floor(width / 2) - 1;
-          map.fill(mid, floorRow - 3, 3, 1, TILE.PLATFORM);
+          for (let x = mid; x < mid + 3; x++) map.setDesigned(x, floorRow - 3, TILE.PLATFORM);
         }
         gapStart = -1;
       }
@@ -374,10 +412,14 @@ window.DS = window.DS || {};
     return false;
   }
 
-  /* A spike bed wider than two tiles cannot be cleared in a single jump, which
-     turns it from a hazard into a toll. Trim any longer run and put a platform
-     above what remains so there is always a clean way across. */
+  /* A spike bed wider than the curve allows is trimmed back to it. What is left
+     is a jump - and only when that jump is wider than the hero can make does it
+     get a way over: a footbridge, a plank resting on a stone post either side
+     of the bed. It used to lay a plank four rows up over EVERY bed, however
+     short, held up by nothing, which is how the corridors filled with ledges
+     that led nowhere. */
   const MAX_SPIKE_RUN = 2;
+  const SPIKE_JUMP = 3;      // widest bed a plain jump clears
 
   function capSpikeRuns(map, maxRun) {
     const limit = maxRun || MAX_SPIKE_RUN;
@@ -395,9 +437,21 @@ window.DS = window.DS || {};
             map.set(x, floorRow, TILE.EMPTY);
           }
         }
-        map.fill(runStart, floorRow - 3, Math.min(width, limit) + 1, 1, TILE.PLATFORM);
+        const kept = Math.min(width, limit);
+        if (kept > SPIKE_JUMP) footbridge(map, runStart, kept, floorRow);
         runStart = -1;
       }
+    }
+  }
+
+  function footbridge(map, from, width, row) {
+    const left = from - 1, right = from + width;
+    if (map.get(left, row) !== TILE.EMPTY || map.get(right, row) !== TILE.EMPTY) return;
+    if (!map.isSolid(left, row + 1) || !map.isSolid(right, row + 1)) return;
+    map.set(left, row, TILE.WALL);
+    map.set(right, row, TILE.WALL);
+    for (let x = left; x <= right; x++) {
+      if (map.get(x, row - 1) === TILE.EMPTY) map.setDesigned(x, row - 1, TILE.PLATFORM);
     }
   }
 
@@ -494,30 +548,134 @@ window.DS = window.DS || {};
   /* --- "nothing floats" as a generation rule --------------------------------
 
      A platform tile hanging in open air is the one shape this game must never
-     ship: a dungeon is terrain, not a Mario level. The authored rooms are full
-     of them (`==` runs at head height), so instead of trusting every template -
-     and every future one - the finished map is swept and any platform that
-     nothing anchors gets a support built under it.
+     ship: a dungeon is terrain, not a Mario level. So the finished map is swept
+     and any platform nothing anchors is made honest - with one exception, which
+     is the whole point of the designed layer (tilemap.js): a crossing a builder
+     laid on purpose, a stepping stone over a chasm or a parkour stair, is left
+     exactly where it was put. This pass used to delete every stepping stone out
+     of every pit, and then the reach pass paved the hole with generic repairs.
 
-     A platform is anchored if solid rock touches it left or right (it is a
-     ledge in a wall) or directly below it is solid (it sits on something).
-     Anything else grows a stone column down to the first solid surface it can
-     reach, so the ledge becomes a pillar you can read as geology. If there is no
-     ground below at all, the platform is removed rather than left floating. */
-  const SUPPORT_REACH = 6;    // rows/columns of open air a support may bridge
+     A platform is anchored if rock touches it left or right (a ledge in a
+     wall), or rock or another platform is directly below it. Anything else, in
+     order of how little it disturbs the level:
+       1. reach sideways to a wall - the ledge becomes a balcony;
+       2. hang it from the ceiling on a stone bracket beside it - a column that
+          comes down from the roof to meet the ledge's end, leaving the ledge's
+          own headroom clear;
+       3. lower it onto the ground as a stone block two rows high - a step you
+          can hop, instead of a plank you cannot reach;
+       4. take it out.
+     There is no fifth option. The old last resort was a one-tile stone pillar
+     under the ledge, which is a wall across whatever corridor runs beneath it,
+     and the reach pass then hung a rope beside it to get over it. */
+  const SUPPORT_REACH = 6;    // columns of open air a shelf may bridge
+  const BLOCK_H = 2;          // how tall a lowered ledge stands: one jump
 
   /* A cell a support may be built through. Rock may be stacked, water may not:
      a column dropped through a lake used to punch a one-tile stone tooth out of
-     the surface and leave a dry slot beside it, which is exactly what "the water
-     isn't generated around the pillars" was. */
+     the surface and leave a dry slot beside it. */
   function buildableCell(map, tx, ty) {
-    if (map.isWater(tx, ty)) return false;
+    if (map.get(tx, ty) !== TILE.EMPTY) return false;
     if (map.isWater(tx, ty + 1)) return false;   // never roof over the waterline
     return true;
   }
 
-  function supportPlatforms(map) {
-    let shelves = 0, hung = 0, pillars = 0, dropped = 0;
+  /* Cells a spawn marker stands in. Lowering a ledge onto the floor must not
+     bury an enemy, a chest or the door inside the block. */
+  function markerCells(spawns) {
+    const cells = new Set();
+    if (!spawns) return cells;
+    const add = function (p) {
+      if (!p) return;
+      cells.add(Math.floor(p.x / T) + ',' + Math.floor(p.y / T));
+    };
+    add(spawns.player); add(spawns.door); add(spawns.merchant); add(spawns.table);
+    (spawns.enemies || []).forEach(add);
+    (spawns.chests || []).forEach(add);
+    return cells;
+  }
+
+  function runDesigned(map, run, ty) {
+    for (let x = run.x0; x <= run.x1; x++) if (map.isDesigned(x, ty)) return true;
+    return false;
+  }
+
+  function runAnchored(map, run, ty) {
+    if (map.isSolid(run.x0 - 1, ty) || map.isSolid(run.x1 + 1, ty)) return true;
+    for (let x = run.x0; x <= run.x1; x++) {
+      if (map.isSolid(x, ty + 1) || map.isPlatform(x, ty + 1)) return true;
+    }
+    return false;
+  }
+
+  /* Reach sideways to the nearest wall on the ledge's own row and fill the gap
+     with rock, if every cell of the gap is open air. */
+  function strap(map, run, ty) {
+    const reach = Math.min(run.x0, map.w - 1 - run.x1, SUPPORT_REACH);
+    for (let d = 1; d <= reach; d++) {
+      const spans = [
+        { wall: run.x0 - d, from: run.x0 - d + 1, to: run.x0 - 1 },
+        { wall: run.x1 + d, from: run.x1 + 1, to: run.x1 + d - 1 }
+      ];
+      for (let s = 0; s < spans.length; s++) {
+        const span = spans[s];
+        if (!map.isSolid(span.wall, ty)) continue;
+        for (let x = span.from; x <= span.to; x++) {
+          if (!buildableCell(map, x, ty)) return false;
+        }
+        for (let x = span.from; x <= span.to; x++) map.set(x, ty, TILE.WALL);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /* A stone bracket: a column beside one end of the ledge, from the rock above
+     down to the ledge's own row, so the ledge is held at its side and keeps its
+     headroom. Only ever built down from real rock, never up from nothing. */
+  function bracket(map, run, ty) {
+    const sides = [run.x0 - 1, run.x1 + 1];
+    for (let s = 0; s < sides.length; s++) {
+      const x = sides[s];
+      if (x < 1 || x >= map.w - 1) continue;
+      let ay = -1;
+      for (let y = ty - 1; y >= 0; y--) {
+        if (map.isSolid(x, y)) { ay = y; break; }
+        if (!buildableCell(map, x, y)) break;
+      }
+      if (ay < 0 || !buildableCell(map, x, ty)) continue;
+      for (let y = ay + 1; y <= ty; y++) map.set(x, y, TILE.WALL);
+      return true;
+    }
+    return false;
+  }
+
+  /* Lower the ledge to the ground under it as a block BLOCK_H rows tall. Every
+     column needs its own rock within reach, and every cell of the block must be
+     empty air with no spawn marker in it. */
+  function lower(map, run, ty, markers) {
+    const plan = [];
+    for (let x = run.x0; x <= run.x1; x++) {
+      let gy = ty + 1;
+      while (gy < map.h && gy - ty <= SUPPORT_REACH + BLOCK_H && map.get(x, gy) === TILE.EMPTY) gy++;
+      if (gy >= map.h || !map.isSolid(x, gy)) return false;
+      const top = Math.max(ty, gy - BLOCK_H);
+      for (let y = top; y < gy; y++) {
+        if (y !== ty && !buildableCell(map, x, y)) return false;
+        if (markers.has(x + ',' + y)) return false;
+      }
+      plan.push(x, top, gy);
+    }
+    for (let x = run.x0; x <= run.x1; x++) map.set(x, ty, TILE.EMPTY);
+    for (let i = 0; i < plan.length; i += 3) {
+      for (let y = plan[i + 1]; y < plan[i + 2]; y++) map.set(plan[i], y, TILE.WALL);
+    }
+    return true;
+  }
+
+  function supportPlatforms(map, spawns) {
+    let shelves = 0, hung = 0, blocks = 0, dropped = 0;
+    const markers = markerCells(spawns);
 
     for (let ty = 0; ty < map.h; ty++) {
       let tx = 0;
@@ -528,98 +686,43 @@ window.DS = window.DS || {};
         let x1 = tx;
         while (x1 + 1 < map.w && map.isPlatform(x1 + 1, ty)) x1++;
         const run = { x0: tx, x1: x1 };
+        tx = x1 + 1;
 
-        const wallLeft = map.isSolid(run.x0 - 1, ty);
-        const wallRight = map.isSolid(run.x1 + 1, ty);
-        const onRock = map.isSolid(run.x0, ty + 1) || map.isSolid(run.x1, ty + 1);
-        if (!wallLeft && !wallRight && !onRock) {
-          /* Three ways to make it honest, in order of how little they disturb
-             the level:
-               1. reach sideways to a wall - the ledge becomes a balcony, which
-                  is exactly what a ledge in a dungeon is;
-               2. hang from the ceiling, leaving a row of headroom - reads as
-                  bedrock above, and blocks nothing on the floor;
-               3. last resort, a single stone column under the middle.
-             A pillar is LAST because a column under a platform is also a wall
-             in whatever corridor runs beneath it. */
-          const reach = Math.min(run.x0, map.w - 1 - run.x1, SUPPORT_REACH);
-          let strapped = false;
-          for (let d = 1; d <= reach && !strapped; d++) {
-            if (map.isSolid(run.x0 - d, ty)) {
-              for (let x = run.x0 - d; x < run.x0; x++) map.set(x, ty, TILE.WALL);
-              strapped = true;
-            } else if (map.isSolid(run.x1 + d, ty)) {
-              for (let x = run.x1 + 1; x <= run.x1 + d; x++) map.set(x, ty, TILE.WALL);
-              strapped = true;
-            }
-          }
-          if (strapped) {
-            shelves++;
-          } else {
-            /* Hang it: anchor far enough above to leave standing room. The
-               search runs all the way to the ceiling rather than stopping six
-               rows up: a ledge over a lake sits under a roof nine rows above
-               it, and missing that anchor by one row is what sent every such
-               platform down the "legs" branch below. */
-            let ay = -1;
-            for (let d = 2; d < ty; d++) {
-              if (ty - d < 0) break;
-              if (map.isSolid(run.x0, ty - d) || map.isPlatform(run.x0, ty - d)) { ay = ty - d; break; }
-            }
-            if (ay >= 0 && ty - ay >= 3) {
-              /* Fill from just under the anchor down to two rows above the
-                 ledge: row ty-1 stays clear, which is the space the player's
-                 head needs when standing on it. */
-              let ok = true;
-              for (let x = run.x0; x <= run.x1 && ok; x++) {
-                for (let fy = ay + 1; fy <= ty - 2; fy++) {
-                  if (!buildableCell(map, x, fy)) { ok = false; break; }
-                }
-              }
-              if (ok) {
-                for (let x = run.x0; x <= run.x1; x++) {
-                  for (let fy = ay + 1; fy <= ty - 2; fy++) map.set(x, fy, TILE.WALL);
-                }
-                hung++;
-              } else {
-                /* The only thing above this ledge is water. Rather than roof
-                   the pool over, drop it: a lake keeps its surface and its
-                   air pockets, which is the whole point of a flooded floor. */
-                for (let x = run.x0; x <= run.x1; x++) map.set(x, ty, TILE.EMPTY);
-                dropped++;
-              }
-            } else {
-              /* Last resort: legs. A SHORT drop becomes a solid mesa (the ledge
-                 is simply the top of a rock, which is the most dungeon-looking
-                 answer there is). A drop too deep to fill is spanned by one
-                 column under the middle, because filling a tall shaft would
-                 wall off whatever corridor runs below it. */
-              const mid = Math.round((run.x0 + run.x1) / 2);
-              let gy = ty + 1;
-              while (gy < map.h && !map.isSolid(mid, gy) && !map.isRope(mid, gy)) gy++;
-              let blocked = false;
-              for (let fy = ty + 1; fy < gy; fy++) {
-                if (!buildableCell(map, mid, fy)) { blocked = true; break; }
-              }
-              if (gy >= map.h || blocked) {
-                /* Nothing honest to stand it on, or the only path is through a
-                   body of water: take the platform out. A floating ledge is the
-                   one shape this pass exists to prevent, and a stone tooth
-                   through a lake is the one it used to create. */
-                for (let x = run.x0; x <= run.x1; x++) map.set(x, ty, TILE.EMPTY);
-                dropped++;
-              } else {
-                for (let fy = ty + 1; fy < gy; fy++) map.set(mid, fy, TILE.WALL);
-                pillars++;
-              }
-            }
-          }
+        if (runDesigned(map, run, ty) || runAnchored(map, run, ty)) continue;
+        if (strap(map, run, ty)) { shelves++; continue; }
+        if (bracket(map, run, ty)) { hung++; continue; }
+        if (lower(map, run, ty, markers)) { blocks++; continue; }
+        for (let x = run.x0; x <= run.x1; x++) map.set(x, ty, TILE.EMPTY);
+        dropped++;
+      }
+    }
+    return { shelves: shelves, hung: hung, blocks: blocks, removed: dropped };
+  }
+
+  /* A crossing is a platform with nothing to stand on under it: a pit, a lake,
+     a bed of spikes. Whoever laid it meant it as the way over, whatever flavor
+     of floor built it, so it is flagged designed before anything tidies the
+     map - including the ones in flavors that know nothing about the flag. A
+     crossing is a whole run, so one tile of it over the hole flags the run. */
+  function markCrossings(map) {
+    for (let ty = 0; ty < map.h; ty++) {
+      let tx = 0;
+      while (tx < map.w) {
+        if (!map.isPlatform(tx, ty)) { tx++; continue; }
+        let x1 = tx;
+        while (x1 + 1 < map.w && map.isPlatform(x1 + 1, ty)) x1++;
+        let crossing = false;
+        for (let x = tx; x <= x1 && !crossing; x++) {
+          let y = ty + 1;
+          while (y < map.h && map.get(x, y) === TILE.EMPTY) y++;
+          const under = map.get(x, y);
+          if (y >= map.h || under === TILE.WATER || under === TILE.SPIKE ||
+              under === TILE.DEATHSPIKE) crossing = true;
         }
-
+        if (crossing) for (let x = tx; x <= x1; x++) map.markDesigned(x, ty);
         tx = x1 + 1;
       }
     }
-    return { shelves: shelves, hung: hung, pillars: pillars, removed: dropped };
   }
 
   /* A door is two tiles tall and its BOTTOM row must be the floor of its own
@@ -670,7 +773,9 @@ window.DS = window.DS || {};
       let stand = false, wayOut = false;
       for (let ty = 0; ty < map.h; ty++) {
         const t = map.get(tx, ty);
-        if (t === TILE.WALL || t === TILE.PLATFORM) stand = true;
+        // A plank over a hole is not a floor under it: falling past a
+        // stepping stone lands you nowhere, so its column is sealed too.
+        if (t === TILE.WALL) stand = true;
         if (t === TILE.WATER || t === TILE.ROPE || t === TILE.DEATHSPIKE) wayOut = true;
       }
       if (stand || wayOut) continue;
@@ -680,29 +785,53 @@ window.DS = window.DS || {};
     return sealed;
   }
 
+  /* The features that carve the terrain of a finished floor - the puzzle
+     vault, the barrier wall across the corridor, the coin tower. They used to
+     be carved by the scene AFTER the level was built and proven, so a vault
+     roof or a barrier shaft could cut a route the reach pass had already signed
+     off, and nothing ever checked again. They are planned here now, before the
+     support and reach passes, and the scene only furnishes them (gates, warden,
+     crates, coins) from the plan left on the level. */
+  function furnish(level, rng, depth) {
+    if (level.kind !== 'normal' || level.noProps) return;
+    const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(depth) : null;
+    const hall = !!(rung && rung.puzzle);
+    // The barrier first: on the Torch Hall it is the one feature that must fit.
+    if (DS.Puzzle && DS.Puzzle.planBarrier) level.barrier = DS.Puzzle.planBarrier(level, rng, hall);
+    if (DS.Puzzle && DS.Puzzle.planVault) level.puzzleVault = DS.Puzzle.planVault(level, rng);
+    if (DS.Bonus && DS.Bonus.planVault) level.bonusVault = DS.Bonus.planVault(level, rng);
+  }
+
   /* Every flavor builds a level its own way; this is the one place that runs
      afterwards, on all of them, so a rule like "the door stands on the floor"
-     cannot be true of three flavors and quietly false of the fourth. */
+     cannot be true of three flavors and quietly false of the fourth. The order
+     is the whole design:
+       1. flag the crossings every flavor laid, so nothing below deletes them;
+       2. carve the floor's features (vault, barrier, coin tower) - every pass
+          that edits terrain runs BEFORE the passes that prove it;
+       3. support every ledge that has nothing holding it up;
+       4. prove the exit is in reach and repair the terrain where it is not
+          (systems/reach.js), every repair built anchored;
+       5. audit the finished map for anything left floating or dangling, and fix
+          it where that cannot cost the route (reach.js anchor);
+       6. close any column left bottomless, stand the door on the real floor,
+          and pick the pit stones that crumble - picked, not removed: the tile
+          stays in the map the passes above proved, and the scene swaps it for
+          the crumbling prop, which always reforms. */
   function build(rng, depth, kind) {
     const level = assemble(rng, depth, kind);
     if (level && level.map && level.spawns) {
-      /* Four passes run on EVERY flavor, after it has finished building, so a
-         rule like "nothing floats" cannot be true of three flavors and quietly
-         false of the fourth:
-           1. support every ledge that has nothing holding it up;
-           2. prove the exit is in reach, and repair the terrain where it is not
-              (systems/reach.js) — this runs HERE, after the support pass, because
-              the pillars and shelves that pass builds can seal a corridor and
-              the flavor's own safety net has already had its say;
-           3. close any column the passes above left bottomless, so a fall is a
-              death rather than a trap under the level;
-           4. stand the exit door on the floor the terrain actually ended up at. */
-      supportPlatforms(level.map);
+      markCrossings(level.map);
+      furnish(level, rng, depth);
+      level.support = supportPlatforms(level.map, level.spawns);
       // The report is kept on the level so a QA pass can assert the generator's
-      // own claim instead of re-deriving it (and its own truncated MAX_REPAIRS).
+      // own claim instead of re-deriving it.
       level.reach = DS.Reach ? DS.Reach.ensureExit(level.map, level.spawns) : null;
+      level.anchor = DS.Reach ? DS.Reach.anchor(level.map, level.spawns) : null;
       level.traps = closeTraps(level.map);
       reseatDoor(level.map, level.spawns);
+      level.crumbles = (DS.Hazards && DS.Hazards.planCrumbles)
+        ? DS.Hazards.planCrumbles(level, rng) : [];
     }
     return level;
   }
@@ -745,8 +874,12 @@ window.DS = window.DS || {};
        teaching floors were the least predictable in the game. A 'carved' rung
        is a climb almost always; anything else keeps parkour as an occasional
        change of pace, and the tutorial floors stay exactly what the ladder says. */
+    const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(depth) : null;
+    /* A puzzle floor (the Torch Hall) is always the corridor: its barrier needs
+       a long flat hall to stand in, and a carved floor rarely has one. */
     const carvedChance = flavor === 'carved' ? 0.85
-                        : (DS.Difficulty && DS.Difficulty.isTutorial(depth) ? 0 : 0.25);
+                        : ((DS.Difficulty && DS.Difficulty.isTutorial(depth)) || (rung && rung.puzzle)
+                           ? 0 : 0.25);
     if (DS.Parkour && rng.chance(carvedChance)) return buildCarved(rng, depth, out);
     if (flavor === 'carved' && DS.Parkour) return buildCarved(rng, depth, out);
 
@@ -764,6 +897,12 @@ window.DS = window.DS || {};
                            : DS.M.clamp(0.35 + depth * 0.08, 0.35, 0.85);
     if (middle >= 2 && rng.chance(pitChance)) {
       picks[rng.int(1, middle - 1)] = rng.pick(PADDED_PITS);
+    }
+
+    /* The floor the ladder promises a puzzle on gets a flat hall to hold it in
+       one of the first three rooms, which is where the barrier looks. */
+    if (rung && rung.puzzle) {
+      picks[rng.int(0, Math.min(2, middle - 1))] = PADDED_ROOMS[QUIET_HALL];
     }
 
     const totalRooms = middle + 2; // start + middle + exit

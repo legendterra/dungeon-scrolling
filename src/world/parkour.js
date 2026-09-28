@@ -56,39 +56,61 @@ window.DS = window.DS || {};
     for (let ty = floorRow; ty < map.h; ty++) map.set(tx, ty, TILE.WALL);
   }
 
+  /* Every platform this carver lays is a designed piece of the route - a
+     staircase step, a stepping stone, a ledge down a drop - and is flagged as
+     one (tilemap.js), so the support pass that runs afterwards leaves it where
+     it was put instead of strapping it to the nearest cliff with a long finger
+     of rock. Only open air is written to: a step never overwrites rock. */
   function platformRun(map, tx, row, width) {
-    if (row <= CEIL_ROW) return;
-    for (let i = 0; i < width; i++) map.set(tx + i, row, TILE.PLATFORM);
-  }
-
-  /* A climb the player can actually make: platforms every two rows, staggered
-     horizontally so each one is a real hop rather than a ladder. The ground
-     underneath stays solid, so a missed jump costs height, not the run. */
-  function staircase(map, fromX, width, fromRow, toRow) {
-    const rise = fromRow - toRow;
-    const steps = Math.ceil(rise / 2);
-    /* The steps march toward the cliff, with the last one landing against its
-       face. Spacing them from the left instead left the top step marooned
-       several columns short of the ledge it was supposed to reach. */
-    for (let s = 1; s <= steps; s++) {
-      const row = Math.max(toRow + 1, fromRow - s * 2);
-      const x = Math.max(fromX, fromX + width - 2 - (steps - s) * STEP_RUN);
-      platformRun(map, x, row, 2);
+    if (row <= CEIL_ROW) return false;
+    for (let i = 0; i < width; i++) {
+      if (map.get(tx + i, row) !== TILE.EMPTY) return false;
     }
+    for (let i = 0; i < width; i++) map.setDesigned(tx + i, row, TILE.PLATFORM);
+    return true;
   }
 
   // Horizontal spacing between two steps of a staircase, in tiles.
   const STEP_RUN = 3;
 
-  // Ledges on the way down, so a long drop reads as a descent, not a hole.
-  function ledges(map, rng, fromX, width, fromRow, toRow) {
+  /* A climb the player can actually make: platforms every two rows, staggered
+     horizontally so each one is a real hop rather than a ladder. The ground
+     underneath stays solid, so a missed jump costs height, not the run. The
+     steps march toward the cliff, with the last one landing against its face. */
+  function staircase(map, fromX, width, fromRow, toRow) {
+    const steps = stairSteps(fromRow - toRow);
+    for (let s = 1; s <= steps; s++) {
+      const row = fromRow - s * 2;
+      const x = Math.max(fromX, fromX + width - 2 - (steps - s) * STEP_RUN);
+      platformRun(map, x, row, 2);
+    }
+  }
+
+  /* Steps a rise needs so no hop on it is taller than two rows: one every two
+     rows, and none for the last two, which the cliff top itself provides. The
+     old count put a step on the cliff's own row for every odd rise, two steps
+     side by side at one height. */
+  function stairSteps(rise) {
+    return Math.max(0, Math.ceil(rise / 2) - 1);
+  }
+
+  // The width of transition a staircase up `rise` rows needs, in columns.
+  function stairWidth(rise) {
+    return stairSteps(rise) * STEP_RUN + 2;
+  }
+
+  /* Ledges down a drop, so a long fall reads as a descent, not a hole. They
+     hang off the FACE of the cliff - the column just past its edge, touching
+     the rock - and step down it. They used to be scattered across the
+     transition columns, which are rock from the upper floor down, so every one
+     of them was written inside the cliff. `faceX` is the cliff's last column. */
+  function ledges(map, faceX, fromRow, toRow) {
     const drop = toRow - fromRow;
     if (drop < 5) return;
     const count = Math.min(3, Math.floor(drop / 4));
     for (let i = 1; i <= count; i++) {
       const row = fromRow + Math.round((drop * i) / (count + 1));
-      const x = fromX + rng.int(0, Math.max(0, width - 3));
-      platformRun(map, x, row, rng.int(2, 3));
+      platformRun(map, faceX + 1, row, 2);
     }
   }
 
@@ -107,27 +129,31 @@ window.DS = window.DS || {};
   // Horizontal stride between stepping stones: jump plus air jump clears three.
   const HOP = 3;
 
-  /* A stepped route above the walking surface: two rows a step and three or four
-     columns apart, starting from the floor itself.
-
-     It used to be a chain of platforms four to seven rows up, with nothing to
-     get onto it -- parkour you could see and not take, which is scenery wearing
-     the shape of a route. Every link is now one hop from the one before, so the
-     chain is a way up to whatever is at the top instead of a decoration over
-     the floor. */
+  /* A stepped route above the walking surface to a perch: two rows a step and
+     three or four columns apart, starting from the floor itself, with a chest
+     waiting on the top step (populate). A chain up into the air used to lead
+     to nothing at all - parkour you could take and had no reason to. Returns
+     the perch, or null. */
   function decorate(map, rng, fromX, width, row, depth) {
-    if (width < 5) return;
-    if (!rng.chance(0.3 + depth * 0.03)) return;
+    if (width < 5) return null;
+    if (!rng.chance(0.3 + depth * 0.03)) return null;
 
     let x = fromX + rng.int(0, 2);
     let r = Math.max(CEIL_ROW + 2, row - 2);
     const links = rng.int(2, 4);
+    let top = null;
     for (let i = 0; i < links && x < fromX + width - 2 && r > CEIL_ROW + 1; i++) {
-      platformRun(map, x, r, rng.int(2, 3));
+      const w = rng.int(2, 3);
+      if (!platformRun(map, x, r, w)) break;
+      top = { x: x, row: r, w: w };
       x += rng.int(3, 4);
       r -= 2;
     }
+    return top;
   }
+
+  const MIN_LANDING = 5;       // the shortest flat stretch worth landing on
+  const TAIL = 12;             // columns kept for the exit shelf
 
   /* Build the whole floor profile and everything hanging off it.
      Returns the segment list so callers can place things on flat ground. */
@@ -139,7 +165,9 @@ window.DS = window.DS || {};
       spanScale = DS.Difficulty.forDepth(depth).climbSpan / 7.6;
     }
     const cols = map.w;
+    const last = cols - TAIL;
     const segments = [];
+    const perches = [];
 
     let tx = 0;
     let row = BASE_ROW;
@@ -150,42 +178,51 @@ window.DS = window.DS || {};
     segments.push({ x: tx, w: openW, row: row, safe: true });
     tx += openW;
 
-    while (tx < cols - 12) {
-      const t = tx / cols;
-      const target = M.clamp(rowFor(shape, t) + rng.int(-2, 2), TOP_ROW, BASE_ROW);
-      const rise = row - target;
+    while (tx < last) {
+      /* Room for a transition AND the landing after it. The loop used to size
+         the transition first and the landing second, so near the end of the
+         map a climb was squeezed into whatever was left and the landing it led
+         to had no columns at all - a staircase up to the edge of the exit
+         shelf, which then dropped back to the bottom. */
+      const room = last - tx - MIN_LANDING;
+      if (room < 3) break;
 
-      // Transition: a staircase up, a cliff down, or a gap across.
-      /* An up-transition needs room for its whole staircase, or the steps get
-         squeezed together and the climb turns into a wall. */
-      const stairW = Math.ceil(Math.max(0, rise) / 2) * STEP_RUN + 2;
-      const tw = Math.min(cols - 12 - tx, rise > 0 ? Math.max(4, stairW) : rng.int(3, 6));
-      if (tw > 0) {
-        const gap = rise === 0 && rng.chance(0.22 + depth * 0.03) && tw >= 5;
-        if (gap) {
-          pit(map, rng, tx, tw, row);
-        } else {
-          for (let i = 0; i < tw; i++) column(map, tx + i, row);
-          if (rise > 1) staircase(map, tx, tw, row, target);
-          if (rise < 0) ledges(map, rng, tx, tw, row, target);
-        }
-        tx += tw;
+      const t = tx / cols;
+      let target = M.clamp(rowFor(shape, t) + rng.int(-2, 2), TOP_ROW, BASE_ROW);
+      let rise = row - target;
+      /* A climb that does not fit is made shorter, never squeezed. */
+      if (rise > 2 && stairWidth(rise) > room) {
+        const steps = Math.max(0, Math.floor((room - 2) / STEP_RUN));
+        rise = Math.min(rise, (steps + 1) * 2);
+        target = row - rise;
       }
 
+      // Transition: a staircase up, a cliff down, or a gap across.
+      const tw = rise > 2 ? Math.max(4, stairWidth(rise)) : Math.min(room, rng.int(3, 6));
+      const gap = rise === 0 && rng.chance(0.22 + depth * 0.03) && tw >= 5;
+      if (gap) {
+        pit(map, rng, tx, tw, row);
+      } else {
+        for (let i = 0; i < tw; i++) column(map, tx + i, row);
+        if (rise > 2) staircase(map, tx, tw, row, target);
+      }
+      if (rise < 0) ledges(map, tx + tw - 1, row, target);
+      tx += tw;
       row = target;
 
       // Landing: a flat stretch at the new height, long enough to fight on.
-      const w = Math.min(cols - 12 - tx, rng.int(5, 10));
+      const w = Math.min(last - tx, rng.int(MIN_LANDING, 10));
       if (w <= 0) break;
       for (let i = 0; i < w; i++) column(map, tx + i, row);
       segments.push({ x: tx, w: w, row: row, safe: false });
-      decorate(map, rng, tx, w, row, depth);
+      const perch = perches.length < 2 ? decorate(map, rng, tx, w, row, depth) : null;
+      if (perch) perches.push(perch);
 
       // A short spike bed is the cheapest reason to use the platforms above.
       if (w >= 7 && rng.chance(0.26)) {
         const sx = tx + rng.int(2, w - 4);
-        map.set(sx, row - 1, TILE.SPIKE);
-        if (rng.chance(0.5)) map.set(sx + 1, row - 1, TILE.SPIKE);
+        if (map.get(sx, row - 1) === TILE.EMPTY) map.set(sx, row - 1, TILE.SPIKE);
+        if (rng.chance(0.5) && map.get(sx + 1, row - 1) === TILE.EMPTY) map.set(sx + 1, row - 1, TILE.SPIKE);
       }
 
       tx += w;
@@ -193,26 +230,23 @@ window.DS = window.DS || {};
 
     // The exit shelf: flat, at the bottom, so the door is never mid-climb.
     const tailRow = BASE_ROW;
-    if (row - tailRow < 0) ledges(map, rng, tx, 4, row, tailRow);
+    if (row < tailRow) ledges(map, tx - 1, row, tailRow);
     for (let i = tx; i < cols; i++) column(map, i, tailRow);
     segments.push({ x: tx, w: cols - tx, row: tailRow, safe: true });
 
-    /* No local safety net any more. The climb rule and the exit guarantee both
-       live in systems/reach.js and run from world/generator.js AFTER the support
-       pass, which is the only order that works: this carver's own rungs used to
-       be built first, and the pillar that the support pass raised afterwards
-       could seal the corridor with nobody left to re-check the level. */
-    /* The climb rule and exit guarantee have moved into systems/reach.js, which
-       generator.js runs after the support pass, so a corridor sealed by a later
-       pillar is still caught. This carver only places terrain and markers,
-       leaving the level's traversability as a single claim made by one owner. */
-    populate(map, rng, depth, segments, out);
+    /* No local safety net. The climb rule and the exit guarantee both live in
+       systems/reach.js and run from world/generator.js AFTER the support pass,
+       which is the only order that works: a corridor sealed by a later pass is
+       still caught, and the level's traversability is a single claim made by
+       one owner. */
+    populate(map, rng, depth, segments, perches, out);
     return segments;
   }
 
-  /* Markers. Enemies stand on flat ground, chests go on the highest ledges
-     the level offers — climbing should be worth something. */
-  function populate(map, rng, depth, segments, out) {
+  /* Markers. Enemies stand on flat ground; chests go on the perches the climbs
+     lead to first, then on the highest ledges the level offers - climbing
+     should be worth something. */
+  function populate(map, rng, depth, segments, perches, out) {
     const first = segments[0];
     const last = segments[segments.length - 1];
 
@@ -229,6 +263,12 @@ window.DS = window.DS || {};
         const ex = seg.x + rng.int(1, Math.max(1, seg.w - 2));
         out.enemies.push({ x: ex * T, y: (seg.row - 1) * T });
       }
+    }
+
+    // A perch is a climb built to reach something: it always gets its chest.
+    for (let i = 0; i < perches.length && out.chests.length < 2; i++) {
+      const p = perches[i];
+      out.chests.push({ x: (p.x + Math.floor(p.w / 2)) * T, y: (p.row - 1) * T });
     }
 
     // Two chests at most, and the higher the ledge the better its odds.

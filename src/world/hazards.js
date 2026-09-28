@@ -188,7 +188,7 @@ window.DS = window.DS || {};
     // Safe rooms and boss arenas stay clean; everything else earns its saws.
     if (level.kind === 'safe' || level.kind === 'boss') return;
 
-    seedCrumblers(g);
+    seedCrumblers(g, level);
 
     const map = g.map;
     const rooms = level.roomCount;
@@ -252,10 +252,18 @@ window.DS = window.DS || {};
   }
 
   /* Turn a couple of the authored pit platforms into zonks. Only tiles that
-     sit over a genuine void are eligible, and never the first or last step of
-     a chain, so there is always somewhere safe to start and land. */
-  function seedCrumblers(g) {
-    const map = g.map;
+     sit over a genuine void are eligible, and never the middle of a long run,
+     so there is always somewhere safe to start and land.
+
+     Planned by the level generator (planCrumbles), which picks the stones once
+     the floor is final and LEAVES THEM IN THE MAP: a crumbling stone is still a
+     stone - it gives way and always reforms - so the route the reach pass
+     proved over it is still the route. The scene swaps each picked stone for
+     its prop here. Picking them in the scene, after the level had been proven,
+     is how a crossing could lose its stones with nobody looking. */
+  function planCrumbles(level, rng) {
+    if (level.kind === 'safe' || level.kind === 'boss') return [];
+    const map = level.map;
     const candidates = [];
 
     for (let ty = 0; ty < map.h - 2; ty++) {
@@ -269,22 +277,33 @@ window.DS = window.DS || {};
         candidates.push({ tx: tx, ty: ty });
       }
     }
-    if (candidates.length < 4) return;
+    if (candidates.length < 4) return [];
 
-    const picks = g.rng.sample(candidates, g.rng.int(1, 2));
+    const out = [];
+    const picks = rng.sample(candidates, rng.int(1, 2));
     for (let i = 0; i < picks.length; i++) {
       const spot = picks[i];
-      // Replace the whole two-tile step, not just the tile we found.
+      // The whole two-tile step, not just the tile we found.
       const left = map.isPlatform(spot.tx - 1, spot.ty) ? spot.tx - 1 : spot.tx;
       const width = map.isPlatform(left + 1, spot.ty) ? 2 : 1;
+      if (out.some(function (c) { return c.ty === spot.ty && Math.abs(c.tx - left) < 2; })) continue;
+      out.push({ tx: left, ty: spot.ty, w: width });
+    }
+    return out;
+  }
 
-      for (let x = left; x < left + width; x++) map.set(x, spot.ty, DS.TILE.EMPTY);
+  function seedCrumblers(g, level) {
+    const map = g.map;
+    const plan = (level && level.crumbles) || [];
+    for (let i = 0; i < plan.length; i++) {
+      const c = plan[i];
+      for (let x = c.tx; x < c.tx + c.w; x++) map.set(x, c.ty, DS.TILE.EMPTY);
 
       g.hazards.push({
         kind: 'crumble',
-        baseX: left * T, baseY: spot.ty * T,
-        x: left * T, y: spot.ty * T,
-        w: width * T, h: 5,
+        baseX: c.tx * T, baseY: c.ty * T,
+        x: c.tx * T, y: c.ty * T,
+        w: c.w * T, h: 5,
         dx: 0, dy: 0,
         axis: 'y', range: 0, speed: 0, phase: 0, damage: 0,
         triggered: 0, broken: 0
@@ -360,6 +379,7 @@ window.DS = window.DS || {};
   }
 
   DS.Hazards = {
+    planCrumbles: planCrumbles,
     generate: generate,
     // Shared so every prop placer tests the same boxes the hazards do.
     occupied: occupied,

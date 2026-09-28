@@ -1754,10 +1754,13 @@ window.DS = window.DS || {};
             plateObj.ref = pl;          // pl.pressed is the live held state
             plateMeshes.push(plateObj);
           }
-          if (pz.braziers) {
-            for (let j = 0; j < pz.braziers.length; j++) {
-              brazierMeshes.push(createBrazierMesh(pz.braziers[j], map));
-            }
+        }
+        /* Braziers belong to more than the trial: a barrier can be opened by
+           lighting them (and the Torch Hall's beacons stand on the barrier
+           wall), so any puzzle that carries them gets their meshes. */
+        if (pz.braziers) {
+          for (let j = 0; j < pz.braziers.length; j++) {
+            brazierMeshes.push(createBrazierMesh(pz.braziers[j], map));
           }
         }
         if (pz.gate) gateMeshes.push(createGateMesh(pz.gate));

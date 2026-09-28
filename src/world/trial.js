@@ -56,6 +56,10 @@ window.DS = window.DS || {};
     let tx = ENTRY_W;
 
     while (tx < GAUNTLET_END) {
+      /* An island clipped by the end of the gauntlet came out one or two
+         columns wide - a stone post, not somewhere to land. What is left over
+         belongs to the lip below instead. */
+      if (GAUNTLET_END - tx < 3) break;
       const width = rng.int(3, 6);
       const row = FLOOR - (rng.chance(0.35) ? rng.int(1, 3) : 0);
 

@@ -26,11 +26,20 @@ window.DS = window.DS || {};
 
   function create(w, h) {
     const data = new Uint8Array(w * h);
+    /* Which cells a level AUTHOR placed on purpose - a stepping stone over a
+       chasm, a parkour staircase, the ledges of a climb. The tile grid cannot
+       tell a designed crossing from a stray ledge (both are PLATFORM), and the
+       "nothing floats" pass used to treat them alike: it deleted the stepping
+       stones out of every pit and then the reach pass paved the hole with
+       generic repairs. A cell flagged here is terrain someone meant, and the
+       passes that tidy the map leave it exactly as built. */
+    const designed = new Uint8Array(w * h);
 
     const map = {
       w: w,
       h: h,
       data: data,
+      designed: designed,
       decor: [],          // { kind, x, y } in pixels — torches, tables, signs
       solids: [],         // dynamic blocking boxes — crates and closed gates
       pixelW: w * T,
@@ -50,6 +59,20 @@ window.DS = window.DS || {};
       set: function (tx, ty, value) {
         if (!map.inside(tx, ty)) return;
         data[ty * w + tx] = value;
+      },
+
+      /* Designed-cell bookkeeping. Out of bounds is never designed. */
+      markDesigned: function (tx, ty) {
+        if (map.inside(tx, ty)) designed[ty * w + tx] = 1;
+      },
+      isDesigned: function (tx, ty) {
+        return map.inside(tx, ty) && designed[ty * w + tx] === 1;
+      },
+      /* A tile written as part of an authored feature: set it and flag it in
+         one call, so a builder cannot forget the second half. */
+      setDesigned: function (tx, ty, value) {
+        map.set(tx, ty, value);
+        map.markDesigned(tx, ty);
       },
 
       isSolid: function (tx, ty) { return map.get(tx, ty) === TILE.WALL; },
@@ -135,12 +158,16 @@ window.DS = window.DS || {};
            testing the whole column for any solid at all meant those holes
            were never given a bottom and swallowed the player into the dead
            space under the map. */
+        /* A stepping stone is not a bottom. A pit crossed by stones used to
+           read as floored in every column a stone stood over, so only the gaps
+           between the stones were sealed - and a body that slipped past a
+           stone fell to the edge of the world instead of into the pit. */
         function bottomless(tx) {
           let ty = 0;
           while (ty < h && map.isBlocked(tx, ty)) ty++;
           if (ty >= h) return false;               // solid rock, not a column
           for (; ty < h; ty++) {
-            if (map.isBlocked(tx, ty)) return false;
+            if (map.isSolid(tx, ty)) return false;
           }
           return true;
         }
@@ -164,7 +191,7 @@ window.DS = window.DS || {};
           const trench = rng && !rng.chance(chasmOdds);
           if (!trench) {
             for (let x = from; x <= to; x++) {
-              map.set(x, h - 1, TILE.DEATHSPIKE);
+              if (map.get(x, h - 1) === TILE.EMPTY) map.set(x, h - 1, TILE.DEATHSPIKE);
               pits.push(x);
             }
             continue;
@@ -175,9 +202,12 @@ window.DS = window.DS || {};
              that a jump gets you out again. */
           const lip = Math.min(lipRow(from - 1), lipRow(to + 1));
           const bed = Math.min(h - 1, lip + 3);
+          // The bed goes in under whatever crosses the pit, never through it.
           for (let x = from; x <= to; x++) {
-            for (let y = bed; y < h; y++) map.set(x, y, TILE.WALL);
-            map.set(x, bed - 1, TILE.SPIKE);
+            for (let y = bed; y < h; y++) {
+              if (!map.isBlocked(x, y)) map.set(x, y, TILE.WALL);
+            }
+            if (map.get(x, bed - 1) === TILE.EMPTY) map.set(x, bed - 1, TILE.SPIKE);
             spiked.push(x);
           }
         }
@@ -221,6 +251,20 @@ window.DS = window.DS || {};
         while (ty < h && map.isBlocked(tx, ty)) ty++;
         for (; ty < h; ty++) {
           if (map.isBlocked(tx, ty)) return ty * T;
+        }
+        return h * T;
+      },
+
+      /* The ROCK surface of a column, in pixels: the same roof skip as
+         groundBelow, but a one-way platform is not the answer. groundBelow is
+         right for planting a prop (a torch may stand on a ledge); it is wrong
+         for asking how tall a cliff is, because a ledge floating over the floor
+         then reads as the top of a cliff and earns a ladder up to nothing. */
+      solidBelow: function (tx) {
+        let ty = 0;
+        while (ty < h && map.isBlocked(tx, ty)) ty++;
+        for (; ty < h; ty++) {
+          if (map.isSolid(tx, ty)) return ty * T;
         }
         return h * T;
       },
