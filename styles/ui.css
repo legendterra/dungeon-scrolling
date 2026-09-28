@@ -1,0 +1,181 @@
+/* Dungeon Scrolling — HTML UI design system (v6).
+
+   One layer (#ui-root) sits exactly over the 16:9 play frame the WebGL canvas
+   letterboxes (src/ui-html/core.js keeps it aligned). Every size is written in
+   `--s` units: 1 unit = 1/720 of the frame's height, so the whole UI scales
+   with the frame and keeps its proportions on 720p, 1080p and 1440p alike.
+
+   Direction: anime action RPG. Dark glass panels, thin luminous edges, chamfered
+   corners, gold for rewards and progress, cyan for interaction, element and
+   rarity colours used only where they carry meaning. */
+
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Nunito+Sans:wght@400;600;700;800&display=swap');
+
+:root {
+  --s: 1px;
+
+  --font-display: 'Rajdhani', 'Bahnschrift', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+
+  --ink: #eef3ff;
+  --ink-dim: #a3adc8;
+  --ink-mute: #6f7896;
+
+  --glass: rgba(12, 16, 30, 0.72);
+  --glass-strong: rgba(9, 12, 24, 0.90);
+  --glass-soft: rgba(20, 26, 46, 0.55);
+  --edge: rgba(150, 190, 255, 0.26);
+  --edge-strong: rgba(170, 210, 255, 0.55);
+
+  --accent: #6fd3ff;
+  --gold: #f2c66d;
+  --danger: #ff4d6d;
+
+  --hp: #ff4d6d;
+  --hp-deep: #9c1f3a;
+  --mp: #4da3ff;
+  --sp: #7be08c;
+  --shield: #9ad9ff;
+
+  --r-common: #c9cfdf;
+  --r-uncommon: #6ee07a;
+  --r-rare: #4fb3ff;
+  --r-epic: #c86ee0;
+  --r-legendary: #ffb347;
+
+  --el-fire: #ff7a3d;
+  --el-ice: #9ee8ff;
+  --el-lightning: #ffe45c;
+  --el-poison: #a4e05a;
+  --el-water: #3fa9ff;
+  --el-earth: #c9a066;
+  --el-leaf: #5fd67a;
+  --el-wind: #b8f5e6;
+
+  --chamfer: calc(10 * var(--s));
+  --radius: calc(6 * var(--s));
+  --gap: calc(12 * var(--s));
+  --shadow: 0 calc(6 * var(--s)) calc(24 * var(--s)) rgba(0, 0, 0, 0.45);
+
+  --t-fast: 120ms;
+  --t-med: 220ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#ui-root {
+  position: fixed;
+  left: 0; top: 0; width: 0; height: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 10;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: calc(15 * var(--s));
+  line-height: 1.25;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Layers, bottom to top. Only panels take the pointer. */
+#ui-root > .ui-layer { position: absolute; inset: 0; pointer-events: none; }
+#ui-root > .ui-layer[data-layer="world"]   { z-index: 1; }
+#ui-root > .ui-layer[data-layer="hud"]     { z-index: 2; }
+#ui-root > .ui-layer[data-layer="panel"]   { z-index: 3; }
+#ui-root > .ui-layer[data-layer="overlay"] { z-index: 4; }
+#ui-root .ui-interactive { pointer-events: auto; cursor: default; }
+#ui-root [hidden] { display: none !important; }
+
+/* --- components ------------------------------------------------------------ */
+
+.ui-panel {
+  position: relative;
+  background: linear-gradient(180deg, var(--glass) 0%, var(--glass-strong) 100%);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  clip-path: polygon(var(--chamfer) 0, 100% 0, 100% calc(100% - var(--chamfer)),
+                     calc(100% - var(--chamfer)) 100%, 0 100%, 0 var(--chamfer));
+  backdrop-filter: blur(calc(6 * var(--s)));
+  padding: calc(14 * var(--s)) calc(16 * var(--s));
+}
+.ui-panel::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--edge-strong), transparent);
+}
+
+.ui-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: calc(22 * var(--s));
+  color: var(--ink);
+}
+.ui-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: calc(12 * var(--s));
+  color: var(--ink-dim);
+}
+.ui-num { font-family: var(--font-display); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.ui-key {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: calc(20 * var(--s)); height: calc(20 * var(--s));
+  padding: 0 calc(5 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s));
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--edge-strong);
+  border-bottom-width: calc(2 * var(--s));
+  border-radius: calc(4 * var(--s));
+}
+
+.ui-btn {
+  font-family: var(--font-display); font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; font-size: calc(16 * var(--s));
+  color: var(--ink);
+  background: var(--glass-soft);
+  border: 1px solid var(--edge);
+  padding: calc(8 * var(--s)) calc(18 * var(--s));
+  clip-path: polygon(calc(6 * var(--s)) 0, 100% 0, 100% calc(100% - calc(6 * var(--s))),
+                     calc(100% - calc(6 * var(--s))) 100%, 0 100%, 0 calc(6 * var(--s)));
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  cursor: pointer;
+}
+.ui-btn:hover, .ui-btn.is-focus {
+  background: linear-gradient(90deg, rgba(111, 211, 255, 0.28), rgba(111, 211, 255, 0.06));
+  border-color: var(--accent);
+}
+.ui-btn:disabled { opacity: 0.45; cursor: default; }
+
+.ui-bar {
+  position: relative; height: calc(12 * var(--s));
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  transform: skewX(-18deg);
+}
+.ui-bar > .fill, .ui-bar > .lag {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 100%;
+  transform-origin: left center;
+}
+.ui-bar > .lag { background: rgba(255, 255, 255, 0.55); transition: transform 600ms ease-out 200ms; }
+.ui-bar > .fill { transition: transform var(--t-fast) linear; }
+
+.rarity-0 { --rarity: var(--r-common); }
+.rarity-1 { --rarity: var(--r-uncommon); }
+.rarity-2 { --rarity: var(--r-rare); }
+.rarity-3 { --rarity: var(--r-epic); }
+.rarity-4 { --rarity: var(--r-legendary); }
+
+@keyframes ui-in-up { from { opacity: 0; transform: translateY(calc(10 * var(--s))); } to { opacity: 1; transform: none; } }
+@keyframes ui-in-fade { from { opacity: 0; } to { opacity: 1; } }
+.ui-anim-in { animation: ui-in-up var(--t-med) var(--ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  #ui-root *, #ui-root *::before, #ui-root *::after {
+    animation-duration: 1ms !important; transition-duration: 1ms !important;
+  }
+}

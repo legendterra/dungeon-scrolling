@@ -92,10 +92,13 @@ window.DS = window.DS || {};
        FX through DS.R while it draws; this is where those quads reach the
        GPU, after the world pass and before the post overlay. */
     DS.R.present(now * 0.001);
+    /* The HTML layer follows the frame the canvas just letterboxed. */
+    DS.HUI.sync();
   }
 
   function boot() {
     DS.R.init();
+    DS.HUI.init();
     DS.Scenes.menu();
     requestAnimationFrame(frame);
   }
