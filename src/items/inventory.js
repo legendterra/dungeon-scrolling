@@ -135,10 +135,19 @@ window.DS = window.DS || {};
 
   function bagFull(inv) { return inv.bag.length >= BAG_SIZE; }
 
+  /* A rarer piece of armour goes straight on. The worn one is bagged, or, when
+     the bag is full, handed back as `overflow` for the caller to drop at the
+     player's feet — addItem has no world to drop it into. */
   function addItem(inv, item) {
     if (DS.Armor.isArmor(item)) {
       const current = inv.armor[item.slot];
       if (!current) { inv.armor[item.slot] = item; return { ok: true, where: 'armor' }; }
+      if (item.rarity > current.rarity) {
+        inv.armor[item.slot] = item;
+        const overflow = bagFull(inv) ? current : null;
+        if (!overflow) inv.bag.push(current);
+        return { ok: true, where: 'upgrade', replaced: current, overflow: overflow };
+      }
       if (bagFull(inv)) return { ok: false, reason: 'BAG FULL' };
       inv.bag.push(item);
       return { ok: true, where: 'bag' };
@@ -447,6 +456,9 @@ window.DS = window.DS || {};
       } else if (entry.kind === 'item') {
         const result = addItem(inv, entry.item);
         if (!result.ok) return { ok: false, reason: result.reason };
+        if (result.overflow) {
+          DS.Ent.addPickup(g, DS.Ent.centerX(p), p.y, 'item', result.overflow, 1);
+        }
       }
 
       inv.coins -= entry.coins;

@@ -1,6 +1,7 @@
 {
   "scripts": {
     "dev": "python devserver.py 8123",
+    "test": "node --test \"tests/*.test.js\"",
     "solve": "node tools/solve-levels.js",
     "qa:frame": "node tools/qa/measure-frame.js",
     "qa:climb": "node tools/qa/check-climb.js",

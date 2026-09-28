@@ -608,6 +608,9 @@ window.DS = window.DS || {};
     }
     if (action.kind === 'crate') return { key: 'F', text: 'HEAVE THE CRATE BACK' };
     if (action.kind === 'item') {
+      const item = action.target.item;
+      const worn = DS.Armor.isArmor(item) && g.inv.armor[item.slot];
+      if (worn && item.rarity > worn.rarity) return { key: 'F', text: 'EQUIP ' + item.name };
       const swap = DS.Inv.bagFull(g.inv) && g.inv.equipped[1];
       return { key: 'F', text: (swap ? 'SWAP FOR ' : 'TAKE ') + action.target.item.name };
     }
@@ -630,6 +633,16 @@ window.DS = window.DS || {};
     const result = DS.Inv.addItem(g.inv, item);
 
     g.pickups.splice(action.index, 1);
+
+    if (result.ok && result.where === 'upgrade') {
+      if (result.overflow) {
+        Ent.addPickup(g, Ent.centerX(g.player), g.player.y, 'item', result.overflow, 1);
+      }
+      g.player.refreshStats();
+      DS.Audio.play('pickup');
+      g.toast('EQUIPPED ' + item.name + '  -  RARER THAN ' + result.replaced.name, color);
+      return;
+    }
 
     if (result.ok) {
       g.player.refreshStats();
