@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /* Is the horizon actually there, on every floor, from every place on it?
  *
- *   node tools/qa/audit-backdrop.js [base-url]
+ *   node tools/qa/audit-backdrop.js [base-url] [--depths 1-10 | 11,14,22]
  *
  * The user's report, four times over: "the background never finishes, it does
  * not match the theme, and there is no light in it". Each of those is a
  * measurable statement, so this tool measures them instead of looking at a
  * screenshot and deciding:
  *
- *   STRUCTURE   all 13 recipes use the full seven-rung ladder, carry exactly one
- *               landmark, a texture family and a celestial body. Ten of those
- *               thirteen themes can be reached by a run; the other three are
- *               flavour fallbacks and are checked here rather than rendered.
+ *   STRUCTURE   all 13 recipes -- and every VARIANT of them, since the acts and
+ *               the depth pick between those -- use the full seven-rung ladder,
+ *               carry exactly one landmark, a texture family and a celestial
+ *               body.
  *
  *   LIGHTS      the scene's light count is the same on every floor, every
  *               intensity is finite. The body in the sky is unlit geometry plus
@@ -29,11 +29,14 @@
  *               at a size you can see, and the pixels AROUND it are brighter
  *               than the same patch of sky on the other side of the frame. That
  *               last one is the difference between a light and a sticker.
- *               The body is also held against the FLOOR (it is authored at an
- *               azimuth, so it must be found on the floor's mid-line, in the
- *               horizon's own frame) and against the OBJECT that carries it in
- *               the scene, because a report that drifts from the picture does
- *               not fail -- it measures empty sky and passes.
+ *               The body RIDES THE CAMERA (v6: the light is always ahead), so
+ *               it is held against the camera's aim -- aim + its azimuth offset,
+ *               in the horizon's own frame -- and against the OBJECT that
+ *               carries it in the scene, because a report that drifts from the
+ *               picture does not fail -- it measures empty sky and passes. And
+ *               heroInfo(), the renderer's handle on it, must say the same.
+ *
+ *   BUDGET      the whole horizon draws in at most DS.Backdrop.drawBudget calls.
  *
  *   THE LADDER  seven rungs, near darker than far, texture on every rung out to
  *               19 units with texel density held constant, and the scene free of
@@ -48,7 +51,20 @@ const BACKDROP_PAGE = require('./lib/backdrop-page');
 const BASE = process.argv[2] && !process.argv[2].startsWith('--')
   ? process.argv[2] : 'http://127.0.0.1:8123/';
 
-const DEPTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+/* Act I by default. --depths walks the other acts too ("11-30", "13,22,27"):
+   they reuse the thirteen themes, but through their act and depth variants. */
+function depthList(argv) {
+  const i = argv.indexOf('--depths');
+  if (i < 0 || !argv[i + 1]) return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const out = [];
+  argv[i + 1].split(',').forEach(function (part) {
+    const m = /^(\d+)-(\d+)$/.exec(part.trim());
+    if (m) { for (let d = Number(m[1]); d <= Number(m[2]); d++) out.push(d); }
+    else if (part.trim()) out.push(Number(part.trim()));
+  });
+  return out.filter(Number.isFinite);
+}
+const DEPTHS = depthList(process.argv);
 /* Three places on the floor: hard left, the middle, and well short of the exit.
    0.92 was too far right -- it lands the player next to the floor's own door,
    and on a floor where they arrive inside it the run simply ENDS. A harness
@@ -266,6 +282,35 @@ async function main() {
     })()`);
 
     check('a recipe for every theme', struct.length === 13, struct.length + ' themes');
+
+    /* Every variant is a horizon a floor can show, so every variant is held to
+       the same ladder as the theme it belongs to. */
+    const vars = await session.eval(`(() => {
+      const B = DS.Backdrop, rungs = B.rungs.slice(), out = [];
+      B.themeNames().forEach(function (n) {
+        B.variants(n).forEach(function (v) {
+          if (v.name === 'base') return;
+          const ds = v.rec.layers.map(function (l) { return l.d; }).sort(function (a, b) { return a - b; });
+          const uniq = ds.filter(function (x, i) { return i === 0 || x !== ds[i - 1]; });
+          out.push({ name: n + '/' + v.name, full: uniq.join('/') === rungs.join('/'),
+                     rungs: uniq.join('/'),
+                     badKind: v.rec.layers.filter(function (l) { return !B.kinds[l.kind]; })
+                       .map(function (l) { return l.kind; }),
+                     solo: v.rec.layers.filter(function (l) { return !!l.solo; }).length,
+                     badTex: !v.rec.tex || !B.families[v.rec.tex],
+                     r: v.hero.r, az: v.hero.az });
+        });
+      });
+      return out;
+    })()`);
+    for (const V of vars) {
+      check(V.name + ': variant uses all rungs, real kinds, one landmark, a texture',
+            V.full && V.badKind.length === 0 && V.solo === 1 && !V.badTex,
+            'rungs ' + V.rungs + (V.badKind.length ? ' bad ' + V.badKind.join(',') : '') +
+            ' solo ' + V.solo);
+      check(V.name + ': variant body sized and centred', V.r >= 3 && V.az > 0.15 && V.az < 0.85,
+            'r ' + V.r + ' az ' + V.az);
+    }
     for (const T of struct) {
       const full = T.rungs.length === T.want.length && T.rungs.every((v, i) => v === T.want[i]);
       check(T.name + ': all ' + T.want.length + ' rungs used', full,
@@ -273,7 +318,9 @@ async function main() {
       check(T.name + ': every band kind exists', T.badKind.length === 0, T.badKind.join(','));
       check(T.name + ': exactly one landmark', T.solo === 1, T.solo + ' solo layers');
       check(T.name + ': a texture family', !T.badTex, String(T.tex));
-      check(T.name + ': a celestial body', T.hero && Number.isFinite(T.r) && T.r >= 4,
+      /* A room's light is a smaller disc hung above the eye line (v6); the
+         open skies keep their big low bodies. */
+      check(T.name + ': a celestial body', T.hero && Number.isFinite(T.r) && T.r >= (T.ceil ? 3 : 4),
             T.kindStr || (T.hero ? ('r=' + T.r + ' elev=' + T.elev + ' az=' + T.az) : 'none'));
       if (T.hero && T.r !== T.wishR) info(T.name + ' body trimmed to the room', 'wish r' + T.wishR + ' -> r' + T.r + ' elev' + T.elev);
       /* A disc centred at or below the floor line is a lamp inside the ground
@@ -337,6 +384,26 @@ async function main() {
       const bad = await session.eval('window.__BQA.finite()');
       check('depth ' + depth + ': every value in the horizon is finite',
             bad.length === 0, bad.join(','));
+
+      /* --- the budget, and the renderer's handle on the light --- */
+      const budget = await session.eval(`(() => {
+        const r = DS.R3D.backdrop, B = DS.Backdrop3D;
+        const a = B && B.heroInfo ? B.heroInfo() : null;
+        const b = B && B.heroInfo ? B.heroInfo() : null;
+        const real = window.__BQA.bodyReal();
+        return { draws: r.draws, budget: DS.Backdrop.drawBudget, variant: r.variant,
+                 same: !!a && a === b && a.worldPos === b.worldPos,
+                 finite: !!a && [a.worldPos.x, a.worldPos.y, a.worldPos.z, a.intensity]
+                   .every(Number.isFinite),
+                 d: a && real ? +Math.hypot(a.worldPos.x - real.x, a.worldPos.y - real.y,
+                                            a.worldPos.z - real.z).toFixed(3) : null };
+      })()`);
+      check('depth ' + depth + ': the horizon draws inside its budget',
+            budget.draws > 0 && budget.draws <= budget.budget,
+            budget.draws + ' draw calls (budget ' + budget.budget + ', variant ' + budget.variant + ')');
+      check('depth ' + depth + ': heroInfo() is the body, finite, and allocation-free',
+            budget.same && budget.finite && budget.d != null && budget.d <= 0.05,
+            'same object ' + budget.same + ', finite ' + budget.finite + ', off the mesh by ' + budget.d);
 
       /* --- the ladder --- */
       const rungSet = Array.from(new Set(vals.rungs.map((r) => r.d)));
@@ -432,13 +499,22 @@ async function main() {
          rotation -- leaving the placement itself, which is the thing under
          test. */
       const grip = await session.eval(`(() => {
-        const r = DS.R3D.backdrop, real = window.__BQA.bodyReal();
+        const r = DS.R3D.backdrop;
+        if (DS.Backdrop3D && DS.Backdrop3D.heroInfo) DS.Backdrop3D.heroInfo();   // follow this camera
+        const real = window.__BQA.bodyReal();
         if (!r || !r.hero || !real) return null;
-        const h = r.hero;
+        const h = r.hero, cam = DS.R3D.camera, tg = DS.R3D.themeGroup;
+        /* The camera's aim: where its view crosses the actor plane, in the
+           horizon's own frame -- the line the body rides. */
+        const dir = new THREE.Vector3();
+        cam.getWorldDirection(dir);
+        const aim = cam.position.clone().addScaledVector(dir, -cam.position.z / dir.z);
+        tg.worldToLocal(aim);
+        const span = h.room ? DS.Backdrop.heroSpan.room : DS.Backdrop.heroSpan.sky;
         return { dx: +(real.gx - h.worldX).toFixed(2), dz: +(real.gz - h.z).toFixed(2),
                  dy: h.worldY == null ? null : +(real.gy - h.worldY).toFixed(2),
                  gx: real.gx, gz: real.gz,
-                 wantGx: +(r.wu * 0.5 + (h.az - 0.5) * r.wu * 0.9).toFixed(2),
+                 wantGx: +(aim.x + (h.az - 0.5) * span).toFixed(2),
                  room: !!h.room, az: h.az, wu: r.wu,
                  yaw: +DS.R3D.rig.yaw.toFixed(4) };
       })()`);
@@ -446,10 +522,10 @@ async function main() {
         check('depth ' + depth + ': the body can be found in the scene', false,
               'no mesh of the reported radius');
       } else {
-        check('depth ' + depth + ': the body sits on the floor\'s mid-line, at its azimuth',
-              Math.abs(grip.gx - grip.wantGx) <= 0.05,
+        check('depth ' + depth + ': the body rides ahead of the camera, at its azimuth',
+              Math.abs(grip.gx - grip.wantGx) <= 0.25,
               'group x ' + grip.gx + ' want ' + grip.wantGx +
-              ' (azimuth ' + grip.az + ' of wu ' + grip.wu + ')' +
+              ' (the aim + azimuth ' + grip.az + ')' +
               (grip.room ? ' in a room' : ' in the sky'));
         if (Math.abs(grip.yaw) < 1e-6) {
           check('depth ' + depth + ': the report describes the object that is on screen',

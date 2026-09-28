@@ -3,6 +3,7 @@
  *
  *   node tools/qa/shoot-backdrop.js [base-url] [--out DIR] [--size WxH]
  *                                   [--only d3,d7] [--before URL]
+ *                                   [--depths 1-30] [--presets 0,1]
  *
  * audit-backdrop.js decides whether the horizon is there with numbers. This tool
  * exists because numbers are not a picture: it shoots the ten floors a run
@@ -11,12 +12,14 @@
  * bands recede, whether the light is in the sky, and whether the horizon is
  * standing on the ground the player is on.
  *
- *   column 1   SIDE 0/7      the shipped shot: straight side-on, what the game has
- *                            always looked like, and the only one where the
- *                            level's own geometry reads as a platformer
- *   column 2   THREE-Q 40/24 the three-quarter RPG shot, one F6 away
+ *   column 1   ACTION 0/11   the shipped shot (the rig's default): close, 11
+ *                            degrees down, the light straight ahead
+ *   column 2   SIDE 0/7      the older straight side-on shot, one F6 away
  *   column 3   STEEP 60/35   the steepest preset: the one that shows the ground
  *                            plane and therefore the depth of the bands
+ *
+ * --presets picks columns by rig index (4 = action, 0 = side, 1 = three-q,
+ * 2 = steep, 3 = film); --depths walks other acts (1-30, or 11,14,22).
  *
  * --before URL adds a live-build column: the same ten floors on a deployed
  * build, walked the same way but with that build's own API. It is how "the old
@@ -39,15 +42,21 @@ const BACKDROP_PAGE = require('./lib/backdrop-page');
 const ROOT = path.dirname(path.dirname(__dirname));
 const DEFAULT_OUT = path.join('tools', 'qa', 'out', 'backdrop');
 
-const DEPTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+/* Act I by default; --depths 1-30 (or a list, 11,14,22) walks the other acts,
+   whose floors reuse the same thirteen themes with a depth-seeded variant. */
+let DEPTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 /* The three positions on the rig. Keys match CAM_PRESETS in the renderer, so a
    renamed preset breaks the filenames loudly instead of silently. */
-const PRESETS = [
+const ALL_PRESETS = [
+  { i: 4, key: 'cine', label: 'ACTION 0/11' },
   { i: 0, key: 'left', label: 'SIDE 0/7' },
   { i: 1, key: 'foot', label: 'THREE-Q 40/24' },
-  { i: 2, key: 'wide', label: 'STEEP 60/35' }
+  { i: 2, key: 'wide', label: 'STEEP 60/35' },
+  { i: 3, key: 'film', label: 'FILM 20/16' }
 ];
+const DEFAULT_PRESETS = [4, 0, 2];
+let PRESETS = ALL_PRESETS.filter((p) => DEFAULT_PRESETS.indexOf(p.i) >= 0);
 
 /* Where the frame is, in the page's own CSS pixels. The capture is clipped to
    it, and the PNG's header is checked against it afterwards: a clip that the
@@ -75,7 +84,7 @@ const FACTS = `(() => {
   if (!r) return null;
   const L = r.layers.slice().sort(function (a, b) { return a.d - b.d; });
   const h = r.hero, tg = DS.R3D.themeGroup;
-  return { theme: r.theme, wu: r.wu, gain: r.gain, anchorY: +r.anchorY.toFixed(2),
+  return { theme: r.theme, variant: r.variant, draws: r.draws, wu: r.wu, gain: r.gain, anchorY: +r.anchorY.toFixed(2),
            shift: tg ? +tg.position.y.toFixed(2) : 0,
            rungs: L.length, near: L[0].col, nearLum: lumOf(L[0].col),
            far: L[L.length - 1].col, farLum: lumOf(L[L.length - 1].col),
@@ -95,6 +104,18 @@ function value(args, flag) {
   const v = args[i + 1];
   if (v === undefined || v.startsWith('--')) throw new Error(flag + ' needs a value');
   return v;
+}
+
+/* "1-10", "11,14,22" or a mix of both. */
+function parseList(text) {
+  const out = [];
+  String(text).split(',').forEach((part) => {
+    const m = /^(\d+)-(\d+)$/.exec(part.trim());
+    if (m) { for (let i = Number(m[1]); i <= Number(m[2]); i++) out.push(i); }
+    else if (part.trim() !== '') out.push(Number(part.trim()));
+  });
+  if (!out.length || out.some((n) => !Number.isFinite(n))) throw new Error('bad list: ' + text);
+  return out;
 }
 
 function parseSize(text) {
@@ -196,7 +217,7 @@ async function capture(session, out, only, size) {
     }
     /* Back to the shipped shot: the sheet is looked at, but the game is also
        left in the state a player would find it in. */
-    await session.eval('(DS.R3D.setPreset(0), DS.R3D.rig.show = 0, true)');
+    await session.eval('(DS.R3D.setPreset(DS.R3D.defaultPreset), DS.R3D.rig.show = 0, true)');
     rows.push({ depth: depth, load: load, facts: facts, hz: hz, walk: walk, cells: cells });
   }
   return rows;
@@ -307,7 +328,7 @@ function sheet(rows, before, meta) {
       return '<td><a href="' + esc(c.file) + '"><img src="' + esc(c.file) + '" alt="depth ' +
         r.depth + ' ' + esc(c.preset.label) + '"></a>' +
         '<div class="cap">mean <b>' + esc(s.mean) + '</b> &middot; dark ' + esc(s.dark) + '%' +
-        (c.preset.i === 0 && s.body != null ? ' &middot; body <b>' + esc(s.body) + '</b>' : '') +
+        (c.preset.i === PRESETS[0].i && s.body != null ? ' &middot; body <b>' + esc(s.body) + '</b>' : '') +
         '</div></td>';
     }).join('');
     const bf = before && before[r.depth]
@@ -317,6 +338,7 @@ function sheet(rows, before, meta) {
     return '<tr>' +
       '<th class="row">' +
         '<b>depth ' + r.depth + '</b><br>' + esc(f.theme || r.load.biome) +
+        (f.variant && f.variant !== 'base' ? ' &middot; ' + esc(f.variant) : '') +
         '<div class="sub">' + esc(r.load.kind) + ' &middot; wu ' + esc(f.wu) +
           ' &middot; gain ' + esc(f.gain) + '</div>' +
         '<div class="sub">' + (f.body ? swatch(f.bodyCol) + ' ' + esc(f.body) : 'no body') +
@@ -328,7 +350,7 @@ function sheet(rows, before, meta) {
           ' &rarr; far ' + swatch(f.far) + esc(f.farLum) + '</div>' +
         '<div class="sub">horizon built ' + esc(f.anchorY) + ', shot at ' + esc(f.shift) +
           ' &rarr; ground ' + esc(hz.top) + ' (player ' + esc(hz.local) + ')</div>' +
-        '<div class="sub">' + esc(f.window) + ' boxes cut for the body</div>' +
+        '<div class="sub">' + esc(f.draws) + ' draw calls</div>' +
       '</th>' + cells + bf +
     '</tr>';
   }).join('');
@@ -389,7 +411,7 @@ ${esc(meta.size)} &middot; captured ${esc(meta.when)}</div>
 
 async function main() {
   const args = process.argv.slice(2);
-  const known = ['--out', '--size', '--only', '--before'];
+  const known = ['--out', '--size', '--only', '--before', '--depths', '--presets'];
   for (const a of args) {
     if (a.startsWith('--') && known.indexOf(a) < 0) {
       console.error('shoot-backdrop: unknown flag ' + a + ' (known: ' + known.join(', ') + ')');
@@ -406,6 +428,14 @@ async function main() {
     const onlyArg = value(args, '--only');
     only = onlyArg ? onlyArg.split(',').map((s) => (s.charAt(0) === 'd' ? s : 'd' + s)) : null;
     beforeUrl = value(args, '--before');
+    const dArg = value(args, '--depths');
+    if (dArg) DEPTHS = parseList(dArg);
+    const pArg = value(args, '--presets');
+    if (pArg) {
+      const want = parseList(pArg);
+      PRESETS = want.map((i) => ALL_PRESETS.find((p) => p.i === i)).filter(Boolean);
+      if (!PRESETS.length) throw new Error('--presets: no known rig index in ' + pArg);
+    }
   } catch (err) {
     console.error('shoot-backdrop: ' + err.message);
     return 2;

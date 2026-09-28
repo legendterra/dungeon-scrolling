@@ -220,8 +220,14 @@ window.DS = window.DS || {};
 
   // --- geometry batches -----------------------------------------------------
 
-  const batches = new Map();     // texture -> batch
-  const order = [];              // textures in first-use order this frame
+  /* One batch per texture PER SPACE. A single per-texture batch put every
+     glyph of a face in the draw slot of that face's first use: once a world
+     label (drawn before the HUD) used the small font first, the HUD's panel
+     rects -- a later texture -- landed on top of the HUD's own text. Keeping
+     world and ui batches apart means the whole world layer always sits under
+     the whole HUD; inside each layer first-use order still holds. */
+  const batches = { world: new Map(), ui: new Map() };   // texture -> batch
+  const order = [];              // batches in first-use order this frame
   let space = 'world';
 
   /* Scenes that draw INSIDE the play frame but behind the UI: the menu's camp
@@ -239,6 +245,7 @@ window.DS = window.DS || {};
      shared the white batch with the earliest panel). */
   let topFlag = false;
   const TOP_ORDER = 100000;
+  const UI_ORDER = 10000;
 
   function topQuad(tex, x, y, w, h, color, alpha) {
     topFlag = true;
@@ -248,23 +255,27 @@ window.DS = window.DS || {};
   }
 
   function batchFor(tex) {
-    let b = batches.get(tex);
+    const layer = space === 'world' ? batches.world : batches.ui;
+    let b = layer.get(tex);
     if (!b) {
       b = {
         tex: tex, pos: [], uv: [], col: [], idx: [], mesh: null, order: 0,
-        top: false
+        top: false, ui: layer === batches.ui
       };
-      batches.set(tex, b);
+      layer.set(tex, b);
     }
     return b;
   }
 
+  function clearBatch(b) {
+    b.pos.length = 0; b.uv.length = 0; b.col.length = 0; b.idx.length = 0;
+    b.top = false;
+    if (b.mesh) b.mesh.visible = false;
+  }
+
   function resetBatches() {
-    batches.forEach(function (b) {
-      b.pos.length = 0; b.uv.length = 0; b.col.length = 0; b.idx.length = 0;
-      b.top = false;
-      if (b.mesh) b.mesh.visible = false;
-    });
+    batches.world.forEach(clearBatch);
+    batches.ui.forEach(clearBatch);
     order.length = 0;
     space = 'world';
   }
@@ -298,7 +309,7 @@ window.DS = window.DS || {};
     if (a <= 0.003) return;
 
     const b = batchFor(tex || white());
-    if (b.pos.length === 0) { b.order = order.length; order.push(b.tex); }
+    if (b.pos.length === 0) { b.order = order.length; order.push(b); }
     if (topFlag) b.top = true;
 
     const x0 = x, y0 = y, x1 = x + w, y1 = y + h;
@@ -346,9 +357,9 @@ window.DS = window.DS || {};
 
   function flushBatches() {
     for (let i = 0; i < order.length; i++) {
-      const tex = order[i];
-      const b = batches.get(tex);
-      if (!b || b.idx.length === 0) continue;
+      const b = order[i];
+      const tex = b.tex;
+      if (b.idx.length === 0) continue;
       let mesh = b.mesh;
       if (!mesh) {
         const geo = new THREE.BufferGeometry();
@@ -368,7 +379,7 @@ window.DS = window.DS || {};
         uiScene.add(mesh);
       }
       mesh.visible = true;
-      mesh.renderOrder = b.top ? TOP_ORDER + i : i;
+      mesh.renderOrder = (b.top ? TOP_ORDER : 0) + (b.ui ? UI_ORDER : 0) + i;
       upload(mesh.geometry, b);
     }
   }
