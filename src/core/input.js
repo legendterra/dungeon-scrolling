@@ -28,6 +28,11 @@ window.DS = window.DS || {};
        surrounding shell eats the first binding. */
     bag:      ['Tab', 'KeyB'],
     reroll:   ['KeyR', 'PAD8'],
+    /* Elemental infusion. R/View share the shrine's reroll binding on purpose:
+       the shrine is a modal, so the two are never read in the same frame.
+       Backwards is T, not Shift+R - Shift is dash and would fire first. */
+    infuse:     ['KeyR', 'PAD8'],
+    infuseBack: ['KeyT'],
     pause:    ['Escape', 'KeyP', 'PAD9'],
     /* Enter confirms, everywhere. Space used to as well, which meant the key
        that jumps also picked menu entries - fine for a prototype, wrong for a

@@ -125,6 +125,8 @@ window.DS = window.DS || {};
         coins: g.rng.int(45, 80), shards: g.rng.int(2, 4),
         hearts: 1, key: true, item: null
       });
+      // Every boss teaches an element the run does not know yet.
+      DS.Inv.grantBossEssence(g);
     };
 
     /* An ACT boss - the one in a boss room - opens the door onward rather than
@@ -136,6 +138,9 @@ window.DS = window.DS || {};
       g.bossesSlain = (g.bossesSlain || 0) + 1;
       const name = (boss && boss.name) || 'THE KING';
       g.toast(name.replace(/^THE /, '') + ' FALLS', '#f2c14e');
+      // Every boss teaches an element the run does not know yet (an act-clear
+      // banner below, if any, takes the banner slot; the pips still light).
+      DS.Inv.grantBossEssence(g);
       const Acts = DS.Acts;
       if (Acts && !Acts.isEndless(g.depth) && Acts.depthInAct(g.depth) === C.ACT_LENGTH) {
         const act = Acts.actOf(g.depth);
@@ -697,6 +702,10 @@ window.DS = window.DS || {};
     const item = action.target.item;
     const color = DS.Weapons.rarityColor(item.rarity);
     const result = DS.Inv.addItem(g.inv, item);
+    // An elemental weapon teaches its element; the full-bag swap below skips
+    // addItem, so it is unlocked here for every path.
+    const learned = result.essence || DS.Inv.unlockFromItem(g.inv, item);
+    if (learned) DS.Inv.announceEssence(g, learned);
 
     g.pickups.splice(action.index, 1);
 

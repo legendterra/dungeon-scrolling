@@ -727,6 +727,10 @@ window.DS = window.DS || {};
     fxGroup = new THREE.Group();
     scene.add(fxGroup);
 
+    /* The pooled 3D effects layer (src/fx3d/): sparks, trails, crescents,
+       debris and every element's look, in six draw calls. */
+    if (DS.FX3D) DS.FX3D.init(scene, camera);
+
     // The camera must join the scene graph for its vignette child to render.
     scene.add(camera);
     vignetteMesh = buildVignette();
@@ -912,6 +916,8 @@ window.DS = window.DS || {};
     model.root.traverse(function (o) {
       if (o.geometry) o.geometry.dispose();
     });
+    // Flash variants are shared (see flashModel); only the bookkeeping goes.
+    model.flash = null;
     if (model.root.parent) model.root.parent.remove(model.root);
   }
 
@@ -2323,6 +2329,8 @@ window.DS = window.DS || {};
     const release = base && base.holdMode === 'release';
     mesh.rotation.set(release ? 0.2 : 0.35, release ? 0 : -0.55, release ? 0 : -0.18);
     if (offhand) mesh.rotation.y = 0.55;    // mirrored cant for the other fist
+    // The at-rest grip, which a swing blends away from and back to.
+    mesh.userData.rest = { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z };
     arm.add(mesh);
     return mesh;
   }
@@ -2361,7 +2369,8 @@ window.DS = window.DS || {};
         // the blade, tinted by the element. Melee weapons hold their element
         // in procs.element (the Flaming/Frozen prefix), staffs in item.element.
         const auraEl = item.element || (item.procs && item.procs.element);
-        if (auraEl && DS.Weapons.ELEMENTS[auraEl]) {
+        // With the pooled FX layer the aura is emitted per frame (heroFx).
+        if (auraEl && DS.Weapons.ELEMENTS[auraEl] && !(DS.FX3D && DS.FX3D.ready)) {
           const elCol = DS.Voxel.elementColorHex(auraEl);
           const aura = new THREE.Group();
           for (let a = 0; a < 3; a++) {
@@ -2437,15 +2446,15 @@ window.DS = window.DS || {};
     const ratio = M.clamp((p.holdFrames || 0) / max, 0, 1);
     const full = ratio >= 0.999;
 
-    const E = base.element ? DS.Weapons.ELEMENTS[base.element] : null;
-    const tint = new THREE.Color(full ? '#fff0a8' : (E ? E.color : '#a8e4ff'));
-    aura.mat.color.copy(tint);
-    for (let i = 0; i < aura.motes.length; i++) aura.motes[i].material.color.copy(tint);
+    const elc = weaponElement(base);
+    const E = elc ? DS.Weapons.ELEMENTS[elc] : null;
+    aura.mat.color.set(full ? '#fff0a8' : (E ? E.color : '#a8e4ff'));
+    for (let i = 0; i < aura.motes.length; i++) aura.motes[i].material.color.copy(aura.mat.color);
 
     aura.group.visible = true;
     const pulse = full ? 1 + Math.sin(time * 9) * 0.12 : 1;
     aura.core.scale.setScalar((0.35 + ratio * 0.75) * pulse);
-    aura.mat.opacity = 0.1 + ratio * 0.35 + (full ? 0.12 : 0);
+    aura.mat.opacity = 0.04 + ratio * 0.14 + (full ? 0.06 : 0);
 
     for (let i = 0; i < aura.motes.length; i++) {
       const a = time * (2.2 + ratio * 3) + (i / aura.motes.length) * Math.PI * 2;
@@ -2453,6 +2462,366 @@ window.DS = window.DS || {};
       aura.motes[i].position.set(Math.cos(a) * r, 0.55 + Math.sin(a * 1.7) * 0.16, Math.sin(a) * r * 0.5);
       aura.motes[i].material.opacity = 0.25 + ratio * 0.6;
     }
+  }
+
+  /* --- full-body attack animation --------------------------------------------
+
+     Every melee combo step (DS.Combos key) has three keys: A the anticipation
+     the body winds into, S where the strike lands, F the follow-through it
+     settles into. Channels, all in the model's own space (it faces +z while
+     it swings, see ATTACK_YAW):
+       ax ay az  sword arm: pitch (0 down, -PI/2 forward, -PI up), yaw across
+                 the body (- toward the camera), roll
+       lx lz     off-hand arm: pitch and roll (the counter-swing)
+       ty tx tz  torso twist (+ winds the sword shoulder back), forward lean,
+                 side lean
+       hy        head turn
+       gl gr     legs: the brace (- is a leg stepping forward)
+       dx dy     root lunge forward / crouch (world units)
+       spin      extra turn of the whole body (a full 2*PI is a spin move)
+     The arm uses YXZ order so ay sweeps a RAISED arm horizontally. */
+  const ATTACK_YAW = 0.95;
+  const HERO_POSES = {
+    slashH: {
+      A: { ax: -1.45, ay: 1.7, ty: 0.6, tx: 0.02, lx: -0.5, gl: -0.35, gr: 0.3, hy: 0.25 },
+      S: { ax: -1.5, ay: -1.2, ty: -0.6, tx: 0.18, lx: 0.55, gl: -0.55, gr: 0.45, dx: 0.14, hy: -0.15 },
+      F: { ax: -1.2, ay: -1.55, ty: -0.72, tx: 0.12, lx: 0.35, gl: -0.45, gr: 0.4, dx: 0.1, hy: -0.2 }
+    },
+    slashUp: {
+      A: { ax: 0.55, ay: 0.2, ty: 0.35, tx: 0.1, lx: -0.4, gl: -0.25, gr: 0.25, dy: -0.07 },
+      S: { ax: -2.7, ay: -0.35, ty: -0.35, tx: -0.12, lx: 0.65, gl: -0.5, gr: 0.5, dx: 0.12, dy: 0.06 },
+      F: { ax: -2.95, ay: -0.45, ty: -0.4, tx: -0.14, lx: 0.45, gl: -0.4, gr: 0.4, dx: 0.1, dy: 0.04 }
+    },
+    spin: {
+      A: { ax: -3.0, ay: -0.2, ty: 0.25, tx: -0.18, lx: -0.9, gl: -0.3, gr: 0.3, dy: 0.06 },
+      S: { ax: -0.35, ay: -0.35, ty: -0.2, tx: 0.5, lx: 0.7, gl: -0.75, gr: 0.65, dx: 0.28, dy: -0.13, spin: Math.PI * 2 },
+      F: { ax: -0.1, ay: -0.35, ty: -0.25, tx: 0.42, lx: 0.5, gl: -0.7, gr: 0.6, dx: 0.26, dy: -0.11, spin: Math.PI * 2 }
+    },
+    heavySword: {
+      A: { ax: -3.0, ay: 0.25, ty: 0.5, tx: -0.18, lx: -0.7, gl: -0.4, gr: 0.4, dy: -0.07, hy: 0.2 },
+      S: { ax: -0.25, ay: -0.3, ty: -0.5, tx: 0.55, lx: 0.8, gl: -0.85, gr: 0.75, dx: 0.38, dy: -0.16 },
+      F: { ax: 0.15, ay: -0.3, ty: -0.55, tx: 0.45, lx: 0.6, gl: -0.8, gr: 0.7, dx: 0.34, dy: -0.14 }
+    },
+    crossA: {
+      A: { ax: -2.5, ay: 0.5, ty: 0.3, lx: -1.4, gl: -0.3, gr: 0.3 },
+      S: { ax: -0.55, ay: -0.55, ty: -0.35, tx: 0.25, lx: 0.3, gl: -0.5, gr: 0.45, dx: 0.1 },
+      F: { ax: -0.35, ay: -0.65, ty: -0.35, tx: 0.2, lx: 0.2, gl: -0.45, gr: 0.4, dx: 0.08 }
+    },
+    crossB: {
+      A: { ax: -0.3, ay: 0.75, ty: 0.35, tx: 0.2, lx: 0.3, gl: -0.35, gr: 0.35 },
+      S: { ax: -2.55, ay: -0.5, ty: -0.3, tx: -0.05, lx: -0.5, gl: -0.5, gr: 0.45, dx: 0.1 },
+      F: { ax: -2.75, ay: -0.6, ty: -0.3, tx: -0.08, lx: -0.4, gl: -0.45, gr: 0.4, dx: 0.08 }
+    },
+    dashStab: {
+      A: { ax: 0.6, ay: 0.15, ty: 0.55, tx: 0.12, lx: -0.8, gl: -0.2, gr: 0.45, dy: -0.1 },
+      S: { ax: -1.6, ay: -0.05, ty: -0.45, tx: 0.4, lx: 0.85, gl: -0.95, gr: 0.85, dx: 0.32, dy: -0.06 },
+      F: { ax: -1.5, ay: -0.05, ty: -0.4, tx: 0.32, lx: 0.7, gl: -0.85, gr: 0.75, dx: 0.28, dy: -0.05 }
+    },
+    heavyDagger: {
+      A: { ax: 0.7, ay: 0.15, ty: 0.65, tx: 0.18, lx: -0.9, gl: -0.2, gr: 0.5, dy: -0.14 },
+      S: { ax: -1.6, ay: -0.05, ty: -0.5, tx: 0.5, lx: 0.95, gl: -1.0, gr: 0.9, dx: 0.42, dy: -0.08 },
+      F: { ax: -1.5, ay: -0.05, ty: -0.45, tx: 0.4, lx: 0.8, gl: -0.9, gr: 0.8, dx: 0.36, dy: -0.06 }
+    },
+    cleave: {
+      A: { ax: -1.6, ay: 1.9, ty: 0.8, tx: -0.05, lx: -1.2, gl: -0.45, gr: 0.4, dy: -0.05, hy: 0.3 },
+      S: { ax: -1.3, ay: -1.4, ty: -0.75, tx: 0.22, lx: 0.3, gl: -0.65, gr: 0.55, dx: 0.16, hy: -0.2 },
+      F: { ax: -1.05, ay: -1.75, ty: -0.85, tx: 0.16, lx: 0.2, gl: -0.55, gr: 0.5, dx: 0.12 }
+    },
+    slam: {
+      A: { ax: -3.1, ay: 0.05, ty: 0.15, tx: -0.28, lx: -2.8, gl: -0.3, gr: 0.3, dy: 0.09 },
+      S: { ax: -0.4, ay: -0.2, tx: 0.62, lx: -0.7, gl: -0.85, gr: 0.85, dx: 0.2, dy: -0.24 },
+      F: { ax: -0.3, ay: -0.2, tx: 0.56, lx: -0.6, gl: -0.8, gr: 0.8, dx: 0.2, dy: -0.22 }
+    },
+    heavyAxe: {
+      A: { ax: -3.15, ay: 0.05, ty: 0.2, tx: -0.35, lx: -2.9, gl: -0.35, gr: 0.35, dy: 0.12 },
+      S: { ax: -0.35, ay: -0.2, tx: 0.72, lx: -0.6, gl: -0.95, gr: 0.95, dx: 0.28, dy: -0.3 },
+      F: { ax: -0.25, ay: -0.2, tx: 0.66, lx: -0.5, gl: -0.9, gr: 0.9, dx: 0.26, dy: -0.28 }
+    },
+    thrust: {
+      A: { ax: -1.45, ay: 0.35, ty: 0.65, tx: -0.05, lx: -1.3, gl: -0.2, gr: 0.35, dx: -0.12 },
+      S: { ax: -1.6, ay: -0.1, ty: -0.45, tx: 0.3, lx: 0.6, gl: -0.85, gr: 0.75, dx: 0.36, dy: -0.06 },
+      F: { ax: -1.55, ay: -0.1, ty: -0.4, tx: 0.25, lx: 0.45, gl: -0.75, gr: 0.65, dx: 0.3, dy: -0.05 }
+    },
+    sweep: {
+      A: { ax: -2.85, ay: 0.3, ty: 0.4, tx: -0.12, lx: -0.8, gl: -0.3, gr: 0.3 },
+      S: { ax: -0.15, ay: -0.45, ty: -0.5, tx: 0.38, lx: 0.5, gl: -0.65, gr: 0.55, dx: 0.16, dy: -0.08 },
+      F: { ax: 0.3, ay: -0.5, ty: -0.55, tx: 0.32, lx: 0.4, gl: -0.6, gr: 0.5, dx: 0.14, dy: -0.07 }
+    },
+    heavySpear: {
+      A: { ax: -1.45, ay: 0.4, ty: 0.8, tx: -0.08, lx: -1.4, gl: -0.2, gr: 0.4, dx: -0.2 },
+      S: { ax: -1.6, ay: -0.1, ty: -0.5, tx: 0.4, lx: 0.7, gl: -0.95, gr: 0.85, dx: 0.5, dy: -0.08 },
+      F: { ax: -1.55, ay: -0.1, ty: -0.45, tx: 0.32, lx: 0.55, gl: -0.85, gr: 0.75, dx: 0.44, dy: -0.07 }
+    }
+  };
+  const HEAVY_KEY = { sword: 'heavySword', dagger: 'heavyDagger', greataxe: 'heavyAxe', spear: 'heavySpear' };
+  // Wrist during a swing: the blade continues the arm (x ~ PI flips it outward).
+  const ATTACK_GRIP = {
+    sword: [2.95, 0, 0.12], dagger: [3.0, 0, 0], greataxe: [2.85, 0, 0.1], spear: [3.1, 0, 0]
+  };
+  const POSE_CH = ['ax', 'ay', 'az', 'lx', 'lz', 'ty', 'tx', 'tz', 'hy', 'gl', 'gr', 'dx', 'dy', 'spin'];
+  const POSE_OUT = {};
+  for (let i = 0; i < POSE_CH.length; i++) POSE_OUT[POSE_CH[i]] = 0;
+
+  function smooth01(x) {
+    const t = M.clamp(x, 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+
+  /* The pose at swing time t: holds A until the windup ends, snaps A -> S with
+     a fast-out curve (the strike), then eases S -> F. */
+  function samplePose(key, t, ta, ts, out) {
+    const P = HERO_POSES[key] || HERO_POSES.slashH;
+    let seg, e;
+    if (t < ts) {
+      seg = 0;
+      const u = t <= ta ? 0 : (t - ta) / Math.max(0.001, ts - ta);
+      e = 1 - Math.pow(1 - u, 3);
+    } else {
+      seg = 1;
+      const u = (t - ts) / Math.max(0.001, 1 - ts);
+      e = 1 - (1 - u) * (1 - u);
+    }
+    for (let i = 0; i < POSE_CH.length; i++) {
+      const c = POSE_CH[i];
+      const a = P.A[c] || 0, s = P.S[c] || 0, f = P.F[c] || 0;
+      out[c] = seg === 0 ? a + (s - a) * e : s + (f - s) * e;
+    }
+    return out;
+  }
+
+  // Channels only a swing writes, returned to neutral before each pose pass.
+  function resetAttackChannels(m) {
+    if (m.armR.rotation.order !== 'YXZ') { m.armR.rotation.order = 'YXZ'; m.armL.rotation.order = 'YXZ'; }
+    m.armR.rotation.y = 0; m.armR.rotation.z = 0;
+    m.armL.rotation.z = 0;
+    m.torso.rotation.x = 0; m.torso.rotation.z = 0;
+    m.head.rotation.y = 0;
+  }
+
+  function applyPose(m, o, w, face) {
+    const L = M.lerp;
+    m.armR.rotation.x = L(m.armR.rotation.x, o.ax, w);
+    m.armR.rotation.y = o.ay * w;
+    m.armR.rotation.z = o.az * w;
+    m.armL.rotation.x = L(m.armL.rotation.x, o.lx, w);
+    m.armL.rotation.z = o.lz * w;
+    m.torso.rotation.y = L(m.torso.rotation.y, o.ty, w);
+    m.torso.rotation.x = o.tx * w;
+    m.torso.rotation.z = o.tz * w;
+    m.head.rotation.y = o.hy * w;
+    m.legL.rotation.x = L(m.legL.rotation.x, o.gl, w);
+    m.legR.rotation.x = L(m.legR.rotation.x, o.gr, w);
+    m.root.position.x += o.dx * w * (face < 0 ? -1 : 1);
+    m.root.position.y += o.dy * w;
+  }
+
+  /* --- hero FX: weapon trail, element aura, dash ribbon ---------------------- */
+
+  // Blade sample points in the weapon's own space: [innerX, innerY, tipX, tipY].
+  const WEAPON_TIP = {
+    sword: [0, 0.34, 0, 0.84], dagger: [0, 0.16, 0, 0.47], greataxe: [0.12, 0.72, 0.44, 1.02],
+    spear: [0, 1.05, 0, 1.76], staff: [0, 0.92, 0, 1.2], bow: [0, -0.5, 0, 0.6]
+  };
+  const TRAIL_STYLE = {
+    sword: { core: 0xffffff, edge: 0x5f9dff, life: 9 },
+    dagger: { core: 0xffffff, edge: 0xa070ff, life: 7 },
+    greataxe: { core: 0xfff4d8, edge: 0xff7a20, life: 12 },
+    spear: { core: 0xffffff, edge: 0x40c0ff, life: 8 }
+  };
+  let heroTrail = 0;
+  let heroTrailSwing = -1;
+  let heroDashTrail = 0;
+  let heroAuraEl = null;
+  let heroFxFrame = -1;
+  const fxHilt = new THREE.Vector3();
+  const fxTip = new THREE.Vector3();
+
+  /* The weapon's element right now. Infusion (DS.Elements.activeElement) wins
+     when it exists; otherwise the weapon's own element or enchant. */
+  function weaponElement(item) {
+    if (!item) return null;
+    if (DS.Elements && typeof DS.Elements.activeElement === 'function') {
+      const el = DS.Elements.activeElement(item);
+      if (el) return el;
+    }
+    return item.element || (item.procs && item.procs.element) || null;
+  }
+
+  function heroFx(g, p, m, item, base, swinging) {
+    const F = DS.FX3D;
+    if (!F || !F.ready || !heroWeaponMesh || p.dead) return;
+    // Emit and sample only when the game actually advanced a frame.
+    if (g.frames === heroFxFrame) return;
+    heroFxFrame = g.frames;
+
+    m.root.updateMatrixWorld(true);
+    const key = base ? base.key : 'sword';
+    const tip = WEAPON_TIP[key] || WEAPON_TIP.sword;
+    fxHilt.set(tip[0], tip[1], 0);
+    heroWeaponMesh.localToWorld(fxHilt);
+    fxTip.set(tip[2], tip[3], 0);
+    heroWeaponMesh.localToWorld(fxTip);
+    const el = weaponElement(item);
+
+    // The swing's trail: from the strike until the follow-through settles.
+    if (swinging) {
+      if (p.swingId !== heroTrailSwing) {
+        heroTrailSwing = p.swingId;
+        if (heroTrail) F.rib.release(heroTrail);
+        heroTrail = 0;
+      }
+      const t = 1 - p.swingTimer / Math.max(1, p.swingMax);
+      const ta = (p.attackWindup || 0) / Math.max(1, p.swingMax);
+      if (t >= ta * 0.7 && t < 0.88) {
+        if (!heroTrail) {
+          const st = TRAIL_STYLE[key] || TRAIL_STYLE.sword;
+          const tr = el ? F.kit(el).trail : st;
+          heroTrail = F.rib.acquire(false, st.life + (p.attackHeavy ? 3 : 0), tr.core, tr.edge,
+                                    p.attackHeavy ? 1.9 : 1.5, 1);
+        }
+        if (heroTrail > 0) F.rib.pushBlade(heroTrail, fxHilt.x, fxHilt.y, fxHilt.z, fxTip.x, fxTip.y, fxTip.z);
+      }
+    } else if (heroTrail) {
+      F.rib.release(heroTrail);
+      heroTrail = 0;
+    }
+
+    // Dashes and lunges drag a streak of light behind the body.
+    const dashing = p.dashFrames > 0 || p.lungeFrames > 0;
+    if (dashing) {
+      if (!heroDashTrail || !F.rib.isLive(heroDashTrail)) {
+        const c = p.miniActive ? 0xa3e86b : (el ? F.kit(el).pal.main : 0xa8e4ff);
+        heroDashTrail = F.rib.acquire(true, 10, 0xffffff, c, 1.0, 0.7);
+      }
+      if (heroDashTrail > 0) {
+        F.rib.pushLine(heroDashTrail, (p.x + p.w * 0.5) * P2U, -(p.y + p.h * 0.55) * P2U, ACTOR_Z - 0.05, 1.0);
+      }
+    } else if (heroDashTrail) {
+      F.rib.release(heroDashTrail);
+      heroDashTrail = 0;
+    }
+
+    // The element aura the weapon wears.
+    if (el !== heroAuraEl) {
+      if (heroAuraEl === 'earth') F.releasePebbles();
+      heroAuraEl = el;
+    }
+    if (el) {
+      const kit = F.kit(el);
+      kit.aura(fxHilt.x, fxHilt.y, fxHilt.z, fxTip.x, fxTip.y, fxTip.z, g.frames, swinging ? 2 : 1);
+      /* A tinted halo round the blade in the ALPHA layer: additive light alone
+         vanishes on a bright floor, a coloured haze reads everywhere. */
+      if ((g.frames & 1) === 0) {
+        const s = F.soft.spec();
+        s.x = (fxHilt.x + fxTip.x) * 0.5; s.y = (fxHilt.y + fxTip.y) * 0.5; s.z = (fxHilt.z + fxTip.z) * 0.5;
+        const dx = fxTip.x - fxHilt.x, dy = fxTip.y - fxHilt.y;
+        s.cell = 0; s.size = 0.8 + Math.sqrt(dx * dx + dy * dy) * 1.5; s.size1 = s.size;
+        s.life = 4; F.col(s, kit.pal.main, 1); s.a = 0.4; s.a1 = 0.15;
+        F.soft.emit(s);
+      }
+    }
+
+    // A full charge crackles on the blade.
+    if (p.charging && base && p.holdFrames >= base.chargeMax && g.frames % 3 === 0) {
+      F.glowAt(fxTip.x, fxTip.y, fxTip.z, 0.55, el ? F.kit(el).pal.main : 0xfff0a8, 1.6, 6);
+      F.sparkAt(fxTip.x, fxTip.y, fxTip.z, F.rnd(-0.05, 0.05), F.rnd(0.02, 0.08), 0,
+                0xfff0a8, 2.2, 8, 0.04, 2, 0, 0.9);
+    }
+  }
+
+  /* --- enemy hit flash --------------------------------------------------------
+
+     The voxel materials are a SHARED cache, so an emissive pulse written to
+     them would light every monster in the room. A flashing model instead
+     swaps its meshes onto FLASH VARIANTS of their materials - clones with a
+     white-hot emissive at three strengths, cached per source material and
+     shared by every monster - and swaps straight back to the originals when
+     the flash ends. Nothing per model is allocated after its first hit. */
+  const FLASH_LEVELS = [0.05, 0.12, 0.22];
+  const flashVariants = new Map();   // source material -> [variant per level]
+
+  function flashVariant(src, level) {
+    let list = flashVariants.get(src);
+    if (!list) {
+      list = FLASH_LEVELS.map(function (i) {
+        const c = src.clone();
+        c.emissive.setRGB(1, 0.93, 0.84);
+        c.emissiveIntensity = i;
+        return c;
+      });
+      flashVariants.set(src, list);
+    }
+    return list[level];
+  }
+
+  function flashModel(model, k) {
+    const level = k <= 0.02 ? -1 : (k < 0.4 ? 0 : (k < 0.75 ? 1 : 2));
+    if (!model.flash) {
+      if (level < 0) return;
+      const meshes = [], orig = [];
+      model.root.traverse(function (o) {
+        if (!o.isMesh || !o.material || !o.material.emissive) return;
+        meshes.push(o); orig.push(o.material);
+      });
+      model.flash = { meshes: meshes, orig: orig, level: -1 };
+    }
+    const f = model.flash;
+    if (level === f.level) return;
+    f.level = level;
+    for (let i = 0; i < f.meshes.length; i++) {
+      f.meshes[i].material = level < 0 ? f.orig[i] : flashVariant(f.orig[i], level);
+    }
+  }
+
+  /* --- friendly projectile trails and impacts ---------------------------------- */
+
+  let projPrev = [];
+  let projNow = [];
+  let projFrame = -1;
+  const SHOT = { dir: 1, el: null, kind: 'arrow' };
+
+  function projFx(g, p, X, Y, Z) {
+    const F = DS.FX3D;
+    p.fxSeen = g.frames;
+    p.fxX = X; p.fxY = Y;
+    projNow.push(p);
+    if (p.fxRib === undefined) {
+      const k = F.kit(p.element);
+      const orb = p.kind !== 'arrow';
+      const core = p.element ? k.trail.core : (orb ? 0xe0f4ff : 0xfff6dc);
+      const edge = p.element ? k.trail.edge : (orb ? 0x6fb8ff : (p.trailColor ? F.cssHex(p.trailColor) : 0xffd890));
+      p.fxRib = F.rib.acquire(true, orb ? 12 : (p.pierce > 0 ? 12 : 8), core, edge, orb ? 1.5 : 1.3, 1);
+    }
+    const width = p.kind === 'arrow' ? (p.pierce > 0 ? 0.3 : 0.14) : 0.42;
+    if (p.fxRib > 0) F.rib.pushLine(p.fxRib, X, Y, Z, width);
+    if (p.kind !== 'arrow') {
+      const a = g.frames * 0.5;
+      const k = F.kit(p.element || 'water');
+      const s = F.add.spec();
+      s.x = X + Math.cos(a) * 0.2; s.y = Y + Math.sin(a) * 0.2; s.z = Z + Math.sin(a * 0.7) * 0.1;
+      s.vx = -Math.sin(a) * 0.02; s.vy = Math.cos(a) * 0.02; s.drag = 0.9;
+      s.cell = 13; s.size = 0.09; s.size1 = 0.02; s.life = 14;
+      F.col(s, k.pal.main, 2); s.a = 1; s.a1 = 0;
+      F.add.emit(s);
+      if (p.element && g.frames % 3 === 0) k.ambient(X, Y, Z, 0.5);
+    } else if (p.pierce > 0) {
+      F.sparkAt(X, Y, Z, -p.vx * P2U * 0.3, p.vy * P2U * 0.3, 0, 0xfff6dc, 2, 6, 0.04, 2, 0, 0.9);
+    }
+  }
+
+  // Shots that vanished since last frame with life left hit something.
+  function projImpacts(g) {
+    const F = DS.FX3D;
+    for (let i = 0; i < projPrev.length; i++) {
+      const q = projPrev[i];
+      if (q.fxSeen === g.frames) continue;
+      SHOT.dir = M.sign(q.vx) || 1;
+      SHOT.el = q.element || null;
+      SHOT.kind = q.kind;
+      if (q.life > 0) F.at('shotImpact', q.fxX, q.fxY, ACTOR_Z, SHOT);
+    }
+    const t = projPrev; projPrev = projNow; projNow = t;
+    projNow.length = 0;
   }
 
   function poseHero(g, p, time) {
@@ -2483,12 +2852,22 @@ window.DS = window.DS || {};
        right-facing profile. The mirror is still the mirror; the sign of the
        yaw is what aims the face. */
     const moving = Math.abs(p.vx || 0) > 0.35;
-    const walkSign = (p.facing || 1) < 0 ? -1 : 1;
+    /* A melee swing (or its wind-up) owns the facing: the body turns side-on
+       toward the swing so the arm sweeps across the screen, not at the lens. */
+    const heldItem = DS.Inv.weapon(p.inv);
+    const heldBase = heldItem ? DS.Weapons.WEAPONS[heldItem.type] : null;
+    const meleeHeld = !!heldBase && heldBase.holdMode !== 'release';
+    const swinging = meleeHeld && p.swingTimer > 0 && !!p.pending;
+    const winding = meleeHeld && p.charging && !swinging;
+    const face = swinging ? (p.attackDir || p.facing || 1) : (p.facing || 1);
+    const walkSign = face < 0 ? -1 : 1;
     let targetRy = moving ? WALK_YAW * walkSign : IDLE_YAW;
+    if (swinging || winding) targetRy = ATTACK_YAW * walkSign;
     // The mirror itself. Nothing else writes root.scale on the hero, so a
     // straight assignment per frame is safe (the enemy path has to multiply,
     // because it still sets its own scalar for rank size).
-    m.root.scale.x = p.facing < 0 ? -1 : 1;
+    m.root.scale.x = face < 0 ? -1 : 1;
+    resetAttackChannels(m);
 
     const airborne = !p.onGround && !p.onRope;
     const rising = airborne && p.vy < 0;
@@ -2521,23 +2900,31 @@ window.DS = window.DS || {};
        read the same charge value. */
     updateChargeAura(m, p, time);
 
-    // Attack: arm sweeps through the 2D game's pose curve.
-    if (p.swingTimer > 0 && p.pending) {
-      const item = DS.Inv.weapon(p.inv);
-      const base = item ? DS.Weapons.WEAPONS[item.type] : null;
+    /* Attack: the whole body, keyed per weapon per combo step (HERO_POSES).
+       Anticipation -> strike -> follow-through, blended over the locomotion
+       pose so a swing eases in and hands the body back without a pop. */
+    let spin = 0;
+    let attackW = 0;
+    if (swinging) {
       const t = 1 - (p.swingTimer / Math.max(1, p.swingMax));
-      const heavy = p.attackHeavy;
-      const arc = base && (base.key === 'sword' || base.key === 'greataxe');
-      if (arc) {
-        m.armR.rotation.x = M.lerp(-2.3, 1.4, heavy ? t * t : t);
-        m.torso.rotation.y = M.lerp(0.5, -0.4, t);
-      } else if (base && (base.key === 'dagger' || base.key === 'spear')) {
-        const out = t < 0.35 ? t / 0.35 : 1 - (t - 0.35) / 0.65;
-        m.armR.rotation.x = -1.5;
-        m.armR.rotation.z = M.lerp(0.4, -0.4, out);
-      } else {
-        m.armR.rotation.x = M.lerp(-2.6, -0.7, Math.sin(t * Math.PI));
-      }
+      const key = p.attackKey || (p.attackHeavy ? 'heavySword' : 'slashH');
+      const ta = M.clamp((p.attackWindup || 0) / Math.max(1, p.swingMax), 0.04, 0.5);
+      const ts = M.clamp(ta + Math.max(3, (p.attackStrike || 5)) / Math.max(1, p.swingMax), ta + 0.08, 0.85);
+      samplePose(key, t, ta, ts, POSE_OUT);
+      attackW = t < ta ? 1 - (1 - t / ta) * (1 - t / ta)
+              : (t > 0.8 ? 1 - smooth01((t - 0.8) / 0.2) : 1);
+      applyPose(m, POSE_OUT, attackW, face);
+      spin = POSE_OUT.spin * attackW;
+    } else if (winding) {
+      /* A heavy wind-up holds the heavy blow's anticipation, trembling harder
+         as the charge fills. */
+      const ratio = M.clamp(p.holdFrames / ((heldBase && heldBase.chargeMax) || 30), 0, 1);
+      const key = HEAVY_KEY[heldBase.key] || 'heavySword';
+      samplePose(key, 0, 0.1, 0.5, POSE_OUT);
+      const tremble = Math.sin(time * 38) * 0.05 * ratio;
+      POSE_OUT.ax += tremble; POSE_OUT.ty += tremble * 0.5;
+      attackW = smooth01(Math.min(1, ratio * 2.5));
+      applyPose(m, POSE_OUT, attackW, face);
     } else if (p.aim) {
       /* Ranged aiming: the shooting arm follows the cursor's pitch, the other
          steadies the weapon, and the shoulders open toward the target. The
@@ -2547,26 +2934,50 @@ window.DS = window.DS || {};
       const ap = m.aimPitch;
       const charging2 = p.charging
         ? M.clamp(p.holdFrames / 30, 0, 1) : 0;
-      m.armR.rotation.x = -1.4 + ap * 1.05 + charging2 * 0.25;
-      m.armL.rotation.x = -1.3 + ap * 0.85 - charging2 * 0.2;
+      // The shot kicks the bow arm back for a few frames after release.
+      const kick = p.swingTimer > 0 ? Math.sin((1 - p.swingTimer / Math.max(1, p.swingMax)) * Math.PI) * 0.35 : 0;
+      m.armR.rotation.x = -1.4 + ap * 1.05 + charging2 * 0.25 + kick;
+      m.armL.rotation.x = -1.3 + ap * 0.85 - charging2 * 0.2 - kick * 0.5;
       m.torso.rotation.y = M.lerp(m.torso.rotation.y, 0.26, 0.22);
+      m.torso.rotation.x = -kick * 0.2;
     } else if (p.charging) {
       const item2 = DS.Inv.weapon(p.inv);
       const base2 = item2 ? DS.Weapons.WEAPONS[item2.type] : null;
       const ratio = M.clamp(p.holdFrames / ((base2 && base2.chargeMax) || 30), 0, 1);
       m.armR.rotation.x = M.lerp(-0.6, 0.9, ratio);
       m.torso.rotation.y = M.lerp(0, 0.45, ratio);
+    } else if (p.swingTimer > 0 && !meleeHeld) {
+      // Keyboard shot or cast with no cursor: a quick raise-and-release.
+      const t = 1 - p.swingTimer / Math.max(1, p.swingMax);
+      m.armR.rotation.x = -1.5 - Math.sin(t * Math.PI) * 0.9;
+      m.armL.rotation.x = -1.2 + Math.sin(t * Math.PI) * 0.4;
     } else if (!p.onRope && !airborne) {
       m.torso.rotation.y *= 0.8;
     }
 
-    // A 3D body pivots toward where it walks — no sprite-style mirror snap.
-    let dRy = targetRy - m.root.rotation.y;
+    /* A 3D body pivots toward where it walks -- no sprite-style mirror snap.
+       The smoothed yaw lives on the model; a spin finisher rides on top of it
+       and never feeds back into the smoothing. A swing snaps faster. */
+    if (m.baseRy == null) m.baseRy = m.root.rotation.y;
+    let dRy = targetRy - m.baseRy;
     while (dRy > Math.PI) dRy -= Math.PI * 2;
     while (dRy < -Math.PI) dRy += Math.PI * 2;
-    m.root.rotation.y += dRy * 0.35;
+    m.baseRy += dRy * (swinging || winding ? 0.6 : 0.35);
+    m.root.rotation.y = m.baseRy + spin * walkSign;
 
-    // Elemental weapon aura: motes orbit the blade while it is held.
+    /* The weapon's wrist: during a swing the blade swings out to continue the
+       arm, so the whole arm-and-blade lever sweeps a clean arc from the
+       shoulder -- the arc the trail and the crescent both follow. */
+    if (heroWeaponMesh && heroWeaponMesh.userData.rest) {
+      const rest = heroWeaponMesh.userData.rest;
+      const grip = ATTACK_GRIP[heldBase ? heldBase.key : 'sword'] || ATTACK_GRIP.sword;
+      heroWeaponMesh.rotation.set(M.lerp(rest.x, grip[0], attackW), M.lerp(rest.y, grip[1], attackW),
+                                  M.lerp(rest.z, grip[2], attackW));
+    }
+
+    heroFx(g, p, m, heldItem, heldBase, swinging);
+
+    // Legacy motes: only when the pooled FX layer is missing.
     if (heroWeaponAura) {
       const t = time * 2.6;
       for (let a = 0; a < heroWeaponAura.children.length; a++) {
@@ -2622,6 +3033,17 @@ window.DS = window.DS || {};
 
     /* Mirror after the scale is set, because setScalar would undo it. */
     if (e.facing < 0) model.root.scale.x *= -1;
+
+    /* Hit flash: the body glows white-hot for the frames after a blow (and
+       through the hitstop, which freezes hurtFlash with everything else) and
+       squashes against the impact. */
+    const hf = e.hurtFlash > 0 ? Math.min(1, e.hurtFlash / 6) : 0;
+    if (DS.FX3D && DS.FX3D.ready) flashModel(model, hf);
+    if (hf > 0) {
+      model.root.scale.x *= 1 + hf * 0.12;
+      model.root.scale.y *= 1 - hf * 0.1;
+      model.root.scale.z *= 1 + hf * 0.12;
+    }
 
     if (isSlimey) {
       // Slimes have no legs; the whole body squashes on landing.
@@ -2685,11 +3107,15 @@ window.DS = window.DS || {};
 
   function syncProjectiles(g, time) {
     const count = g.projectiles.length;
+    // Trails and impacts feed the pooled FX once per GAME frame, not per draw.
+    const fxStep = DS.FX3D && DS.FX3D.ready && g.frames !== projFrame;
+    if (fxStep) projFrame = g.frames;
     for (let i = 0; i < count; i++) {
       const p = g.projectiles[i];
       const pm = ensureProjMesh(p, i);
       pm.mesh.visible = true;
       pm.mesh.position.set((p.x + p.w * 0.5) * P2U, -(p.y + p.h * 0.5) * P2U, 0.35);
+      if (fxStep && p.friendly) projFx(g, p, pm.mesh.position.x, pm.mesh.position.y, 0.35);
       const angle = Math.atan2(p.vy, p.vx);
       if (p.kind === 'arrow') {
         pm.mesh.rotation.z = -angle;
@@ -2720,6 +3146,7 @@ window.DS = window.DS || {};
       }
     }
     for (let i = count; i < projMeshes.length; i++) projMeshes[i].mesh.visible = false;
+    if (fxStep) projImpacts(g);
   }
 
   /* --- elemental ground FX, built out of real geometry ----------------------
@@ -2774,7 +3201,7 @@ window.DS = window.DS || {};
        which is what the effect is supposed to say in the first place. */
     const scar = new THREE.Mesh(
       new THREE.CylinderGeometry(0.58, 0.58, 0.03, 12),
-      glowMat(rec.core, 0.30)
+      glowMat(rec.core, 0.14)
     );
     scar.position.y = 0.015;
     group.add(scar);
@@ -2898,7 +3325,7 @@ window.DS = window.DS || {};
       const wob = Math.sin(t * p.speed * 2 + p.phase);
 
       if (p.kind === 'scar') {
-        mesh.material.opacity = 0.30 * fade;
+        mesh.material.opacity = 0.14 * fade;   // a floor glow, not a floodlight
       } else if (p.kind === 'jets') {
         mesh.scale.y = 0.75 + 0.35 * (wob * 0.5 + 0.5);
         mesh.material.opacity = (0.55 + 0.3 * (wob * 0.5 + 0.5)) * fade;
@@ -3016,9 +3443,10 @@ window.DS = window.DS || {};
           continue;
         }
         l.userData.rig = rig;
-        l.position.set(gpx, gpy + 0.6, 0.3);
+        l.position.set(gpx, gpy + 0.9, 0.6);
         l.color.setHex(rig.rec.light);
-        l.intensity = rig.glow;
+        // Half strength: a monster standing in its own patch was lit chalk-white.
+        l.intensity = rig.glow * 0.5;
       } else {
         l.userData.rig = null;
       }
@@ -3067,6 +3495,11 @@ window.DS = window.DS || {};
   }
 
   function spawnGroundBurst(element, px, py, power) {
+    // The pooled layer draws this as the element's own ambient burst.
+    if (DS.FX3D && DS.FX3D.ready) {
+      DS.FX3D.kit(element).ambient(px * P2U, -py * P2U + 0.05, ACTOR_Z, power || 1);
+      return;
+    }
     if (!fxGroup || !DS.Voxel) return;
     const gb = burstFree.pop() || makeBurst();
     gb.mat.color.setHex(DS.Voxel.elementColorHex(element) || 0xffffff);
@@ -3124,8 +3557,17 @@ window.DS = window.DS || {};
   const MAX_SMOKE = 90;
 
   function spawnSmokePuff(px, py, vx, vy, opts) {
-    if (!fxGroup || smokePuffs.length >= MAX_SMOKE) return;
     opts = opts || {};
+    /* One soft billboard in the pooled alpha layer instead of a box mesh (and
+       a draw call) per puff. */
+    const F = DS.FX3D;
+    if (F && F.ready) {
+      const size = (opts.size || 2) * 0.06;
+      F.puffAt(px * P2U, -py * P2U, ACTOR_Z - 0.05, (vx || 0) * P2U * 0.4, -(vy || 0) * P2U * 0.4 + 0.008, 0,
+               size, size * 2.6, F.cssHex(opts.color || '#9b96b8'), 0.5, opts.life || 22);
+      return;
+    }
+    if (!fxGroup || smokePuffs.length >= MAX_SMOKE) return;
     const s = (opts.size || 2) * 0.055;
     const mesh = smokeFree.pop() || new THREE.Mesh(unitBox, fxMaterial(0x9b96b8, 0.5, false));
     mesh.material.color.set(opts.color || '#9b96b8');
@@ -3167,6 +3609,12 @@ window.DS = window.DS || {};
 
   /* A level swap hands every live one-shot back to its pool. */
   function releasePooledFx() {
+    if (DS.FX3D) DS.FX3D.clear();
+    heroTrail = 0;
+    heroDashTrail = 0;
+    heroAuraEl = null;
+    projPrev.length = 0;
+    projNow.length = 0;
     for (let i = 0; i < groundBursts.length; i++) {
       groundBursts[i].group.visible = false;
       burstFree.push(groundBursts[i]);
@@ -3217,6 +3665,24 @@ window.DS = window.DS || {};
   function syncElemBolts(g) {
     if (!g.bolts) g.bolts = [];
     const bolts = g.bolts;
+    /* Pooled path: a fresh jagged bolt every other frame of a bolt's life, so
+       it crackles and re-forks instead of sitting there as one straight bar. */
+    const F = DS.FX3D;
+    if (F && F.ready) {
+      for (let i = 0; i < bolts.length; i++) {
+        const b = bolts[i];
+        if (g.frames - (b.fxAt == null ? -99 : b.fxAt) < 2) continue;
+        b.fxAt = g.frames;
+        const w = b.life > 6 ? 0.06 : 0.035;
+        F.bolt(b.x1 * P2U, -b.y1 * P2U, ACTOR_Z, b.x2 * P2U, -b.y2 * P2U, ACTOR_Z,
+               6, 0.22, w, F.cssHex(b.color || '#fff0a8'), 3, 2.4);
+        if (b.life > 6) F.glowAt(b.x2 * P2U, -b.y2 * P2U, ACTOR_Z, 0.9, F.cssHex(b.color || '#fff0a8'), 1.4, 4);
+      }
+      for (let i = 0; i < elemBolts.length; i++) {
+        if (elemBolts[i].mesh.visible) elemBolts[i].mesh.visible = false;
+      }
+      return;
+    }
     for (let i = 0; i < bolts.length; i++) {
       const b = bolts[i];
       let entry = elemBolts[i];
@@ -3263,6 +3729,8 @@ window.DS = window.DS || {};
   }
 
   function spawnSwingArc(x, y, dir, heavy) {
+    // Superseded by the per-step crescents in src/fx3d/presets.js.
+    if (DS.FX3D && DS.FX3D.ready) return;
     if (!fxGroup) return;
     const sw = swingFree.pop() || makeSwing();
     sw.mat.color.setHex(heavy ? 0xfff0a8 : 0xe8e8f4);
@@ -3799,6 +4267,12 @@ window.DS = window.DS || {};
       updateGroundBursts();
       updateSmokePuffs();
       updateSwingFx();
+      /* Last: everything above has emitted or fed its trails for this frame,
+         so the pooled layer steps and repacks once. */
+      if (DS.FX3D) {
+        DS.FX3D.hook(g);
+        DS.FX3D.update(g.frames, g.hitstop || 0);
+      }
     }
 
     /* The rig: orbit the eye around the camera target by (yaw, pitch) at the

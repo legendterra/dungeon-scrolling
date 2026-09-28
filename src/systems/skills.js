@@ -42,6 +42,50 @@ window.DS = window.DS || {};
 
   function names(item) { return DEFS[item.type] || DEFS.sword; }
 
+  /* --- 3D visuals ------------------------------------------------------------
+     The DS.FX vocabulary below (ring, burst, star, shaped, element...) already
+     turns into 3D sparks, rings and debris while the voxel world is live.
+     What it cannot express - a crescent slash, a slam, a launch flash, the
+     silhouette of an element's variant - is played through DS.FX3D presets
+     here, with the 2D call kept as the fallback when voxels are off. */
+  function fx3() { return DS.FX3D && DS.FX3D.live() ? DS.FX3D : null; }
+  const SK = { dir: 1, color: 0xffffff, power: 1, side: 1, flat: false, el: null, reach: 30, shape: '' };
+
+  function play3(name, x, y, dir, color, power, side, flat) {
+    const F = fx3();
+    if (!F) return false;
+    SK.dir = dir || 1; SK.color = F.cssHex(color || '#ffffff'); SK.power = power || 1;
+    SK.side = side || 1; SK.flat = !!flat; SK.el = null; SK.reach = 30;
+    F.spawn(name, x, y, SK);
+    return true;
+  }
+
+  // A crescent in 3D, the old 2D arc otherwise.
+  function arcSlash(p, radius, color, width, side, flat) {
+    if (play3('skillSlash', Ent.centerX(p), Ent.centerY(p), p.facing, color, radius / 18, side, flat)) return;
+    DS.R.arc(Ent.centerX(p), Ent.centerY(p), radius, -1.5 * (radius > 14 ? 1 : 0.8),
+             1.5 * (radius > 14 ? 1 : 0.8), color, width, (side || 1) * p.facing < 0);
+  }
+
+  // The UI-safe pop stays 2D; in the world it becomes a small 3D flash.
+  function pop(x, y, color) {
+    if (play3('meteor', x, y, 1, color, 0.6)) return;
+    DS.FX.pop(x, y, color);
+  }
+
+  /* Every skill cast by an elemental weapon also throws the element's own
+     silhouette (DS.Elements.ELEMENT_SKILL_VARIANT: flame wave, shard fan,
+     forked bolt, toxic cloud, tide, rock spikes, petal spiral, vortex). */
+  function variantFx(g, p, item) {
+    const F = fx3();
+    if (!F) return;
+    const el = DS.Elements && DS.Elements.activeElement ? DS.Elements.activeElement(item) : item.element;
+    const table = DS.Elements && DS.Elements.ELEMENT_SKILL_VARIANT;
+    if (!el || !table || !table[el]) return;
+    SK.dir = p.facing || 1; SK.el = el; SK.power = 1; SK.shape = table[el].shape;
+    F.spawn('skillVariant', Ent.centerX(p), Ent.centerY(p), SK);
+  }
+
   // --- shared helpers -------------------------------------------------------
 
   /* Damage everything inside a world-space box. `hits` remembers who has
@@ -98,6 +142,7 @@ window.DS = window.DS || {};
       // STAR BLADE DASH: constellation burst at launch
       DS.FX.ring(Ent.centerX(p), Ent.centerY(p), 12, '#fff0a8', 2.4);
       DS.FX.star(Ent.centerX(p), Ent.centerY(p), 5, 'star');
+      play3('skillFlash', Ent.centerX(p), Ent.centerY(p), p.facing, '#fff0a8', 1);
       routine(p, 16, function (gg, pp, frame) {
         pp.vx = pp.facing * 4.6;
         pp.vy = 0;
@@ -117,9 +162,8 @@ window.DS = window.DS || {};
         }
         sweep(gg, { x: pp.x - 6, y: pp.y - 3, w: pp.w + 12, h: pp.h + 6 },
               dmg, { dir: pp.facing, knockback: 3, procs: item.procs, crit: true }, hits);
-        if (frame % 4 === 0) {
-          DS.R.arc(Ent.centerX(pp), Ent.centerY(pp), 12, -1.2, 1.2, '#ffffff', 2, pp.facing < 0);
-        }
+        if (frame % 4 === 0) arcSlash(pp, 12, '#ffd56b', 2, 1, frame % 8 === 0);
+        if (frame % 2 === 0) play3('dashGhost', Ent.centerX(pp), Ent.centerY(pp), pp.facing, '#ffd56b', 1);
       });
       DS.Audio.play('dash');
       DS.R.shake(3);
@@ -141,10 +185,10 @@ window.DS = window.DS || {};
         // PHANTOM FLURRY: shadow poof + comic BAM!/POW! text
         DS.FX.shaped('spark', 'dark', ox + 11, Ent.centerY(pp), 3,
                      { speed: 1.7, life: 10, jitter: 3 });
-        DS.FX.pop(ox + 11, Ent.centerY(pp), '#ff99c8');
+        pop(ox + 11, Ent.centerY(pp), '#ff99c8');
         DS.FX.number(ox + 11, pp.y - 8 - done * 2,
                      COMICS[done % COMICS.length], '#ffd56b', 1.5);
-        if (frame % 10 === 0) DS.FX.pop(ox + 11, Ent.centerY(pp), '#ff99c8');
+        if (frame % 10 === 0) arcSlash(pp, 11, '#c86ee0', 2, done % 2 ? 1 : -1, false);
         DS.FX.burst(ox + 11, Ent.centerY(pp), 3, ['#ffffff', '#c86ee0'],
                     { speed: 1.6, life: 8, grav: 0 });
         DS.Audio.play('swing');
@@ -166,6 +210,7 @@ window.DS = window.DS || {};
         DS.FX.star(Ent.centerX(pp), pp.y - 8, 8, 'star');
         DS.FX.element('earth', Ent.centerX(pp), pp.y + pp.h, { count: 14, power: 1.7 });
         DS.FX.dust(Ent.centerX(pp), pp.y + pp.h, 18);
+        play3('skillSlam', Ent.centerX(pp), pp.y + pp.h - 6, pp.facing, '#f2c14e', 1.4);
         // Orbiting dizzy stars around hero
         for (let s = 0; s < 6; s++) {
           const a = (s / 6) * Math.PI * 2;
@@ -187,6 +232,7 @@ window.DS = window.DS || {};
       DS.FX.element('fire', Ent.centerX(p), Ent.centerY(p), { count: 8, power: 1.2 });
       DS.FX.ring(Ent.centerX(p), Ent.centerY(p), 16, '#f97316', 2.5);
       DS.FX.spark(Ent.centerX(p), Ent.centerY(p), 4, '#ffedd5');
+      play3('spearHeavy', Ent.centerX(p), Ent.centerY(p), p.facing, '#f97316', 1.2);
 
       routine(p, 18, function (gg, pp, frame) {
         pp.vx = pp.facing * 3.2;
@@ -230,6 +276,7 @@ window.DS = window.DS || {};
         }
       }
       // SHOOTING STAR VOLLEY: golden ring at launch
+      play3('bowRelease', Ent.centerX(p) + p.facing * 8, Ent.centerY(p) - 2, p.facing, '#ffd56b', 1.6);
       DS.FX.ring(Ent.centerX(p) + p.facing * 12, Ent.centerY(p) - 2, 8, '#ffd56b', 2.0);
       DS.FX.shaped('spark', 'holy', Ent.centerX(p) + p.facing * 8,
                    Ent.centerY(p) - 2, 5,
@@ -250,7 +297,8 @@ window.DS = window.DS || {};
       DS.FX.ring(Ent.centerX(p), Ent.centerY(p), 16, '#ffffff', 2.0);
       DS.FX.ring(Ent.centerX(p), Ent.centerY(p), 8, isWater ? '#0284c7' : col, 1.5);
       DS.FX.burst(Ent.centerX(p), Ent.centerY(p), 12, splashCols, { speed: 2.8, life: 18, grav: 0.05 });
-      DS.FX.pop(Ent.centerX(p), Ent.centerY(p), col);
+      pop(Ent.centerX(p), Ent.centerY(p), col);
+      play3('skillFlash', Ent.centerX(p), Ent.centerY(p), p.facing, col, 1.3);
 
       for (let i = 0; i < orbs; i++) {
         const a = (i / orbs) * Math.PI * 2;
@@ -261,7 +309,7 @@ window.DS = window.DS || {};
           procs: item.procs, gravity: 0, life: 95, knockback: 1.6, w: 7, h: 7,
           trailColor: col
         });
-        DS.FX.pop(Ent.centerX(p) + Math.cos(a) * 12,
+        pop(Ent.centerX(p) + Math.cos(a) * 12,
                   Ent.centerY(p) + Math.sin(a) * 10,
                   col);
       }
@@ -304,7 +352,7 @@ window.DS = window.DS || {};
         const side = done % 2 === 0 ? 1 : -1;
         radial(gg, Ent.centerX(pp), Ent.centerY(pp), 40, dmg,
                { knockback: 2.4, procs: item.procs, crit: DS.rand.chance(0.6) }, []);
-        DS.R.arc(Ent.centerX(pp), Ent.centerY(pp), 22, -1.5, 1.5, '#ffffff', 3, side < 0);
+        arcSlash(pp, 22, done % 3 === 0 ? '#c86ee0' : '#a8e4ff', 3, side, done % 2 === 0);
         DS.FX.ring(Ent.centerX(pp), Ent.centerY(pp), 10, '#ffffff', 2.4);
         // STARFALL TEMPEST: rainbow starburst per slash
         DS.FX.star(Ent.centerX(pp), Ent.centerY(pp), 4, 'star');
@@ -341,6 +389,7 @@ window.DS = window.DS || {};
         DS.FX.burst(Ent.centerX(pp), Ent.centerY(pp), 8, ['#ffffff', '#c86ee0', '#ffd56b'],
                     { speed: 2.4, life: 16, grav: 0 });
         DS.FX.ring(Ent.centerX(pp), Ent.centerY(pp), 8, '#c86ee0', 2.2);
+        play3('daggerHeavy', Ent.centerX(pp), Ent.centerY(pp), pp.facing, '#c86ee0', 1);
         Ent.damageEnemy(gg, target, dmg, {
           crit: true, knockback: 3, dir: pp.facing, procs: item.procs
         });
@@ -375,6 +424,7 @@ window.DS = window.DS || {};
       const dmg = scaled(g, p, item, 3.2);
       // DRAGON COMET: arc upward then drill forward
       p.vy = -2.8;
+      play3('skillFlash', Ent.centerX(p), Ent.centerY(p), p.facing, '#a8e4ff', 1.2);
       routine(p, 40, function (gg, pp) {
         pp.vx = pp.facing * 5.4;
         pp.vy = Math.min(pp.vy + 0.18, 2.0);
@@ -454,7 +504,7 @@ window.DS = window.DS || {};
           trailColor: col
         });
         if (fired % 3 === 0) {
-          DS.FX.pop(Ent.centerX(pp), Ent.centerY(pp), col);
+          pop(Ent.centerX(pp), Ent.centerY(pp), col);
           DS.FX.ring(Ent.centerX(pp), Ent.centerY(pp),
                      6 + (fired / total) * 14, '#ffffff', 1.4);
           DS.FX.burst(Ent.centerX(pp), Ent.centerY(pp), 4, splashCols, { speed: 1.8, life: 14, grav: 0.02 });
@@ -506,6 +556,7 @@ window.DS = window.DS || {};
 
     if (which === 'ult') p.ultCooldown = ULT_COOLDOWN;
     else p.skillCooldown = SKILL_COOLDOWN;
+    variantFx(g, p, item);
 
     g.toast(which === 'ult' ? names(item).ult : names(item).skill,
             W.rarityColor(item.rarity));

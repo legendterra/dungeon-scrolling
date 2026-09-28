@@ -67,6 +67,19 @@ window.DS = window.DS || {};
     p.attackHeavy = false;
     p.comboStep = 0;
     p.comboWindow = 0;
+    /* The swing in flight: which combo step (its DS.Combos key and FX preset),
+       its anticipation frames before the hitbox goes live, the lunge it
+       carries, and a serial so the renderer can tell one swing from the next. */
+    p.attackKey = null;
+    p.attackFx = null;
+    p.attackStepDef = null;
+    p.attackDelay = 0;
+    p.attackWindup = 0;
+    p.attackStrike = 0;
+    p.attackBuffer = 0;
+    p.lungeFrames = 0;
+    p.lungeSpeed = 0;
+    p.swingId = 0;
     p.holdFrames = 0;
     p.charging = false;
     p.hitList = [];
@@ -171,6 +184,9 @@ window.DS = window.DS || {};
     p.charging = false;
     p.holdFrames = 0;
     p.attackActive = 0;
+    p.attackDelay = 0;
+    p.lungeFrames = 0;
+    p.attackBuffer = 0;
     p.pending = null;
   }
 
@@ -199,7 +215,7 @@ window.DS = window.DS || {};
     if (p.iframes > 0) p.iframes--;
     if (p.attackCooldown > 0) p.attackCooldown--;
     if (p.swingTimer > 0) p.swingTimer--;
-    if (p.comboWindow > 0) p.comboWindow--; else p.comboStep = 0;
+    DS.Combos.tick(p);
     if (p.dashCooldown > 0) p.dashCooldown--;
     if (p.coinPop > 0) p.coinPop--;
 
@@ -240,7 +256,12 @@ window.DS = window.DS || {};
     updateRope(g, p);
     if (p.onRope) { checkHazards(g, p); return; }   // the rope owns movement
 
-    if (p.attackActive > 0) {
+    // Anticipation first; the hitbox goes live on the strike frame.
+    if (p.attackDelay > 0) {
+      p.attackDelay--;
+      if (p.attackDelay === 0) strike(g, p);
+    }
+    if (p.attackDelay <= 0 && p.attackActive > 0) {
       p.attackActive--;
       resolveMelee(g, p);
     }
@@ -256,7 +277,9 @@ window.DS = window.DS || {};
     handleJump(g, p);
     handleDash(g, p);
     handleSkills(g, p);
+    DS.Inv.updateInfusion(g, p);   // R / T: elemental infusion (inventory.js)
     handleAttack(g, p);
+    applyLunge(p);
 
     DS.Phys.step(p, g.map, p.inWater ? 0.35 : 1);
     if (p.inWater) {
@@ -600,8 +623,13 @@ window.DS = window.DS || {};
       return;
     }
 
-    // Melee: the tap lands now.
-    if (In.justPressed('attack') && p.attackCooldown <= 0) {
+    /* Melee: the tap lands now. A press made a few frames before the current
+       step recovers is remembered (DS.Combos.BUFFER), so mashing lands every
+       combo step on its earliest frame instead of eating the early presses. */
+    if (In.justPressed('attack')) p.attackBuffer = DS.Combos.BUFFER;
+    else if (p.attackBuffer > 0) p.attackBuffer--;
+    if (p.attackBuffer > 0 && p.attackCooldown <= 0) {
+      p.attackBuffer = 0;
       startSwing(g, p, item, base, false, 0);
       p.holdFrames = 0;
       return;
@@ -713,49 +741,113 @@ window.DS = window.DS || {};
     chargeMult *= damageMult(g, p);
     const crit = DS.rand.chance(critChance(p, stats.crit + (heavy ? 0.1 : 0)));
 
+    /* Which step of the weapon's combo this press performs (DS.Combos): its
+       own timing, hitbox, damage and look. A heavy blow is its own finisher
+       and closes the chain. Weapons with no table swing a plain step. */
+    const combo = DS.Combos.forWeapon(base.key);
+    const pick = heavy || !combo ? null : DS.Combos.pick(base.key, p.comboStep, p.comboWindow);
+    const def = heavy ? (combo ? combo.heavy : null) : (pick ? pick.def : null);
+    const time = DS.Combos.timing(def || PLAIN_STEP, stats.cooldown, heavy);
+
     p.attackDir = p.facing;
     p.attackHeavy = heavy;
-    p.attackActive = heavy ? 13 : 9;
-    p.swingMax = Math.max(10, Math.round(stats.cooldown * (heavy ? 0.8 : 0.6)));
+    p.attackKey = def ? def.key : null;
+    p.attackFx = def ? def.fx : null;
+    p.attackStepDef = def;
+    p.attackDelay = time.windup;
+    p.attackWindup = time.windup;
+    p.attackActive = def ? time.active : (heavy ? 13 : 9);
+    p.attackStrike = Math.max(3, Math.round(p.attackActive * 0.6));
+    p.swingMax = time.swing;
     p.swingTimer = p.swingMax;
-    p.attackCooldown = Math.round(stats.cooldown * (heavy ? 1.35 : 1));
+    p.attackCooldown = time.cd;
+    p.lungeFrames = 0;
+    p.swingId++;
     p.hitList = [];
 
-    if (!heavy) {
-      p.comboStep = (p.comboStep + 1) % Math.max(1, base.combo);
-      p.comboWindow = stats.cooldown + 18;
-    } else {
-      p.comboStep = 0;
-    }
+    if (pick) DS.Combos.advance(p, base.key, pick.index, time.cd);
+    else DS.Combos.reset(p);
 
+    const stepDmg = def && !heavy ? def.dmg : 1;
     p.pending = {
-      damage: stats.damage * chargeMult * (crit ? stats.critDamage : 1),
+      damage: stats.damage * chargeMult * stepDmg * (crit ? stats.critDamage : 1),
       crit: crit,
-      knockback: stats.knockback * (heavy ? 1.8 : 1),
+      knockback: stats.knockback * (def ? def.knock : (heavy ? 1.8 : 1)),
       procs: item.procs,
       element: item.element,
       elementShare: stats.elementShare,
       elemPower: stats.elemPower,
-      reach: base.hit.w * stats.reach * (heavy ? base.heavyReach : 1),
-      height: base.hit.h * (heavy ? 1.25 : 1),
+      reach: base.hit.w * stats.reach * (heavy ? base.heavyReach : (def ? def.reach : 1)),
+      height: base.hit.h * (heavy ? 1.25 : (def ? def.height : 1)),
       oy: base.hit.oy,
-      heavy: heavy
+      heavy: heavy,
+      both: !!(def && def.both),
+      hitstop: def ? def.hitstop : (heavy ? 7 : 3),
+      shake: def ? def.shake : (heavy ? 4 : 1.5)
     };
 
     DS.Audio.play('swing');
     if (heavy) {
       DS.R.shake(2);
-      DS.FX.ring(Ent.centerX(p) + p.facing * 8, Ent.centerY(p), 8, '#fff0a8', 1.8);
+      if (!(DS.FX3D && DS.FX3D.live())) {
+        DS.FX.ring(Ent.centerX(p) + p.facing * 8, Ent.centerY(p), 8, '#fff0a8', 1.8);
+      }
     }
+    if (p.attackDelay <= 0) strike(g, p);
+  }
+
+  // A melee weapon with no combo table swings this.
+  const PLAIN_STEP = { key: null, dmg: 1, cd: 1, windup: 0, active: 9, reach: 1, height: 1, knock: 1 };
+
+  /* The frame the anticipation ends: the lunge kicks in and the step's 3D
+     swing (crescents, streaks, shock) plays - on every swing, hit or miss. */
+  const STRIKE_FX = { dir: 1, el: null, power: 1, reach: 24 };
+
+  function strike(g, p) {
+    const def = p.attackStepDef;
+    if (def && def.lunge) {
+      p.lungeFrames = def.lungeFrames || 4;
+      p.lungeSpeed = def.lunge;
+    }
+    if (p.attackFx && DS.FX3D && DS.FX3D.live()) {
+      STRIKE_FX.dir = p.attackDir || 1;
+      STRIKE_FX.el = weaponElement(DS.Inv.weapon(p.inv));
+      STRIKE_FX.power = p.attackHeavy ? 1.3 : 1;
+      STRIKE_FX.reach = p.pending ? p.pending.reach : 24;
+      DS.FX3D.spawn(p.attackFx, Ent.centerX(p), Ent.centerY(p) - 1, STRIKE_FX);
+    }
+  }
+
+  // A lunge carries the body forward through the strike, then lets go.
+  function applyLunge(p) {
+    if (p.lungeFrames <= 0) return;
+    p.lungeFrames--;
+    p.vx = (p.attackDir || p.facing || 1) * p.lungeSpeed;
+  }
+
+  /* The weapon's element right now: an infusion (DS.Elements.activeElement)
+     when that exists, else the weapon's own element or enchant. */
+  function weaponElement(item) {
+    if (!item) return null;
+    if (DS.Elements && typeof DS.Elements.activeElement === 'function') {
+      const el = DS.Elements.activeElement(item);
+      if (el) return el;
+    }
+    return item.element || (item.procs && item.procs.element) || null;
   }
 
   function meleeRect(p) {
     const info = p.pending;
     const reach = info.reach;
+    const y = p.y + info.oy + (p.h - info.height) / 2;
+    // Spins and slams reach round both sides of the body.
+    if (info.both) {
+      const side = reach * 0.8;
+      return { x: p.x - side, y: y, w: p.w + side * 2, h: info.height };
+    }
     const x = p.attackDir > 0
       ? p.x + p.w - BODY_OVERLAP
       : p.x + BODY_OVERLAP - reach;
-    const y = p.y + info.oy + (p.h - info.height) / 2;
     return { x: x, y: y, w: reach, h: info.height };
   }
 
@@ -785,9 +877,10 @@ window.DS = window.DS || {};
     }
 
     // Hitstop: a landed blow briefly freezes the game to give it weight.
+    // Each combo step owns its freeze and its shake: finishers land heavier.
     if (hitAny) {
-      g.hitstop = Math.max(g.hitstop, p.pending.heavy ? 7 : 3);
-      DS.R.shake(p.pending.heavy ? 4 : 1.5);
+      g.hitstop = Math.max(g.hitstop, p.pending.hitstop || (p.pending.heavy ? 7 : 3));
+      DS.R.shake(p.pending.shake || (p.pending.heavy ? 4 : 1.5));
       // The 3D swing arc replaces the 2D canvas trail in voxel mode.
       if (DS.R3D && DS.R3D.voxels && DS.R3D.spawnSwingArc) {
         DS.R3D.spawnSwingArc(Ent.centerX(p) + p.attackDir * 14,
@@ -795,6 +888,8 @@ window.DS = window.DS || {};
       }
     }
   }
+
+  const SHOT_FX = { dir: 1, ax: 1, ay: 0, el: null, power: 1 };
 
   function shoot(g, p, item, base, ratio) {
     if (base.key === 'bow' && p.inv.arrows <= 0) {
@@ -857,6 +952,17 @@ window.DS = window.DS || {};
     }
 
     Ent.spawnProjectile(g, proj);
+
+    /* The release in 3D: a bow snaps light off the string (a ring and a star
+       when fully drawn), a staff casts with swirling motes (a bigger orb flash
+       and rings when charged). The shot's own trail is drawn by the renderer. */
+    if (DS.FX3D && DS.FX3D.live()) {
+      SHOT_FX.dir = M.sign(dirX) || p.facing || 1;
+      SHOT_FX.ax = dirX; SHOT_FX.ay = dirY;
+      SHOT_FX.el = weaponElement(item);
+      SHOT_FX.power = base.key === 'bow' ? (ratio > 0.85 ? 1.6 : 1) : (ratio > 0.6 ? 1.5 : 1);
+      DS.FX3D.spawn(base.key === 'bow' ? 'bowRelease' : 'staffCast', proj.x, proj.y, SHOT_FX);
+    }
   }
 
   // --- drawing --------------------------------------------------------------
@@ -1066,6 +1172,7 @@ window.DS = window.DS || {};
     hurt: hurt,
     touch: touch,
     meleeRect: meleeRect,
+    startSwing: startSwing,
     aimVector: aimVector,
     isRanged: isRanged,
     damageMult: damageMult,

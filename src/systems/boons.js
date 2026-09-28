@@ -127,9 +127,37 @@ window.DS = window.DS || {};
   const BY_KEY = {};
   BOONS.forEach(function (b) { BY_KEY[b.key] = b; });
 
-  function offer(rng, taken) {
+  /* Essence cards. A shrine can teach an element instead of a boon: taking
+     the card pushes 'essence:<element>' into inv.boons, and DS.Inv.essences
+     counts that as unlocked. They are not in BOONS (never rolled as a plain
+     boon); each is registered in BY_KEY the first time it is offered so the
+     HUD column and the profile page can draw it like any other boon. */
+  const ESSENCE_OFFER_CHANCE = 0.35;
+
+  function essenceBoon(element) {
+    const key = 'essence:' + element;
+    if (BY_KEY[key]) return BY_KEY[key];
+    const E = DS.Weapons.ELEMENTS[element];
+    const boon = {
+      key: key, essence: element, color: E.color,
+      name: E.label.toUpperCase() + ' ESSENCE',
+      desc: 'INFUSE ANY WEAPON WITH ' + E.label.toUpperCase() + ' (R)'
+    };
+    BY_KEY[key] = boon;
+    return boon;
+  }
+
+  /* inv is optional; without it the shrine offers plain boons exactly as it
+     always did (same rng draws), with it one card may become an essence the
+     player does not know yet. */
+  function offer(rng, taken, inv) {
     const pool = BOONS.filter(function (b) { return taken.indexOf(b.key) < 0; });
-    return rng.sample(pool, Math.min(3, pool.length));
+    const cards = rng.sample(pool, Math.min(3, pool.length));
+    if (!inv || !DS.Inv || !DS.Inv.lockedEssences || !cards.length) return cards;
+    const locked = DS.Inv.lockedEssences(inv);
+    if (!locked.length || !rng.chance(ESSENCE_OFFER_CHANCE)) return cards;
+    cards[rng.int(0, cards.length - 1)] = essenceBoon(rng.pick(locked));
+    return cards;
   }
 
   // Fold every taken boon into a derived stat block.
@@ -253,6 +281,8 @@ window.DS = window.DS || {};
     LIST: BOONS,
     BY_KEY: BY_KEY,
     offer: offer,
+    essenceBoon: essenceBoon,
+    ESSENCE_OFFER_CHANCE: ESSENCE_OFFER_CHANCE,
     applyStats: applyStats,
     flag: flag,
     has: has,

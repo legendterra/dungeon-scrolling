@@ -466,12 +466,15 @@ window.DS = window.DS || {};
           if (it.element) {
             const el = W.ELEMENTS[it.element];
             R.rectS(sx + SIZE - 4, y + 1, 3, 3, el.color);
+            // An infused weapon wears a white rim on its pip.
+            if (it.infusion) R.rectS(sx + SIZE - 4, y + 4, 3, 1, '#ffffff');
           }
         }
       } else {
         R.textSmall('-', sx + Math.round(SIZE / 2) - 1, y + 7, '#2a2740');
       }
-      R.keycap(String(i + 1), sx, capY, active ? col : '#2a2740');
+      const capW = R.keycap(String(i + 1), sx, capY, active ? col : '#2a2740');
+      if (active) drawEssencePips(inv, sx + (capW || 7) + 1, capY);
     }
 
     // Armour strip: head / chest / legs mini-slots, stacked in the column the
@@ -488,6 +491,22 @@ window.DS = window.DS || {};
         R.rectS(ax + 1, ay + 1, HUD_ARMOR.w - 2, HUD_ARMOR.h - 2, mc.mid || '#9b96b8');
         R.rectS(ax + 1, ay + 1, HUD_ARMOR.w - 2, 1, mc.light || '#cfc4ff');
       }
+    }
+  }
+
+  /* Known essences beside the active hand's keycap: two rows of four 2x2
+     pips in element order, lit in the element's colour once unlocked, so the
+     player can see what R will cycle through. */
+  function drawEssencePips(inv, x, y) {
+    const R = DS.R;
+    const known = Inv.essences ? Inv.essences(inv) : [];
+    if (!known.length) return;
+    const keys = W.ELEMENT_KEYS;
+    for (let k = 0; k < keys.length; k++) {
+      const px = x + (k % 4) * 3;
+      const py = y + 1 + Math.floor(k / 4) * 3;
+      const on = known.indexOf(keys[k]) >= 0;
+      R.rectS(px, py, 2, 2, on ? W.ELEMENTS[keys[k]].color : '#1c1a2a');
     }
   }
 
@@ -548,8 +567,9 @@ window.DS = window.DS || {};
   // --- item card ------------------------------------------------------------
 
   function cardHeight(item) {
-    // A weapon card carries one extra line for its element (see itemCard).
-    const extra = (item.element && !DS.Armor.isArmor(item)) ? 7 : 0;
+    // A weapon card carries two extra lines for its element and that
+    // element's weapon passive (see itemCard).
+    const extra = (item.element && !DS.Armor.isArmor(item)) ? 14 : 0;
     return 30 + extra + item.affixes.length * 7;
   }
 
@@ -586,12 +606,15 @@ window.DS = window.DS || {};
       const E = W.ELEMENTS[item.element];
       const share = Math.round((item.stats.elementShare || 0) * 100);
       const power = Math.round(((item.stats.elemPower || 1) - 1) * 100);
-      const line = E.label.toUpperCase() + ' ' + share + '%' +
+      const line = (item.infusion ? 'INFUSED ' : '') +
+                   E.label.toUpperCase() + ' ' + share + '%' +
                    (power > 0 ? '  +' + power + '% REACT' : '');
       R.text(line, x + 4, y + 28, E.color);
+      const passive = DS.Elements.PASSIVE && DS.Elements.PASSIVE[item.element];
+      if (passive) R.text(passive.name + ' ON HIT', x + 4, y + 35, MUTED);
     }
 
-    const affixY = y + 28 + (item.element ? 7 : 0);
+    const affixY = y + 28 + (item.element ? 14 : 0);
     for (let i = 0; i < item.affixes.length; i++) {
       const a = item.affixes[i];
       R.text(a.desc, x + 4, affixY + i * 7, a.color);
@@ -651,7 +674,8 @@ window.DS = window.DS || {};
 
   function rollOffers(g) {
     const shrine = g.shrine;
-    const boons = DS.Boons.offer(g.rng, g.inv.boons);
+    // The inventory lets the shrine swap a card for an unknown essence.
+    const boons = DS.Boons.offer(g.rng, g.inv.boons, g.inv);
     const cards = boons.map(function (boon) {
       return { kind: 'boon', boon: boon, color: boon.color,
                name: boon.name, desc: boon.desc };

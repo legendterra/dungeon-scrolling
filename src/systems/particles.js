@@ -340,6 +340,26 @@ window.DS = window.DS || {};
       dust(x, y, Math.max(4, n));
     },
 
+    /* Wind finally has a body of its own: pale streaks thrown out on a spiral,
+       each one leaving a faint gust dot, so a wind hit reads as air being
+       shoved sideways rather than as generic sparks. */
+    wind: function (x, y, n, power) {
+      const spr = shape('spark', 'magic');
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + R.float(-0.2, 0.2);
+        const r = R.float(2, 5);
+        // Tangent plus a little outward push: the spiral.
+        const vx = (-Math.sin(a) * 1.6 + Math.cos(a) * 0.7) * power;
+        const vy = (Math.cos(a) * 1.6 + Math.sin(a) * 0.7) * power * 0.7;
+        emit({
+          x: x + Math.cos(a) * r, y: y + Math.sin(a) * r * 0.7,
+          vx: vx, vy: vy, life: R.int(12, 18), grav: -0.01, drag: 0.9,
+          spr: spr, rot: a, spin: 0.12
+        });
+      }
+      burst(x, y, n, ['#ffffff', '#cfe8e0', '#9fb8b0'], { speed: 1.6 * power, life: 10, grav: -0.02 });
+    },
+
     // Leaves that tumble and flutter down.
     leaf: function (x, y, n, power) {
       const spr = shape('leaf', 'leaf');
@@ -430,22 +450,214 @@ window.DS = window.DS || {};
     burst(x, y, n, colors, { speed: 1.8 * power, life: 16 });
   }
 
+  /* --- the 3D route ----------------------------------------------------------
+
+     While the voxel world is on screen (DS.FX3D.live()), the world effects go
+     to the pooled 3D layer instead of these 2D quads: real sparks, flames,
+     debris and rings standing in the scene, lit by its bloom and hidden by
+     its bodies. Every call keeps its 2D meaning; only the drawing changes.
+     Floating numbers, hearts and the UI pop stay 2D - they are read, not seen.
+     With voxels off (or in a menu/cutscene) every call falls straight through
+     to the 2D emitters above, exactly as before. */
+  const P2U = 0.1;
+  function fx3d() { return DS.FX3D && DS.FX3D.live() ? DS.FX3D : null; }
+  function wz() { return DS.FX3D.Z + (Math.random() - 0.5) * 0.3; }
+
+  // Reused option bags: the 3D presets never keep them.
+  const HIT3 = { dir: 1, el: null, crit: false, heavy: false };
+  const BLOOD3 = { dir: 0, colors: null };
+  const RING3 = { color: 0xffffff, r1: 1, count: 8 };
+
+  const TINT_HEX = {};
+  function tintHex(tint) {
+    if (TINT_HEX[tint] != null) return TINT_HEX[tint];
+    const t = DS.FXArt && DS.FXArt.tints && DS.FXArt.tints[tint];
+    const hex = t ? DS.FX3D.cssHex(t[1]) : 0xfff0a8;
+    TINT_HEX[tint] = hex;
+    return hex;
+  }
+
+  function hit3(x, y, dir, opts) {
+    const F = fx3d();
+    if (!F) { hit(x, y, dir); return; }
+    HIT3.dir = dir || 1;
+    HIT3.el = opts ? (opts.element || (opts.procs && opts.procs.element) || null) : null;
+    HIT3.crit = !!(opts && opts.crit);
+    HIT3.heavy = !!(opts && opts.heavy);
+    F.spawn('hit', x, y, HIT3);
+  }
+
+  function blood3(x, y, dir, colors) {
+    const F = fx3d();
+    if (!F) { blood(x, y, dir, colors); return; }
+    BLOOD3.dir = dir || 0; BLOOD3.colors = colors || BLOOD;
+    F.spawn('blood', x, y, BLOOD3);
+  }
+
+  function dust3(x, y, amount) {
+    const F = fx3d();
+    if (!F) { dust(x, y, amount); return; }
+    const n = F.n(Math.min(12, amount || 5));
+    for (let i = 0; i < n; i++) {
+      F.puffAt(x * P2U + F.rnd(-0.15, 0.15), -y * P2U + 0.05, wz(), F.rnd(-0.02, 0.02), F.rnd(0.004, 0.014), 0,
+               0.12, 0.34, 0x9b96a8, 0.42, F.rnd(18, 28));
+    }
+  }
+
+  function trail3(x, y, color) {
+    const F = fx3d();
+    if (!F) { trail(x, y, color); return; }
+    const s = F.add.spec();
+    s.x = x * P2U + F.rnd(-0.08, 0.08); s.y = -y * P2U + F.rnd(-0.08, 0.08); s.z = wz();
+    s.vx = F.rnd(-0.01, 0.01); s.vy = F.rnd(0.008, 0.02); s.drag = 0.94;
+    s.cell = DS.FX3DAtlas.CELL.ember; s.size = 0.08; s.size1 = 0.02; s.life = 14;
+    F.col(s, F.cssHex(color), 1.8); s.a = 0.9; s.a1 = 0;
+    F.add.emit(s);
+  }
+
+  function spark3(x, y, dir) {
+    const F = fx3d();
+    if (!F) { spark(x, y, dir); return; }
+    F.sparkAt(x * P2U, -y * P2U, wz(), (dir || 0) * F.rnd(0.08, 0.16) + F.rnd(-0.04, 0.04),
+              F.rnd(0.03, 0.14), F.rnd(-0.03, 0.03), 0xfff0a8, 2.2, F.rnd(8, 13), 0.045, 2, 0.01, 0.9);
+  }
+
+  function star3(x, y, count, tint) {
+    const F = fx3d();
+    if (!F) { star(x, y, count, tint); return; }
+    const hex = tintHex(tint || 'star');
+    const n = F.n(count || 4);
+    for (let i = 0; i < n; i++) {
+      const a = F.rnd(0, Math.PI * 2), sp = F.rnd(0.08, 0.2);
+      const s = F.add.spec();
+      s.x = x * P2U; s.y = -y * P2U; s.z = wz();
+      s.vx = Math.cos(a) * sp; s.vy = Math.sin(a) * sp + 0.04; s.drag = 0.9; s.grav = 0.003;
+      s.cell = DS.FX3DAtlas.CELL.star; s.size = F.rnd(0.35, 0.55); s.size1 = 0.1; s.life = F.rnd(16, 26);
+      s.rot = a; s.spin = F.rnd(-0.1, 0.1);
+      F.col(s, hex, 2.2); s.a = 1; s.a1 = 0;
+      F.add.emit(s);
+    }
+  }
+
+  function ring3(x, y, count, color, speed) {
+    const F = fx3d();
+    if (!F) { ring(x, y, count, color, speed); return; }
+    RING3.color = F.cssHex(color);
+    RING3.r1 = (speed || 1.8) * 8.5 * P2U;
+    RING3.count = count;
+    F.spawn('ring', x, y, RING3);
+  }
+
+  function burst3(x, y, count, colors, opts) {
+    const F = fx3d();
+    if (!F) { burst(x, y, count, colors, opts); return; }
+    opts = opts || {};
+    const speed = (opts.speed || 1.6) * P2U;
+    const grav = (opts.grav == null ? 0.14 : opts.grav) * P2U;
+    const life = opts.life || 16;
+    const n = F.n(Math.min(40, count));
+    for (let i = 0; i < n; i++) {
+      const a = F.rnd(0, Math.PI * 2), sp = F.rnd(0.3, 1) * speed;
+      const vx = Math.cos(a) * sp + (opts.vx || 0) * P2U, vy = -(Math.sin(a) * sp + (opts.vy || 0) * P2U);
+      const hex = F.cssHex(colors[i % colors.length]);
+      if (i & 1) {
+        F.sparkAt(x * P2U, -y * P2U, wz(), vx, vy, F.rnd(-0.4, 0.4) * sp, hex, 2, life * F.rnd(0.6, 1),
+                  0.045, 2, grav, 0.9);
+      } else {
+        const s = F.add.spec();
+        s.x = x * P2U; s.y = -y * P2U; s.z = wz(); s.vx = vx; s.vy = vy; s.vz = F.rnd(-0.4, 0.4) * sp;
+        s.grav = grav; s.drag = 0.93; s.cell = DS.FX3DAtlas.CELL.ember;
+        s.size = F.rnd(0.08, 0.13); s.size1 = 0.03; s.life = life * F.rnd(0.8, 1.3);
+        F.col(s, hex, 1.9); s.a = 1; s.a1 = 0;
+        F.add.emit(s);
+      }
+    }
+  }
+
+  // FXArt shape -> 3D look.
+  const SHAPE3 = { spark: 1, star: 2, flame: 5, shard: 6, leaf: 7, bubble: 8, droplet: 9, heart: 0, pop: 4, bolt: 1, rock: -1 };
+
+  function shaped3(name, tint, x, y, n, opts) {
+    const F = fx3d();
+    if (!F) { shaped(name, tint, x, y, n, opts); return; }
+    opts = opts || {};
+    const hex = tintHex(tint);
+    const speed = (opts.speed || 1.8) * P2U;
+    const cell = SHAPE3[name] == null ? 0 : SHAPE3[name];
+    const soft = cell === 7 || cell === 8 || cell === 9;
+    const k = F.n(n);
+    for (let i = 0; i < k; i++) {
+      const a = opts.angle == null ? F.rnd(0, Math.PI * 2)
+                                   : opts.angle + F.rnd(-(opts.spread || 0), opts.spread || 0);
+      const sp = F.rnd(0.4, 1) * speed;
+      const j = (opts.jitter || 0) * P2U;
+      const X = x * P2U + F.rnd(-j, j), Y = -y * P2U + F.rnd(-j, j), Z = wz();
+      const vx = Math.cos(a) * sp + (opts.vx || 0) * P2U, vy = -(Math.sin(a) * sp + (opts.vy || 0) * P2U);
+      const life = F.rnd(opts.life || 14, (opts.life || 14) + 10);
+      if (cell === -1) { F.chunkAt(X, Y, Z, vx, vy, 0, F.rnd(0.05, 0.09), 0x8a6340, life + 10, Y - 0.8); continue; }
+      if (cell === 1) { F.sparkAt(X, Y, Z, vx, vy, F.rnd(-0.3, 0.3) * sp, hex, 2.2, life, 0.05, 2.2, 0, 0.9); continue; }
+      const sys = soft ? F.soft : F.add;
+      const s = sys.spec();
+      s.x = X; s.y = Y; s.z = Z; s.vx = vx; s.vy = vy; s.drag = opts.drag == null ? 0.94 : opts.drag;
+      s.grav = (opts.grav || 0) * P2U; s.cell = cell; s.size = 0.28; s.size1 = 0.1; s.life = life;
+      s.rot = F.rnd(0, 6.28); s.spin = opts.spin || 0; s.wob = (opts.wob || 0) * P2U;
+      F.col(s, hex, soft ? 1 : 2); s.a = 1; s.a1 = 0;
+      sys.emit(s);
+    }
+  }
+
+  function element3(kind, x, y, opts) {
+    const F = fx3d();
+    if (!F) { element(kind, x, y, opts); return; }
+    opts = opts || {};
+    const count = opts.count || 7;
+    const power = opts.power == null ? 1 : opts.power;
+    const k = F.kit(kind);
+    const X = x * P2U, Y = -y * P2U, Z = wz();
+    if (count <= 2) k.ambient(X, Y, Z, power);
+    else k.hit(X, Y, Z, 0, Math.min(1.5, power * Math.max(0.6, count / 9)));
+  }
+
+  function smoke3(x, y, vx, vy, opts) {
+    if (!fx3d()) { smoke(x, y, vx, vy, opts); return; }
+    opts = opts || {};
+    DS.R3D.spawnSmokePuff(x, y, vx, vy, opts);
+  }
+
+  function emit3(o) {
+    const F = fx3d();
+    if (!F || o.spr) return emit(o);
+    F.puffAt(o.x * P2U, -o.y * P2U, wz(), (o.vx || 0) * P2U, -(o.vy || 0) * P2U, 0,
+             (o.size || 1) * 0.08, (o.size || 1) * 0.2, F.cssHex(o.color || '#ffffff'), 0.35, o.life || 20);
+    return null;
+  }
+
+  /* Reactions announce themselves by name; in 3D the name also sets off the
+     reaction's burst (see src/fx3d/kits.js) at the target it floats over. */
+  function number3(x, y, text, color, scale) {
+    number(x, y, text, color, scale);
+    const F = fx3d();
+    if (F && typeof text === 'string' && F.isReactionName && F.isReactionName(text)) {
+      F.reaction(text, x * P2U, -(y + 17) * P2U, F.Z, 1);
+    }
+  }
+
   DS.FX = {
-    emit: emit,
-    burst: burst,
-    hit: hit,
-    blood: blood,
-    dust: dust,
-    trail: trail,
-    smoke: smoke,
-    spark: spark,
-    star: star,
+    emit: emit3,
+    burst: burst3,
+    hit: hit3,
+    blood: blood3,
+    dust: dust3,
+    trail: trail3,
+    smoke: smoke3,
+    spark: spark3,
+    star: star3,
     heart: heart,
     pop: pop,
-    ring: ring,
-    element: element,
-    shaped: shaped,
-    number: number,
+    ring: ring3,
+    element: element3,
+    shaped: shaped3,
+    number: number3,
     update: update,
     draw: draw,
     clear: clear,

@@ -77,10 +77,13 @@ window.DS = window.DS || {};
     const s = ensureStatus(target);
 
     const existing = target.aura && target.aura.frames > 0 ? target.aura.element : null;
+    // Read before the status lands, so a passive can tell what this hit did.
+    const ctx = { wasFrozen: s.frozen > 0 };
 
     if (existing && existing !== element) {
       const reaction = react(g, target, existing, element, power);
       target.aura = null;
+      if (!opts.noPassive) runPassive(g, target, element, power, ctx);
       return reaction;
     }
 
@@ -89,6 +92,9 @@ window.DS = window.DS || {};
     if (ELEMENTS[element].field && !opts.noField) {
       spawnField(g, DS.Ent.centerX(target), target.y + target.h, element, power);
     }
+    /* The weapon's signature on top of the status. Internal spreads (swirl,
+       plague) pass noPassive so a passive never re-triggers itself. */
+    if (!opts.noPassive) runPassive(g, target, element, power, ctx);
     return null;
   }
 
@@ -175,7 +181,7 @@ window.DS = window.DS || {};
                  DS.Ent.centerX(o), DS.Ent.centerY(o)) > 72) continue;
       // Reduced power and no ground field: a swirl spreads the effect, it does
       // not reproduce the original hit.
-      apply(g, o, el, power * 0.55, { noField: true });
+      apply(g, o, el, power * 0.55, { noField: true, noPassive: true });
       shared++;
     }
     if (shared) {
@@ -228,6 +234,205 @@ window.DS = window.DS || {};
     if (!g.bolts) g.bolts = [];
     g.bolts.push({ x1: x, y1: y - 120, x2: x, y2: y, life: 12, color: color || '#fff0a8' });
   }
+
+  // --- weapon passives (infusion) ------------------------------------------
+
+  /* Each element's "unique function" when it rides a weapon hit. The status
+     in baseEffect is what the ELEMENT does to a body (burn, chill stacks into
+     freeze, a two-foe arc, poison, wet, brittle armour, root, swirl); the
+     passive is what the WEAPON does with it, and it fires on every hit that
+     carries the element - including hits that set off a reaction - so an
+     infused sword always feels like that element in your hand.
+
+     Magnitudes scale off `power` (hit damage x element share x Elemental
+     Power), so rarity and the share table still decide how loud each one is.
+     Extra damage is dealt with isChain so it can never re-apply an element
+     and recurse. g.onElementPassive(key, target) is a hook for VFX. */
+  const PASSIVE = {
+    fire: {
+      key: 'fire', name: 'EMBER SPLASH',
+      desc: 'SPLASHES FIRE ON FOES BESIDE THE TARGET',
+      run: function (g, e, power) {
+        const dmg = Math.max(1, Math.round(power * 0.5));
+        let hit = 0;
+        eachNear(g, e, 26, function (o) {
+          DS.Ent.damageEnemy(g, o, dmg, { dir: dirFrom(e, o), knockback: 0.4, isChain: true });
+          const s = ensureStatus(o);
+          if (!(s.burn > 0)) {
+            s.burn = 60; s.burnTick = 22;
+            s.burnDamage = Math.max(1, Math.round(power * 0.1));
+          }
+          hit++;
+        });
+        return hit > 0;
+      }
+    },
+    ice: {
+      key: 'ice', name: 'SHATTER',
+      desc: 'HITTING A FROZEN FOE SHATTERS IT FOR BONUS DAMAGE',
+      run: function (g, e, power, ctx) {
+        const s = ensureStatus(e);
+        s.chillSlow = Math.max(s.chillSlow || 0, 0.5);
+        // Only a foe that was ALREADY frozen shatters, not one this hit froze.
+        if (!ctx.wasFrozen || !(s.frozen > 0)) return false;
+        s.frozen = 0;
+        DS.FX.number(DS.Ent.centerX(e), e.y - 10, 'SHATTER', '#a8e4ff');
+        DS.Ent.damageEnemy(g, e, Math.max(1, Math.round(power * 1.4)),
+                           { dir: dirFrom(g.player, e), knockback: 1.2, isChain: true });
+        return true;
+      }
+    },
+    lightning: {
+      key: 'lightning', name: 'STATIC STRIKE',
+      desc: 'EVERY THIRD HIT CALLS DOWN A BOLT',
+      run: function (g, e, power) {
+        g.staticCharge = (g.staticCharge || 0) + 1;
+        if (g.staticCharge < 3) return false;
+        g.staticCharge = 0;
+        strikeDown(g, DS.Ent.centerX(e), DS.Ent.centerY(e), '#fff0a8');
+        ensureStatus(e).shock = Math.max(e.status.shock || 0, 30);
+        DS.Ent.damageEnemy(g, e, Math.max(1, Math.round(power * 1.1)),
+                           { dir: 1, knockback: 0.4, isChain: true });
+        DS.Audio.play('lightning');
+        return true;
+      }
+    },
+    poison: {
+      key: 'poison', name: 'PLAGUE',
+      desc: 'POISON STACKS, AND SPREADS WHEN THE HOST DIES',
+      run: function (g, e, power) {
+        const s = ensureStatus(e);
+        s.poisonStacks = Math.min(4, (s.poisonStacks || 0) + 1);
+        if (s.poison > 0) {
+          s.poisonDamage = Math.max(1, Math.round(power * 0.12)) + s.poisonStacks - 1;
+        }
+        s.plaguePower = Math.max(s.plaguePower || 0, power);
+        if (!e.plagueHooked) {
+          e.plagueHooked = true;
+          const prev = e.onDeath;
+          e.onDeath = function (g2, dead) {
+            plague(g2, dead);
+            if (prev) prev(g2, dead);
+          };
+        }
+        return true;
+      }
+    },
+    water: {
+      key: 'water', name: 'TIDAL PUSH',
+      desc: 'SOAKS AND SHOVES THE TARGET AWAY',
+      run: function (g, e) {
+        if (e.isBoss) return false;
+        const dir = dirFrom(g.player, e);
+        e.vx += dir * (e.heavy ? 0.8 : 2.2);
+        const s = ensureStatus(e);
+        s.wet = Math.max(s.wet || 0, 200);
+        return true;
+      }
+    },
+    earth: {
+      key: 'earth', name: 'STAGGER',
+      desc: 'CRACKS ARMOUR AND STAGGERS, THEN GRANTS A SHORT IMMUNITY',
+      run: function (g, e) {
+        const s = ensureStatus(e);
+        s.brittle = Math.max(s.brittle || 0, 180);
+        if (e.isBoss || s.staggerLock > 0) return false;
+        s.stagger = 24;
+        s.staggerLock = 90;    // cannot be stun-locked by a fast weapon
+        DS.FX.number(DS.Ent.centerX(e), e.y - 10, 'STAGGER', '#b98d5c');
+        return true;
+      }
+    },
+    leaf: {
+      key: 'leaf', name: 'LIFEBLOOM',
+      desc: 'HEALS YOU A LITTLE ON EVERY HIT',
+      run: function (g, e, power) {
+        const p = g.player;
+        if (!p || p.dead) return false;
+        // Capped per hit so a legendary cannot turn every swing into a heart.
+        p.healPool = (p.healPool || 0) + Math.min(1.2, power * 0.2);
+        while (p.healPool >= 6 && p.stats && p.hp < p.stats.maxHp) {
+          p.healPool -= 6;
+          p.hp++;
+          DS.FX.number(DS.Ent.centerX(p), p.y - 4, '+1', '#a3e86b');
+          DS.Audio.play('heal');
+        }
+        return true;
+      }
+    },
+    wind: {
+      key: 'wind', name: 'UPDRAFT',
+      desc: 'PULLS NEARBY FOES IN AND LAUNCHES THE TARGET',
+      run: function (g, e) {
+        eachNear(g, e, 60, function (o) {
+          if (o.isBoss) return;
+          o.vx += dirFrom(o, e) * (o.heavy ? 0.6 : 1.6);
+        });
+        if (!e.isBoss && !e.heavy) {
+          e.vy = Math.min(e.vy || 0, -3.2);
+          e.vx *= 0.4;
+        }
+        return true;
+      }
+    }
+  };
+
+  function runPassive(g, e, element, power, ctx) {
+    const def = PASSIVE[element];
+    if (!def || !g || !e) return false;
+    const fired = def.run(g, e, power || 1, ctx || {});
+    if (fired && g.onElementPassive) g.onElementPassive(element, e);
+    return fired;
+  }
+
+  function eachNear(g, e, radius, fn) {
+    const cx = DS.Ent.centerX(e), cy = DS.Ent.centerY(e);
+    for (let i = 0; i < g.enemies.length; i++) {
+      const o = g.enemies[i];
+      if (o === e || o.dead) continue;
+      if (M.dist(cx, cy, DS.Ent.centerX(o), DS.Ent.centerY(o)) > radius) continue;
+      fn(o);
+    }
+  }
+
+  // Unit direction from a to b along x (1 when a is missing or level).
+  function dirFrom(a, b) {
+    if (!a || !b) return 1;
+    return M.sign(DS.Ent.centerX(b) - DS.Ent.centerX(a)) || 1;
+  }
+
+  // Poison's death spread: a host still sick when it dies infects neighbours.
+  function plague(g, e) {
+    const s = e.status;
+    if (!s || !(s.poison > 0)) return 0;
+    const power = Math.max(1, (s.plaguePower || 4) * 0.6);
+    let n = 0;
+    eachNear(g, e, 44, function (o) {
+      apply(g, o, 'poison', power, { noField: true, noPassive: true });
+      n++;
+    });
+    if (n) {
+      DS.FX.number(DS.Ent.centerX(e), e.y - 12, 'PLAGUE', '#5cbf62');
+      DS.FX.ring(DS.Ent.centerX(e), DS.Ent.centerY(e), 14, '#5cbf62', 2);
+    }
+    return n;
+  }
+
+  /* How each element reshapes the E skill. Pure data for the VFX/skills side
+     (src/systems/skills.js reads item.element, which already follows the
+     infusion): `shape` is the silhouette the effect should take, `extra` the
+     gameplay rider the skill owner may add, `colors` the palette
+     (core, glow, spark). Nothing here runs by itself. */
+  const SKILL_VARIANT = {
+    fire:      { shape: 'flame-wave',   extra: 'leaves a burning trail on the ground',       colors: ['#e8743b', '#f2c14e', '#fff0a8'], sfx: 'fire' },
+    ice:       { shape: 'shard-fan',    extra: 'adds a chill stack to everything it hits',   colors: ['#4fb3e0', '#a8e4ff', '#ffffff'], sfx: 'ice' },
+    lightning: { shape: 'forked-bolt',  extra: 'chains to 2 extra foes',                     colors: ['#f2c14e', '#fff0a8', '#ffffff'], sfx: 'lightning' },
+    poison:    { shape: 'toxic-cloud',  extra: 'lingers as a poison mist field',             colors: ['#5cbf62', '#a3e86b', '#2f7d4f'], sfx: 'cast' },
+    water:     { shape: 'tide-crash',   extra: 'wide knockback wave, soaks (wet)',           colors: ['#2f6fa8', '#4fb3e0', '#a8e4ff'], sfx: 'ice' },
+    earth:     { shape: 'rock-spikes',  extra: 'erupts spikes along the ground, staggers',   colors: ['#b98d5c', '#8a6340', '#5c3f2a'], sfx: 'slam' },
+    leaf:      { shape: 'petal-spiral', extra: 'roots foes, heals the player a little',      colors: ['#a3e86b', '#5cbf62', '#2f7d4f'], sfx: 'swing' },
+    wind:      { shape: 'vortex',       extra: 'pulls foes to the centre then lifts them',   colors: ['#cfe8e0', '#ffffff', '#9fb8b0'], sfx: 'swing' }
+  };
 
   // --- reactions ------------------------------------------------------------
 
@@ -887,13 +1092,15 @@ window.DS = window.DS || {};
     if (s.brittle > 0) s.brittle--;
     if (s.blind > 0) s.blind--;
     if (s.deepFrozen > 0) s.deepFrozen--;
+    if (s.stagger > 0) s.stagger--;
+    if (s.staggerLock > 0) s.staggerLock--;
   }
 
   // Frozen, rooted or shocked enemies cannot act.
   function disabled(e) {
     const s = e.status;
     if (!s) return false;
-    return s.frozen > 0 || s.root > 0 || s.shock > 0;
+    return s.frozen > 0 || s.root > 0 || s.shock > 0 || s.stagger > 0;
   }
 
   function speedScale(e) {
@@ -947,6 +1154,12 @@ window.DS = window.DS || {};
     speedScale: speedScale,
     damageScale: damageScale,
     armorOf: armorOf,
-    statusTint: statusTint
+    statusTint: statusTint,
+    PASSIVE: PASSIVE,
+    ELEMENT_PASSIVE: PASSIVE,
+    ELEMENT_SKILL_VARIANT: SKILL_VARIANT,
+    runPassive: runPassive,
+    // Canonical "which element is this weapon hitting with" (infusion first).
+    activeElement: function (item) { return DS.Weapons.activeElement(item); }
   };
 })(window.DS);

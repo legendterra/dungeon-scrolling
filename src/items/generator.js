@@ -77,7 +77,12 @@ window.DS = window.DS || {};
        same archetype keeps improving after the base damage curve flattens.
        Elemental Power (bonus.elemPower, an affix/boon stat) scales reactions
        only, which is what makes a build feel different rather than bigger. */
-    stats.elementShare = item.element ? W.ELEMENT_SHARE[item.rarity] : 0;
+    /* The share follows the LIVE element (an infusion counts), so an infused
+       plain weapon starts carrying element the moment it is infused. */
+    const live = W.activeElement(item);
+    let share = live ? W.ELEMENT_SHARE[item.rarity] : 0;
+    if (live && item.starter) share = Math.max(share, W.STARTER_SHARE);
+    stats.elementShare = share;
     stats.elemPower = 1 + (bonus.elemPower || 0);
 
     item.stats = stats;
@@ -97,8 +102,11 @@ window.DS = window.DS || {};
       else if (a.kind === 'suffix' && !suffix) suffix = ' ' + a.name;
     }
 
+    // Named for the element it dropped with; an infusion shows on the card,
+    // not in the name, so a Fire Sword infused with ice is still that sword.
     let label = base.label;
-    if (item.element) label = W.ELEMENTS[item.element].label + ' ' + label;
+    const native = W.nativeElement(item);
+    if (native) label = W.ELEMENTS[native].label + ' ' + label;
 
     return (prefix + label + suffix).trim();
   }
@@ -153,6 +161,8 @@ window.DS = window.DS || {};
     if (!opts.noElement) {
       item.element = opts.element || rng.pick(W.ELEMENT_KEYS);
     }
+    item.baseElement = item.element;
+    item.infusion = null;
 
     return computeStats(item);
   }
@@ -163,7 +173,10 @@ window.DS = window.DS || {};
   function startingWeapon(type) {
     const rng = DS.makeRng(1);
     const key = W.WEAPONS[type] ? type : 'sword';
-    return makeItem(rng, 1, { type: key, rarity: 0, noElement: true });
+    const item = makeItem(rng, 1, { type: key, rarity: 0, noElement: true });
+    // Flagged so an infusion gets STARTER_SHARE rather than common's 15%.
+    item.starter = true;
+    return computeStats(item);
   }
 
   // --- loot tables ----------------------------------------------------------

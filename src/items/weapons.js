@@ -99,6 +99,33 @@ window.DS = window.DS || {};
      in between are what a build is actually built out of. */
   const ELEMENT_SHARE = [0.15, 0.26, 0.38, 0.50, 0.62];
 
+  /* The run's first weapon is common, so by the table above an infusion would
+     put a mere 15% of its hit into the element - barely enough to see. The
+     starter gets this floor instead, which makes the very first essence you
+     find worth pressing R for. */
+  const STARTER_SHARE = 0.30;
+
+  /* --- elemental infusion ---------------------------------------------------
+
+     A weapon has two element fields:
+       baseElement  what it dropped with (null for the starter), never changes
+       infusion     an essence the player has pushed into it, or null
+     and item.element is kept equal to whichever of the two is live, so every
+     reader that already asks item.element (attacks, projectiles, skills, the
+     3D weapon glow) follows an infusion without being told about it. The two
+     helpers below are the canonical way to ask. */
+  function nativeElement(item) {
+    if (!item) return null;
+    if (item.baseElement !== undefined) return item.baseElement || null;
+    // Items made before baseElement existed: an un-infused element is native.
+    return item.infusion ? null : (item.element || null);
+  }
+
+  function activeElement(item) {
+    if (!item) return null;
+    return item.infusion || item.element || null;
+  }
+
   // Damage scales with depth so a depth-1 sword is not still relevant at depth 6.
   function depthScale(depth) {
     return 1 + (depth - 1) * 0.34;
@@ -112,6 +139,9 @@ window.DS = window.DS || {};
     ELEMENTS: ELEMENTS,
     ELEMENT_KEYS: ELEMENT_KEYS,
     ELEMENT_SHARE: ELEMENT_SHARE,
+    STARTER_SHARE: STARTER_SHARE,
+    nativeElement: nativeElement,
+    activeElement: activeElement,
     CHARGE_MIN: CHARGE_MIN,
     depthScale: depthScale,
     rarityColor: function (index) {

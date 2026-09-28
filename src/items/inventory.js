@@ -46,7 +46,12 @@ window.DS = window.DS || {};
       // Three armour slots, freely mixed.
       armor: { head: null, chest: null, legs: null },
       // Shrine boons taken this run, by key.
-      boons: []
+      boons: [],
+      /* Elemental essences unlocked this run (element keys). Any weapon can be
+         infused with any of them - see the infusion section below. The run
+         starts with none: the first elemental weapon you pick up, a shrine
+         essence or a boss kill is what opens the mechanic. */
+      essences: []
     };
   }
 
@@ -155,11 +160,11 @@ window.DS = window.DS || {};
 
     if (!inv.equipped[1]) {           // second weapon slot is free — fill it first
       inv.equipped[1] = item;
-      return { ok: true, where: 'slot' };
+      return { ok: true, where: 'slot', essence: unlockFromItem(inv, item) };
     }
     if (bagFull(inv)) return { ok: false, reason: 'BAG FULL' };
     inv.bag.push(item);
-    return { ok: true, where: 'bag' };
+    return { ok: true, where: 'bag', essence: unlockFromItem(inv, item) };
   }
 
   // Equip a bagged item into the active slot; whatever was held goes to the bag.
@@ -179,6 +184,7 @@ window.DS = window.DS || {};
     inv.equipped[inv.active] = item;
     inv.bag.splice(index, 1);
     if (current) inv.bag.splice(index, 0, current);
+    unlockFromItem(inv, item);
     return true;
   }
 
@@ -382,6 +388,168 @@ window.DS = window.DS || {};
     return { ok: true, shards: value };
   }
 
+  // --- elemental infusion ---------------------------------------------------
+
+  /* Genshin-style infusion. Essences are run-scoped and live on the inventory;
+     once an element is known, ANY weapon can carry it. R cycles the held
+     weapon forward through the known elements, T cycles back (Shift+R would
+     also fire dash, which lives on Shift). Pad: the View/Select button.
+
+     Unlock sources:
+       - picking up (or equipping) a weapon that dropped with an element
+       - a shrine essence card (boon key 'essence:<element>', see boons.js)
+       - every boss kill grants a random element you do not know yet
+     The run starts with none; the starter sword gets STARTER_SHARE so its
+     first infusion is worth having. */
+  const INFUSE_COOLDOWN = 45;   // frames between two infusion switches
+  const INFUSE_MANA = 8;        // a small price, so it is a choice not a tic
+  const ESSENCE_BOON = 'essence:';
+
+  // Known essences, always in the canonical element order so cycling is stable.
+  function essences(inv) {
+    const own = (inv && inv.essences) || [];
+    const boons = (inv && inv.boons) || [];
+    return W.ELEMENT_KEYS.filter(function (k) {
+      return own.indexOf(k) >= 0 || boons.indexOf(ESSENCE_BOON + k) >= 0;
+    });
+  }
+
+  function hasEssence(inv, element) { return essences(inv).indexOf(element) >= 0; }
+
+  // Returns the element when it was newly learned, null when already known.
+  function unlockEssence(inv, element) {
+    if (!inv || !W.ELEMENTS[element] || hasEssence(inv, element)) return null;
+    if (!inv.essences) inv.essences = [];
+    inv.essences.push(element);
+    return element;
+  }
+
+  function unlockFromItem(inv, item) {
+    if (!item || DS.Armor.isArmor(item)) return null;
+    return unlockEssence(inv, W.nativeElement(item));
+  }
+
+  function lockedEssences(inv) {
+    return W.ELEMENT_KEYS.filter(function (k) { return !hasEssence(inv, k); });
+  }
+
+  // The elements this weapon can be switched between: every known essence
+  // plus whatever it dropped with.
+  function infusionRing(inv, item) {
+    const native = W.nativeElement(item);
+    return W.ELEMENT_KEYS.filter(function (k) {
+      return k === native || hasEssence(inv, k);
+    });
+  }
+
+  /* The element the next press lands on, or null when there is nowhere to go.
+     A weapon whose live element is not on the ring (a plain starter) enters
+     at the first known element going forward and at the last going back. */
+  function nextInfusion(inv, item, dir) {
+    const ring = infusionRing(inv, item);
+    if (!ring.length) return null;
+    const live = W.activeElement(item);
+    const at = ring.indexOf(live);
+    let next;
+    if (at < 0) next = dir < 0 ? ring[ring.length - 1] : ring[0];
+    else next = ring[(at + (dir < 0 ? ring.length - 1 : 1)) % ring.length];
+    return next === live ? null : next;
+  }
+
+  /* Push an element into a weapon (null clears the infusion). Infusing with the
+     weapon's own element is the same as clearing it. Stats are rebuilt because
+     the element share follows the live element. */
+  function setInfusion(item, element) {
+    if (!item || DS.Armor.isArmor(item)) return false;
+    const native = W.nativeElement(item);
+    if (item.baseElement === undefined) item.baseElement = native;
+    const next = element && W.ELEMENTS[element] ? element : null;
+    item.infusion = next && next !== native ? next : null;
+    item.element = item.infusion || native;
+    Loot.computeStats(item);
+    return true;
+  }
+
+  /* The whole press: cooldown, mana, the switch, and the feedback. Returns
+     { ok, element } or { ok: false, reason } so tests and callers can tell a
+     refusal from a switch. */
+  function tryInfuse(g, p, dir) {
+    const inv = p.inv;
+    const item = weapon(inv);
+    if (!item) return { ok: false, reason: 'NO WEAPON' };
+    if ((p.infuseCooldown || 0) > 0) return { ok: false, reason: 'COOLDOWN' };
+
+    if (!essences(inv).length) {
+      feedback(g, 'NO ESSENCES YET - FIND ELEMENTAL WEAPONS', '#9b96b8', 'error');
+      return { ok: false, reason: 'NO ESSENCES' };
+    }
+    const next = nextInfusion(inv, item, dir);
+    if (!next) {
+      feedback(g, 'NO OTHER ESSENCE KNOWN', '#9b96b8', 'error');
+      return { ok: false, reason: 'NO OTHER ESSENCE' };
+    }
+    if ((p.mana || 0) < INFUSE_MANA) {
+      feedback(g, 'NOT ENOUGH MANA TO INFUSE', '#4fb3e0', 'error');
+      return { ok: false, reason: 'NO MANA' };
+    }
+
+    p.mana -= INFUSE_MANA;
+    p.infuseCooldown = INFUSE_COOLDOWN;
+    setInfusion(item, next);
+    if (p.refreshStats) p.refreshStats();
+
+    const E = W.ELEMENTS[next];
+    const passive = DS.Elements && DS.Elements.PASSIVE && DS.Elements.PASSIVE[next];
+    feedback(g, 'INFUSED ' + E.label.toUpperCase() + (passive ? ' - ' + passive.name : ''),
+             E.color, E.sfx);
+    if (DS.FX && DS.FX.ring && DS.Ent) {
+      DS.FX.ring(DS.Ent.centerX(p), DS.Ent.centerY(p), 12, E.color, 1.8);
+    }
+    if (g && g.onInfuse) g.onInfuse(item, next);
+    return { ok: true, element: next };
+  }
+
+  function feedback(g, text, color, sfx) {
+    if (g && g.toast) g.toast(text, color);
+    if (DS.Audio && sfx) DS.Audio.play(sfx);
+  }
+
+  // Per-frame: tick the cooldown and read the two infusion actions.
+  function updateInfusion(g, p) {
+    if (!p || p.dead) return null;
+    if (p.infuseCooldown > 0) p.infuseCooldown--;
+    const In = DS.Input;
+    if (!In) return null;
+    let dir = 0;
+    if (In.justPressed('infuse')) { In.consume('infuse'); dir = 1; }
+    else if (In.justPressed('infuseBack')) { In.consume('infuseBack'); dir = -1; }
+    return dir ? tryInfuse(g, p, dir) : null;
+  }
+
+  /* A boss kill teaches an element you do not have yet, picked at random so
+     two runs do not unlock in the same order. */
+  function grantRandomEssence(inv, rng) {
+    const locked = lockedEssences(inv);
+    if (!locked.length) return null;
+    const pick = rng && rng.pick ? rng.pick(locked) : locked[0];
+    return unlockEssence(inv, pick);
+  }
+
+  // Banner for a newly learned essence; shared by pickups, shrines and bosses.
+  function announceEssence(g, element) {
+    const E = element && W.ELEMENTS[element];
+    if (!E || !g || !g.showBanner) return;
+    g.showBanner('ESSENCE OF ' + E.label.toUpperCase(),
+                 'R / T TO INFUSE ANY WEAPON', E.color);
+  }
+
+  function grantBossEssence(g) {
+    if (!g || !g.inv) return null;
+    const el = grantRandomEssence(g.inv, g.rng);
+    if (el) announceEssence(g, el);
+    return el;
+  }
+
   // Best item held anywhere, for the game-over summary.
   /* The run summary asks "what did you fight with", so armour and every other
      non-weapon is out, and a tie is broken toward the weapon actually in hand
@@ -500,6 +668,22 @@ window.DS = window.DS || {};
     upgradeRarity: upgradeRarity,
     salvage: salvage,
     applyArmor: applyArmor,
-    bestWeapon: bestWeapon
+    bestWeapon: bestWeapon,
+    INFUSE_COOLDOWN: INFUSE_COOLDOWN,
+    INFUSE_MANA: INFUSE_MANA,
+    ESSENCE_BOON: ESSENCE_BOON,
+    essences: essences,
+    hasEssence: hasEssence,
+    unlockEssence: unlockEssence,
+    unlockFromItem: unlockFromItem,
+    lockedEssences: lockedEssences,
+    infusionRing: infusionRing,
+    nextInfusion: nextInfusion,
+    setInfusion: setInfusion,
+    tryInfuse: tryInfuse,
+    updateInfusion: updateInfusion,
+    grantRandomEssence: grantRandomEssence,
+    grantBossEssence: grantBossEssence,
+    announceEssence: announceEssence
   };
 })(window.DS);

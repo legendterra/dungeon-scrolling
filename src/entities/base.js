@@ -90,7 +90,8 @@ window.DS = window.DS || {};
 
     const color = opts.crit ? '#fff0a8' : '#ffffff';
     DS.FX.number(centerX(enemy), enemy.y - 2, dealt, color, opts.crit ? 2 : 1);
-    DS.FX.hit(centerX(enemy) + dir * 4, centerY(enemy), dir);
+    // The hit spark knows the blow: element, crit and heavy colour the 3D impact.
+    DS.FX.hit(centerX(enemy) + dir * 4, centerY(enemy), dir, opts);
     DS.Audio.play(opts.crit ? 'crit' : 'hit');
     if (opts.crit) DS.R.shake(2.5);
 
@@ -195,7 +196,7 @@ window.DS = window.DS || {};
     // loot roll — burning to death from a torch pass still drops fire gifts.
     const st = enemy.status || {};
     const statusEl = st.burn > 0 ? 'fire' : st.chill > 0 ? 'ice'
-      : st.shock > 0 ? 'shock' : st.poison > 0 ? 'poison'
+      : st.shock > 0 ? 'lightning' : st.poison > 0 ? 'poison'
       : st.root > 0 ? 'leaf' : null;
     const loot = DS.Loot.enemyLoot(g.rng, g.depth, enemy.tier || 'normal', g, statusEl);
     spawnLoot(g, centerX(enemy), centerY(enemy), loot);
