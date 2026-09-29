@@ -21,7 +21,10 @@ window.DS = window.DS || {};
 
   const CEIL_ROW = 3;          // nothing is ever built above this
   const TOP_ROW = 5;           // the highest a floor can climb
-  const BASE_ROW = 20;         // the lowest a floor can sit (bedrock is below)
+  const BASE_ROW = 20;         // the lowest a floor can sit on a 22-row map
+  /* v7: the lowest floor is two rows above the bottom of the MAP, whatever its
+     height, so a taller carved floor has a taller climb. carve() sets it. */
+  let baseRow = BASE_ROW;
 
   /* Shape of the whole level, as a 0..1 height curve sampled left to right.
      This is what makes one level "a long climb" and the next "a descent into
@@ -46,8 +49,8 @@ window.DS = window.DS || {};
 
   function rowFor(shape, t) {
     const h = M.clamp(SHAPES[shape](t), 0, 1);
-    const span = (BASE_ROW - TOP_ROW) * M.clamp(spanScale, 0.5, 1.35);
-    return Math.round(BASE_ROW - h * span);
+    const span = (baseRow - TOP_ROW) * M.clamp(spanScale, 0.5, 1.35);
+    return Math.round(baseRow - h * span);
   }
 
   /* Fill a column with bedrock from its floor row down. The tile renderer
@@ -158,6 +161,7 @@ window.DS = window.DS || {};
   /* Build the whole floor profile and everything hanging off it.
      Returns the segment list so callers can place things on flat ground. */
   function carve(map, rng, depth, out) {
+    baseRow = map.h - 2;
     const shape = rng.pick(SHAPE_KEYS);
     /* climbSpan runs 8 at depth 1 to 22 at depth 10; 7.6 is its depth-1 value,
        so this is "how much taller than a first floor" expressed as a ratio. */
@@ -170,7 +174,7 @@ window.DS = window.DS || {};
     const perches = [];
 
     let tx = 0;
-    let row = BASE_ROW;
+    let row = baseRow;
 
     // The first stretch is always flat, low and safe: it is where you land.
     const openW = 10;
@@ -188,7 +192,7 @@ window.DS = window.DS || {};
       if (room < 3) break;
 
       const t = tx / cols;
-      let target = M.clamp(rowFor(shape, t) + rng.int(-2, 2), TOP_ROW, BASE_ROW);
+      let target = M.clamp(rowFor(shape, t) + rng.int(-2, 2), TOP_ROW, baseRow);
       let rise = row - target;
       /* A climb that does not fit is made shorter, never squeezed. */
       if (rise > 2 && stairWidth(rise) > room) {
@@ -229,7 +233,7 @@ window.DS = window.DS || {};
     }
 
     // The exit shelf: flat, at the bottom, so the door is never mid-climb.
-    const tailRow = BASE_ROW;
+    const tailRow = baseRow;
     if (row < tailRow) ledges(map, tx - 1, row, tailRow);
     for (let i = tx; i < cols; i++) column(map, i, tailRow);
     segments.push({ x: tx, w: cols - tx, row: tailRow, safe: true });

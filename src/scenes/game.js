@@ -191,6 +191,7 @@ window.DS = window.DS || {};
     // Keep the floor's shape around: the 3D theme resolver and the banner
     // both need to know a mountain from a flooded cave after loadLevel.
     g.flavor = level.flavor || null;
+    g.waterRow = level.waterRow != null ? level.waterRow : null;   // a lake's surface: the far sea stands on it
 
     /* The floor's rule is decided before anything spawns, so enemy stats and
        loot can all read it. Safe rooms are never cursed. */

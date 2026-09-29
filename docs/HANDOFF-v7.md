@@ -9,7 +9,7 @@ Perbarui file ini di akhir setiap fase.
 |---|---|---|
 | 0 | Persiapan, bug senjata, jam menu, `shoot-maps.js`, baseline | **selesai** (18e7331) |
 | 1 | Backdrop world-space (diam, terisi penuh, tanpa mesh di depan bidang main) | **selesai** |
-| 2 | Level diperbesar | belum |
+| 2 | Level diperbesar | **sebagian** (lihat di bawah) |
 | 3 | Tekstur CC0 HD | belum |
 | 4-6 | Map per act + monster | belum |
 | 7 | MC baru | belum |
@@ -42,3 +42,21 @@ menerus untuk map tertutup, matahari di balik jendela berjeruji, pemecahan `back
 
 Catatan visual: sheet `after-p1` memperlihatkan Rusted Prison masih seperti gurun dan blok bata level Climb
 menutupi backdrop di tengah/atas; keduanya adalah pekerjaan Fase 2 dan 4.
+
+## Fase 2: yang dikirim dan yang ditunda
+
+Dikirim (`src/world/levelsize.js` adalah satu-satunya tabel ukuran, diuji di `tests/levelsize.test.js`):
+- corridor 260-480 x 22 (rooms x 1.8), carved 240-440 x **32** (`parkour.js` memakai `map.h - 2` sebagai dasar),
+  flooded 160-220 x **30** (danau lebih dalam, gundukan dan dive diperbanyak), mountain **128 x 60**
+  (sembilan plateau, sumur dan vault sama besar), trial **144** x 22 (gauntlet dan hall lebih panjang, arena tetap).
+- Jangkar backdrop = lantai tempat hero mulai (`footRow`), atau permukaan air di danau (`g.waterRow`).
+- `npm run solve 14`: 0 exit tak terjangkau di 532 lantai, keempat metrik anti-melayang 0. `check-climb.js` lulus
+  (tali di gunung baru dipanjat sungguhan). `audit-world.js` lulus di depth 3/7/9/13/22.
+
+Ditunda (dengan alasan):
+- **Arena boss dan safe room** (40 -> 64-80 dan 20 -> 40): arena dibuat per boss di Fase 4-6 bersama boss barunya,
+  supaya tidak dikerjakan dua kali.
+- **Segmen dua lantai di corridor** dan **atap tile opsional per map**: keduanya dibaca dari definisi map
+  (Fase 4-6), jadi dibuat bersama definisi itu.
+- Frame time di level besar (`qa:frame`) dan ekonomi koin (musuh per lantai naik ~1.7x, harga toko belum
+  disetel ulang) harus dicek user di lokal.

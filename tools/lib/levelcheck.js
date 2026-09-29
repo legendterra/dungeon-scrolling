@@ -55,6 +55,7 @@ const GAME_STUBS =
 const FILES = [
   'src/core/rng.js',
   'src/world/tilemap.js',
+  'src/world/levelsize.js',
   'src/systems/difficulty.js',
   'src/systems/reach.js',
   'src/world/parkour.js',

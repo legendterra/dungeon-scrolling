@@ -19,11 +19,11 @@ window.DS = window.DS || {};
   const TILE = DS.TILE;
   const M = DS.M;
 
-  const ROOM_H = 22;
+  const ROOM_H = DS.LevelSize.FLOODED_ROWS;   // v7: a deeper lake
   const CEIL = 2;            // solid rock above this row, always
   const SHORE = 12;          // the dry ledge at either end
   const WATER_ROW = 13;      // the surface
-  const BED = 20;            // deepest the lake bed goes
+  const BED = ROOM_H - 3;    // deepest the lake bed goes
   const SHORE_W = 9;         // columns of dry land at each end
 
   // --- terrain --------------------------------------------------------------
@@ -51,7 +51,7 @@ window.DS = window.DS || {};
     }
 
     // Lumps: gentle rises off the bed, some of which become islands.
-    const lumps = rng.int(2, 4);
+    const lumps = rng.int(4, 8);      // v7: a lake two to three times as wide
     for (let i = 0; i < lumps; i++) {
       const at = rng.int(SHORE_W + 6, width - SHORE_W - 7);
       const halfW = rng.int(2, 4);
@@ -75,7 +75,7 @@ window.DS = window.DS || {};
     for (let tx = 0; tx < width; tx++) rows[tx] = CEIL;
 
     const dives = [];
-    const count = rng.int(2, 3);
+    const count = rng.int(4, 6);
     let cursor = SHORE_W + 6;
 
     for (let i = 0; i < count && cursor < width - SHORE_W - 12; i++) {
@@ -132,7 +132,7 @@ window.DS = window.DS || {};
   }
 
   function build(rng, depth, out) {
-    const rooms = M.clamp(4 + Math.floor(depth / 3), 4, 6);
+    const rooms = DS.LevelSize.floodedRooms(depth);
     const width = 20 * rooms;
     const map = DS.Map.create(width, ROOM_H);
 

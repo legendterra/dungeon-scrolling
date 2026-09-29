@@ -29,10 +29,13 @@ window.DS = window.DS || {};
   const FLOOR = 18;          // the walking surface row
   const CEIL = 6;            // roof of the chamber
   const ENTRY_W = 13;
-  const GAUNTLET_END = 45;
-  const HALL_END = 79;
+  /* v7: 144 wide, up from 112 (src/world/levelsize.js). The gauntlet and the
+     plate hall take the extra length; the arena stays the size the Arbiter was
+     tuned for. */
+  const MAP_W = DS.LevelSize.TRIAL.w;
+  const GAUNTLET_END = 62;
+  const HALL_END = MAP_W - 36;
   const GATE_W = 3;
-  const MAP_W = 112;
   const TORCH_H = 24;
 
   function fillColumn(map, tx, fromRow) {

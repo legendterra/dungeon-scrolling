@@ -157,3 +157,23 @@ test('mountain ropes hang from the lip of the plateau they serve', () => {
   }
   assert.ok(ropes > 0, 'no mountain was built');
 });
+
+test('v7 sizes: corridors, climbs and lakes are the bigger floors the plan set', () => {
+  const seen = { corridor: 0, carved: 0, flooded: 0 };
+  for (const f of sweep) {
+    const m = f.level.map, flavor = f.level.flavor || f.level.kind;
+    if (flavor === 'corridor') {
+      assert.ok(m.w >= 220 && m.w <= 520, 'corridor ' + m.w + ' wide on ' + where(f));
+      assert.equal(m.h, 22, 'corridor height on ' + where(f));
+    } else if (flavor === 'carved') {
+      assert.ok(m.w >= 240 && m.w <= 480, 'carved ' + m.w + ' wide on ' + where(f));
+      assert.equal(m.h, 32, 'carved height on ' + where(f));
+    } else if (flavor === 'flooded') {
+      assert.ok(m.w >= 160 && m.w <= 240, 'flooded ' + m.w + ' wide on ' + where(f));
+      assert.equal(m.h, 30, 'flooded height on ' + where(f));
+    } else continue;
+    seen[flavor]++;
+  }
+  assert.ok(seen.corridor > 0 && seen.carved > 0 && seen.flooded > 0,
+    'the sweep should meet every flavor: ' + JSON.stringify(seen));
+});

@@ -488,9 +488,9 @@ window.DS = window.DS || {};
      teach them a second coordinate system. */
   function buildCarved(rng, depth, out) {
     const diff = DS.Difficulty ? DS.Difficulty.forDepth(depth) : null;
-    const rooms = diff ? DS.M.clamp(diff.roomCount + 1, 7, 14)
-                       : DS.M.clamp(7 + Math.floor(depth * 1.2), 7, 14);
-    const map = DS.Map.create(ROOM_W * rooms, ROOM_H);
+    const base = diff ? diff.roomCount : DS.M.clamp(6 + Math.floor(depth * 0.6), 6, 12);
+    const rooms = DS.LevelSize.carvedRooms(base);
+    const map = DS.Map.create(ROOM_W * rooms, DS.LevelSize.CARVED_ROWS);
 
     DS.Parkour.carve(map, rng, depth, out);
 
@@ -885,8 +885,8 @@ window.DS = window.DS || {};
 
     // Longer levels the deeper you go, but never long enough to drag.
     const diff = DS.Difficulty ? DS.Difficulty.forDepth(depth) : null;
-    const middle = diff ? diff.roomCount
-                        : DS.M.clamp(6 + Math.floor(depth * 1.1), 6, 12);
+    const middle = DS.LevelSize.corridorMiddle(diff ? diff.roomCount
+                        : DS.M.clamp(6 + Math.floor(depth * 1.1), 6, 12));
     const picks = [];
     for (let i = 0; i < middle; i++) picks.push(rng.pick(PADDED_ROOMS));
 

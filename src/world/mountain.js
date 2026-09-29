@@ -20,14 +20,18 @@ window.DS = window.DS || {};
   const T = DS.C.TILE;
   const TILE = DS.TILE;
 
-  const MAP_W = 96;
-  const MAP_H = 34;
-  const GROUND = 30;         // where the climb starts
-  const FLOOR = 31;          // the vault floor row (solid)
-  const CLIMB_W = 45;        // columns of open sky before the rock begins
-  const SHAFT_L = 48;
-  const SHAFT_R = 56;
-  const ROPE_X = 52;         // the descent, and the edge you step off
+  /* v7: 128 x 60, up from 96 x 34 (src/world/levelsize.js). The climb is nearly
+     three times as tall, so it has nine or so plateaus instead of three or four;
+     the shaft and the vault under the summit are the same size as they were. */
+  const MAP_W = DS.LevelSize.MOUNTAIN.w;
+  const MAP_H = DS.LevelSize.MOUNTAIN.h;
+  const GROUND = MAP_H - 4;  // where the climb starts
+  const FLOOR = MAP_H - 3;   // the vault floor row (solid)
+  const INTERIOR_W = 51;     // columns of shaft and vault, east of the climb
+  const CLIMB_W = MAP_W - INTERIOR_W;   // columns of open sky before the rock begins
+  const SHAFT_L = CLIMB_W + 3;
+  const SHAFT_R = CLIMB_W + 11;
+  const ROPE_X = CLIMB_W + 7;           // the descent, and the edge you step off
   const TORCH_H = 24;
 
   function fillColumn(map, tx, fromRow) {
@@ -68,7 +72,7 @@ window.DS = window.DS || {};
     let row = GROUND;
     let x = 0;
     while (x < CLIMB_W) {
-      const w = rng.int(8, 12);
+      const w = rng.int(7, 10);
       const next = row - rng.int(4, 6);
       if (x + w >= CLIMB_W || next < SUMMIT) {
         steps.push({ from: x, to: CLIMB_W, row: row });
@@ -107,7 +111,8 @@ window.DS = window.DS || {};
         const rise = below.row - step.row;
         const tall = Math.ceil(rise / 2);
         const at = step.from - rng.int(4, 5);
-        if (at > below.from + 1) {
+        // Clear of the spawn (two columns in from the plateau's edge) as well.
+        if (at > below.from + 3) {
           for (let x = at; x <= at + 1; x++) {
             for (let y = below.row - tall; y < below.row; y++) map.set(x, y, TILE.WALL);
           }

@@ -1138,19 +1138,28 @@ window.DS = window.DS || {};
      The horizon used to stand on the MEDIAN of the walking surface, which is a
      different place on every floor and, on a climb, the middle of the mountain --
      so half the floor sat under its own ground and the horizon had to be lowered,
-     locked and dragged to keep it under the eye. The foot is the lowest ground
-     the level really walks on (the 85th percentile of the column heights, so a
-     single pit cannot drag it down). Everything above it is the level climbing
-     up out of the world, which is what the backdrop now shows. */
-  function footRow(map) {
+     locked and dragged to keep it under the eye. The world now stands on the floor
+     the hero STARTS on: every builder opens on the lowest safe ground (the carver's
+     first stretch, the mountain's first plateau, a corridor's flat floor), so it is
+     the level's foot, and everything above it is the level climbing up out of the
+     world -- which is what the backdrop shows. A lake stands its far sea on the
+     surface of the water instead (g.waterRow). Without a hero it falls back to the
+     98th percentile of the column heights, so a single pit cannot drag it down. */
+  function footRow(map, g) {
+    if (g && g.waterRow != null) return g.waterRow * 16;
+    const p = g && g.player;
+    if (p) {
+      const y = map.groundBelow(Math.floor((p.x + p.w * 0.5) / 16));
+      if (y < map.pixelH) return y;
+    }
     const rows = [];
     for (let tx = 2; tx < map.w - 2; tx += 2) {
-      const g = map.groundBelow(tx);
-      if (g < map.pixelH) rows.push(g);
+      const gy = map.groundBelow(tx);
+      if (gy < map.pixelH) rows.push(gy);
     }
     if (!rows.length) return map.pixelH;
     rows.sort(function (a, b) { return a - b; });
-    return rows[Math.min(rows.length - 1, Math.floor(rows.length * 0.85))];
+    return rows[Math.min(rows.length - 1, Math.floor(rows.length * 0.98))];
   }
 
   /* Mood + backdrop. Everything big and distant lives here; the walkway
@@ -1902,7 +1911,7 @@ window.DS = window.DS || {};
     const flavor = (g && g.flavor) || '';
     const themeName = resolveTheme(depth, biome, flavor);
 
-    setupTheme(themeName, w, h, biome, -footRow(map) * P2U);
+    setupTheme(themeName, w, h, biome, -footRow(map, g) * P2U);
 
     const wallTex = makeWallTexture(biome);
     const floorTex = makeFloorTexture(biome);
