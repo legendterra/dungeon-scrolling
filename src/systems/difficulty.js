@@ -110,7 +110,8 @@ window.DS = window.DS || {};
      deep, burning crown, shore - with the boss rungs landing on the endless
      boss depths because both repeat every five floors. The Torch Hall's
      puzzle and its one free bow belong to the first visit only. */
-  const endlessCache = {};
+  let endlessCache = {};
+  let endlessCount = 0;
 
   function biomeForDepth(depth) {
     const d = depthOf(depth);
@@ -122,7 +123,12 @@ window.DS = window.DS || {};
       depth: d, key: src.key, label: src.label, flavor: src.flavor,
       theme: src.theme, endless: true
     };
+    /* Rungs are pure functions of the depth, so dropping the cache is free;
+       it only keeps the same object for the depth being played. Bounded so an
+       endless run cannot grow it without limit. */
+    if (endlessCount >= 64) { endlessCache = {}; endlessCount = 0; }
     endlessCache[d] = rung;
+    endlessCount++;
     return rung;
   }
 
