@@ -2557,6 +2557,23 @@ window.DS = window.DS || {};
     o.glow = clip(o.glow, 4);
   }
 
+  /* How much a band has to be flattened in z so that its front face stays behind
+     the play plane. A band is authored with depth (a lily pad is 3 units of z, a
+     bank of cloud 11) and scaled up by its rung, so the near rungs can reach
+     past FRONT_Z. Flattening keeps every plane where it was: from the front the
+     picture does not change. `allowed` is the deepest local z the band may have. */
+  function frontFit(o, allowed) {
+    let zmax = -Infinity;
+    const boxZ = function (b) {
+      const sy = Math.sin(b[7] || 0), cy = Math.cos(b[7] || 0), rz = b[6] || 0;
+      return b[2] + 0.5 * (Math.abs(sy * Math.cos(rz)) * b[3] + Math.abs(sy * Math.sin(rz)) * b[4] + Math.abs(cy) * b[5]);
+    };
+    for (let i = 0; i < o.boxes.length; i++) zmax = Math.max(zmax, boxZ(o.boxes[i]));
+    for (let i = 0; i < o.glow.length; i++) zmax = Math.max(zmax, boxZ(o.glow[i]));
+    for (let i = 0; i < o.shards.length; i++) zmax = Math.max(zmax, o.shards[i][2] + 0.5 * o.shards[i][3]);
+    return zmax > allowed && zmax > 0 ? M.clamp(allowed / zmax, 0.05, 1) : 1;
+  }
+
   function countDraws(root) {
     let n = 0;
     root.traverse(function (o) {
@@ -2950,7 +2967,7 @@ window.DS = window.DS || {};
          units, enlarged by exactly the factor that its distance grew by. */
       const layerGroup = new THREE.Group();
       layerGroup.position.set(WU * 0.5 * (1 - k), anchorY, -d);
-      layerGroup.scale.setScalar(k);
+      layerGroup.scale.set(k, k, k * frontFit(o, (d + FRONT_Z) / k));
       layerGroup.userData.anchor = (L.hang && roofRel) ? 'roofhang' : (L.kind === 'stalactites' && roofRel) ? 'roof'
         : (FREE_KINDS[L.kind] || L.glow) ? 'free' : 'ground';
       layerGroup.userData.kind = L.kind;

@@ -126,7 +126,13 @@ const AUDIT = `(() => {
 
   A.front = () => {
     let maxZ = -Infinity, who = null;
-    eachPoint(tg(), (v, o) => { if (v.z > maxZ) { maxZ = v.z; who = o.geometry ? o.geometry.type + (o.isInstancedMesh ? '[' + o.count + ']' : '') : o.type; } });
+    const layerOf = (o) => { for (let p = o; p; p = p.parent) if (p.userData && p.userData.kind) return p.userData.kind; return '?'; };
+    eachPoint(tg(), (v, o) => {
+      if (v.z > maxZ) {
+        maxZ = v.z;
+        who = (o.geometry ? o.geometry.type + (o.isInstancedMesh ? '[' + o.count + ']' : '') : o.type) + ' in ' + layerOf(o);
+      }
+    });
     return { maxZ: +maxZ.toFixed(3), who: who };
   };
 
