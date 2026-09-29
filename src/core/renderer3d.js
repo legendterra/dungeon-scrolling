@@ -1361,29 +1361,29 @@ window.DS = window.DS || {};
     step.position.set(0, 0.12, 0);
     group.add(step);
 
-    const portalGeo = new THREE.PlaneGeometry(1.5, 2.8);
-    const portalMat = new THREE.MeshBasicMaterial({
-      map: portalTex,
-      transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide
-    });
-    const portal = new THREE.Mesh(portalGeo, portalMat);
-    portal.position.set(0, 1.6, 0.08);
-    group.add(portal);
-
-    const ringGeo = new THREE.RingGeometry(0.35, 0.65, 24);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x4ee2ec,
-      transparent: true,
-      opacity: 0.8,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide
-    });
-    const runeRing = new THREE.Mesh(ringGeo, ringMat);
-    runeRing.position.set(0, 1.6, 0.14);
-    group.add(runeRing);
+    /* v7: the opening is a shader vortex with a rune ring, falling motes and a
+       spill of light (src/fx3d/portal.js). The turning textured plane below is
+       the fallback for a page that has not loaded it. */
+    const fx = DS.Portal3D ? DS.Portal3D.create({ w: 1.5, h: 2.8, y: 1.6, open: true }) : null;
+    let portal, runeRing;
+    if (fx) {
+      group.add(fx.group);
+      portal = fx.disc;
+      runeRing = fx.runes;
+    } else {
+      portal = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2.8), new THREE.MeshBasicMaterial({
+        map: portalTex, transparent: true, opacity: 0.85,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+      }));
+      portal.position.set(0, 1.6, 0.08);
+      group.add(portal);
+      runeRing = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.65, 24), new THREE.MeshBasicMaterial({
+        color: 0x4ee2ec, transparent: true, opacity: 0.8,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+      }));
+      runeRing.position.set(0, 1.6, 0.14);
+      group.add(runeRing);
+    }
 
     /* No light of its own. A PointLight added per doorway changed the scene's
        light count on every level load, which recompiles every lit material --
@@ -1396,6 +1396,7 @@ window.DS = window.DS || {};
       group: group,
       portal: portal,
       ring: runeRing,
+      fx: fx,
       light: pLight
     };
   }
@@ -4771,18 +4772,26 @@ window.DS = window.DS || {};
     assignFlameLights(camX, camY);
 
     if (doorPortalObj) {
-      doorPortalObj.portal.rotation.z += 0.02;
-      doorPortalObj.ring.rotation.z -= 0.015;
-
       const isDoorUnlocked = !g.lockedDoor || g.bossDown;
+      if (doorPortalObj.fx) {
+        /* How close the hero stands to the opening, 0..1: the portal leans
+           toward whoever is about to step in. The doorway's centre is 16 px
+           over its floor line. */
+        const dpx = doorPortalObj.group.position.x / P2U, dpy = -doorPortalObj.group.position.y / P2U - 16;
+        const pl = g.player;
+        const near = pl && !pl.dead
+          ? Math.max(0, 1 - Math.hypot(pl.x + pl.w * 0.5 - dpx, pl.y + pl.h * 0.5 - dpy) / 64) : 0;
+        doorPortalObj.fx.update(time, isDoorUnlocked, near, g.frames);
+      } else {
+        doorPortalObj.portal.rotation.z += 0.02;
+        doorPortalObj.ring.rotation.z -= 0.015;
+        doorPortalObj.portal.material.color.setHex(isDoorUnlocked ? 0xffffff : 0x882233);
+        doorPortalObj.ring.material.color.setHex(isDoorUnlocked ? 0x4ee2ec : 0xff2244);
+      }
       if (isDoorUnlocked) {
-        doorPortalObj.portal.material.color.setHex(0xffffff);
-        doorPortalObj.ring.material.color.setHex(0x4ee2ec);
         doorPortalObj.light.color.setHex(0x4ee2ec);
         doorPortalObj.light.intensity = 1.3 + Math.sin(time * 3.0) * 0.3;
       } else {
-        doorPortalObj.portal.material.color.setHex(0x882233);
-        doorPortalObj.ring.material.color.setHex(0xff2244);
         doorPortalObj.light.color.setHex(0xff2244);
         doorPortalObj.light.intensity = 0.8 + Math.sin(time * 5.0) * 0.2;
       }
