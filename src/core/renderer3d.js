@@ -348,6 +348,76 @@ window.DS = window.DS || {};
     return tex;
   }
 
+  /* --- HD tiles (v7) ----------------------------------------------------------
+
+     The level's own rock used to be three 32x32 pixel-art canvases, repeated per
+     tile. With the photo-scan library (src/core/texlib.js) the walls, the paver
+     caps and the planks are real masonry, sampled by WORLD position rather than
+     by each tile's own uv: a brick course then runs on across tile after tile
+     instead of restarting every 1.6 units, which is the whole difference between
+     a wall and a sheet of stamps. The textures are grayscale (mean 204/255), so
+     the biome's own palette colour is the material colour and every floor keeps
+     the mood it always had -- only the detail is new.
+
+     DS.TexLib.tiles = false (or ?hdtex=0) brings the old tiles back. */
+  const HD_TILE_GAIN = 1.1;   // the photo's mean is 0.8, the old tiles' a touch under their base colour
+
+  function worldUvPatch(material, scale) {
+    const prev = material.onBeforeCompile;
+    const prevKey = material.customProgramCacheKey;
+    material.onBeforeCompile = function (sh) {
+      if (prev) prev.call(this, sh);
+      sh.uniforms.uWorldUv = { value: scale };
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWuvPos;\nvarying vec3 vWuvN;')
+        .replace('#include <project_vertex>', [
+          '#include <project_vertex>',
+          'vec4 wuvP = vec4(transformed, 1.0);',
+          '#ifdef USE_INSTANCING',
+          '  wuvP = instanceMatrix * wuvP;',
+          '#endif',
+          'wuvP = modelMatrix * wuvP;',
+          'vWuvPos = wuvP.xyz;',
+          'vWuvN = objectNormal;'
+        ].join('\n'));
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWuvPos;\nvarying vec3 vWuvN;\nuniform float uWorldUv;')
+        .replace('#include <map_fragment>', [
+          '#ifdef USE_MAP',
+          '  vec3 wuvA = abs(vWuvN);',
+          '  vec2 wuv = wuvA.z > 0.5 ? vWuvPos.xy : (wuvA.y > 0.5 ? vWuvPos.xz : vWuvPos.zy);',
+          '  vec4 texelColor = texture2D(map, wuv * uWorldUv);',
+          '  texelColor = mapTexelToLinear(texelColor);',
+          '  diffuseColor *= texelColor;',
+          '#endif'
+        ].join('\n'));
+    };
+    material.customProgramCacheKey = function () {
+      return (prevKey ? prevKey.call(this) : '') + '|ds-worlduv-' + scale;
+    };
+    return material;
+  }
+
+  /* The three tile materials in photo-scan, or null when the library is off or
+     has not decoded (the caller then builds the pixel-art ones). */
+  function hdTileMaterials(biome) {
+    const L = DS.TexLib;
+    if (!L || !L.tiles || !L.ready || !L.has('tile_wall') || !L.has('tile_floor') || !L.has('tile_plat')) return null;
+    const pal = (biome && biome.pal) || {};
+    const make = function (id, hex, gain) {
+      const meta = DS.TexMeta && DS.TexMeta[id];
+      const mat = new THREE.MeshLambertMaterial({ map: L.clone(id, 1, 1) });
+      mat.color.set(hex).multiplyScalar(gain);
+      mat.userData.worldUv = 1 / ((meta && meta.span) || 6.4);
+      return mat;
+    };
+    return {
+      wall: make('tile_wall', pal.D || '#3e3752', HD_TILE_GAIN),
+      top: make('tile_floor', pal.G || pal.D || '#484060', HD_TILE_GAIN * 0.92),
+      plat: make('tile_plat', '#7a5a3a', HD_TILE_GAIN)
+    };
+  }
+
   function makeWallTexture(biome) {
     const cv = document.createElement('canvas');
     cv.width = 32; cv.height = 32;
@@ -1917,9 +1987,10 @@ window.DS = window.DS || {};
     const floorTex = makeFloorTexture(biome);
     const platTex = makePlatformTexture(biome);
 
-    const wallFrontMat = new THREE.MeshLambertMaterial({ map: wallTex });
-    const wallTopMat = new THREE.MeshLambertMaterial({ map: floorTex });
-    const platMat = new THREE.MeshLambertMaterial({ map: platTex });
+    const hd = hdTileMaterials(biome);
+    const wallFrontMat = hd ? hd.wall : new THREE.MeshLambertMaterial({ map: wallTex });
+    const wallTopMat = hd ? hd.top : new THREE.MeshLambertMaterial({ map: floorTex });
+    const platMat = hd ? hd.plat : new THREE.MeshLambertMaterial({ map: platTex });
     /* Every torch lights the stone around it through these three materials
        (the light map is built once the torches are placed; see
        buildTorchMap). */
@@ -1927,6 +1998,11 @@ window.DS = window.DS || {};
       DS.Flame.lightMapPatch(wallFrontMat, torchMapUniforms);
       DS.Flame.lightMapPatch(wallTopMat, torchMapUniforms);
       DS.Flame.lightMapPatch(platMat, torchMapUniforms);
+    }
+    if (hd) {
+      worldUvPatch(wallFrontMat, wallFrontMat.userData.worldUv);
+      worldUvPatch(wallTopMat, wallTopMat.userData.worldUv);
+      worldUvPatch(platMat, platMat.userData.worldUv);
     }
 
     const wallMats = [

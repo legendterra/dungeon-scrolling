@@ -1,0 +1,234 @@
+{
+  "_about": "The HD texture manifest. Every source is a CC0 (public domain) photo-scan from Poly Haven (https://polyhaven.com/license). tools/assets/fetch-textures.js downloads the 1k diffuse JPG of each asset into tools/assets/cache/ (gitignored); tools/assets/bake-textures.js shrinks it to `size` px, tints it if asked, and writes the result as data URIs into src/art/textures/common.gen.js -- data URIs, because the game must run from file:// where Chrome refuses local images in WebGL.",
+  "license": "CC0 1.0 Universal",
+  "bake": {
+    "size": 256,
+    "quality": 0.84
+  },
+  "familyMap": {
+    "sand": "sand_coast",
+    "wetrock": "rock_wet",
+    "brick": "brick_castle",
+    "blood": "brick_red",
+    "marble": "marble_tile",
+    "moss": "rock_moss",
+    "granite": "rock_gray",
+    "ceramic": "tiles_worn",
+    "basalt": "volcanic_burnt",
+    "gild": "metal_plate",
+    "bark": "bark_brown",
+    "bone": "sand_dry"
+  },
+  "textures": [
+    {
+      "id": "sand_coast",
+      "asset": "coast_sand_01",
+      "tint": "#6d6350",
+      "desat": 0.7
+    },
+    {
+      "id": "sand_dry",
+      "asset": "sand_02",
+      "tint": "#54494a",
+      "desat": 0.8
+    },
+    {
+      "id": "rock_wet",
+      "asset": "rock_face",
+      "tint": "#2f4744",
+      "desat": 0.85
+    },
+    {
+      "id": "rock_dark",
+      "asset": "dark_rock"
+    },
+    {
+      "id": "rock_dark2",
+      "asset": "dark_rock_02"
+    },
+    {
+      "id": "rock_gray",
+      "asset": "gray_rocks",
+      "tint": "#424a58",
+      "desat": 0.8
+    },
+    {
+      "id": "rock_cliff",
+      "asset": "cliff_side"
+    },
+    {
+      "id": "rock_moss",
+      "asset": "mossy_rock",
+      "tint": "#2b3a1e",
+      "desat": 0.6
+    },
+    {
+      "id": "rock_lichen",
+      "asset": "lichen_rock"
+    },
+    {
+      "id": "rock_rough",
+      "asset": "rocky_terrain"
+    },
+    {
+      "id": "brick_castle",
+      "asset": "castle_brick_07",
+      "tint": "#4a3520",
+      "desat": 0.75
+    },
+    {
+      "id": "brick_red",
+      "asset": "large_red_bricks",
+      "tint": "#4a2020",
+      "desat": 0.8
+    },
+    {
+      "id": "brick_dark",
+      "asset": "dark_brick_wall"
+    },
+    {
+      "id": "brick_moss",
+      "asset": "mossy_brick"
+    },
+    {
+      "id": "brick_broken",
+      "asset": "castle_brick_broken_06"
+    },
+    {
+      "id": "metal_rust",
+      "asset": "rusty_metal_02"
+    },
+    {
+      "id": "metal_plate",
+      "asset": "metal_plate",
+      "tint": "#5a4416",
+      "desat": 0.85
+    },
+    {
+      "id": "metal_grid",
+      "asset": "rusty_metal_grid"
+    },
+    {
+      "id": "metal_corr",
+      "asset": "rusty_corrugated_iron"
+    },
+    {
+      "id": "paving",
+      "asset": "cobblestone_floor_04"
+    },
+    {
+      "id": "paving_large",
+      "asset": "cobblestone_large_01"
+    },
+    {
+      "id": "marble_tile",
+      "asset": "marble_01",
+      "tint": "#3b3059",
+      "desat": 0.85
+    },
+    {
+      "id": "marble_cliff",
+      "asset": "marble_cliff_01"
+    },
+    {
+      "id": "marble_rock",
+      "asset": "marble_rock_01"
+    },
+    {
+      "id": "sandstone",
+      "asset": "sandstone_blocks_08"
+    },
+    {
+      "id": "limestone",
+      "asset": "white_sandstone_bricks_03"
+    },
+    {
+      "id": "plaster",
+      "asset": "worn_plaster_wall"
+    },
+    {
+      "id": "stucco",
+      "asset": "white_stucco"
+    },
+    {
+      "id": "planks",
+      "asset": "brown_planks_03"
+    },
+    {
+      "id": "planks_old",
+      "asset": "old_planks_02"
+    },
+    {
+      "id": "bark_brown",
+      "asset": "bark_brown_02",
+      "tint": "#33291c",
+      "desat": 0.6
+    },
+    {
+      "id": "bark_pine",
+      "asset": "pine_bark"
+    },
+    {
+      "id": "mud",
+      "asset": "brown_mud"
+    },
+    {
+      "id": "forest_ground",
+      "asset": "forest_ground_04"
+    },
+    {
+      "id": "snow",
+      "asset": "snow_02"
+    },
+    {
+      "id": "snow_rough",
+      "asset": "snow_03"
+    },
+    {
+      "id": "volcanic_burnt",
+      "asset": "burned_ground_01",
+      "tint": "#2a1a14",
+      "desat": 0.7
+    },
+    {
+      "id": "volcanic_tiles",
+      "asset": "volcanic_rock_tiles"
+    },
+    {
+      "id": "red_ground",
+      "asset": "cracked_red_ground"
+    },
+    {
+      "id": "tiles_worn",
+      "asset": "worn_tile_floor",
+      "tint": "#1d3a44",
+      "desat": 0.85
+    },
+    {
+      "id": "slate",
+      "asset": "slate_floor_02"
+    },
+    {
+      "id": "tile_wall",
+      "asset": "castle_brick_07",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
+    },
+    {
+      "id": "tile_floor",
+      "asset": "cobblestone_floor_04",
+      "gray": true,
+      "mean": 204,
+      "span": 6.4
+    },
+    {
+      "id": "tile_plat",
+      "asset": "brown_planks_03",
+      "gray": true,
+      "mean": 204,
+      "span": 4.8
+    }
+  ],
+  "_tiles": "tile_* entries are grayscale (mean 204/255) so the level's tile materials can multiply them by the biome's own colour; `span` is how many world units one copy covers (the tiles sample by WORLD position, so masonry runs on across tiles instead of repeating each one)."
+}

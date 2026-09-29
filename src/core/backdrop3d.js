@@ -378,8 +378,19 @@ window.DS = window.DS || {};
     return tex;
   }
 
+  /* v7: the photo-scan standing in for the family when the HD library has
+     decoded (src/core/texlib.js), otherwise the procedural tile it always was.
+     Either way the caller clones it and sets its own repeat. */
+  function hdOn() {
+    return !!(DS.TexLib && DS.TexLib.hd && DS.TexLib.ready);
+  }
+
   function bandTexture(family) {
     const key = family || 'granite';
+    if (hdOn()) {
+      const hd = DS.TexLib.forFamily(key);
+      if (hd) return hd;
+    }
     if (!texCache[key]) texCache[key] = makeBandTexture(key);
     return texCache[key];
   }
@@ -2634,7 +2645,7 @@ window.DS = window.DS || {};
       haze: hazeHex,
       skyValue: new THREE.Color(hazeHex).multiplyScalar(skyGain).getHex(),
       rungs: RUNGS.slice(), layers: [], hero: null, textures: [], fogLift: [],
-      roofRel: roofRel, skyDrop: skyDrop, frame: !!frame, frontZ: FRONT_Z,
+      roofRel: roofRel, skyDrop: skyDrop, frame: !!frame, frontZ: FRONT_Z, hd: hdOn(),
       range: frame ? frame.range : null, eye: frame ? frame.eye : null
     };
 
@@ -2752,7 +2763,7 @@ window.DS = window.DS || {};
       const s = GSEG[gi];
       const segCol = new THREE.Color(groundHex).multiplyScalar(s.tone);
       const segOpts = { color: segCol };
-      if (gi <= 1) {
+      if (gi <= 1 || (gi <= 2 && hdOn())) {
         const t = bandTexture(rec.tex).clone();
         t.needsUpdate = true;
         t.repeat.set(Math.max(2, Math.round(WU * 2 / 12)), Math.max(1, Math.round((s.far - s.near) / 8)));
@@ -2891,7 +2902,9 @@ window.DS = window.DS || {};
          from the rung's scale and the size of what it emitted, so texel density
          is constant up the ladder. */
       let texRep = 0, meanSize = 0;
-      const useTex = !L.glow && d <= TEX_AT;
+      /* v6 laid texture on the rungs out to TEX_AT only; a photo-scan is mip-mapped
+         and holds up at any distance, so with HD every rung carries one. */
+      const useTex = !L.glow && (d <= TEX_AT || hdOn());
       const matOpts = { color: 0xffffff };
       if (useTex) {
         let sum = 0;

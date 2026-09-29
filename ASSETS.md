@@ -327,3 +327,62 @@ Elemen: fire `#e8743b` · ice `#4fb3e0` · lightning `#f2c14e` · poison `#5cbf6
 | **Total** | **~250 file PNG** |
 
 **Urutan pengerjaan disarankan:** BG (1) → Obor & props (5) → Hero (2) → Tile (4) → Musuh (3) → Chest & pickup (6, 11) → Senjata & FX (9, 10) → UI (13) → Armor (8).
+
+
+---
+
+## TEKSTUR HD (v7) — CC0, Poly Haven
+
+Backdrop dan tile level memakai foto-scan **CC0** dari [Poly Haven](https://polyhaven.com/license)
+(domain publik: boleh dipakai bebas, tanpa atribusi wajib; kredit ini sopan santun). Hanya peta **diffuse
+1k JPG** yang diunduh, lalu diperkecil ke 256 px oleh `tools/assets/bake-textures.js` dan dikirim sebagai data URI di
+`src/art/textures/common.gen.js` (game harus jalan dari `file://`).
+
+- Manifest: `tools/assets/textures.json` · unduh: `node tools/assets/fetch-textures.js` · bake:
+  `node tools/assets/bake-textures.js [--sheet]`
+- Cache unduhan `tools/assets/cache/` ada di `.gitignore`; yang masuk repo hanya hasil bake (~0,9 MB).
+- Matikan semuanya dengan `?hdtex=0`, atau hanya tile level dengan `DS.TexLib.tiles = false`.
+
+| id | aset Poly Haven | dipakai sebagai |
+|---|---|---|
+| `sand_coast` | [coast_sand_01](https://polyhaven.com/a/coast_sand_01) | sand_coast |
+| `sand_dry` | [sand_02](https://polyhaven.com/a/sand_02) | sand_dry |
+| `rock_wet` | [rock_face](https://polyhaven.com/a/rock_face) | rock_wet |
+| `rock_dark` | [dark_rock](https://polyhaven.com/a/dark_rock) | rock_dark |
+| `rock_dark2` | [dark_rock_02](https://polyhaven.com/a/dark_rock_02) | rock_dark2 |
+| `rock_gray` | [gray_rocks](https://polyhaven.com/a/gray_rocks) | rock_gray |
+| `rock_cliff` | [cliff_side](https://polyhaven.com/a/cliff_side) | rock_cliff |
+| `rock_moss` | [mossy_rock](https://polyhaven.com/a/mossy_rock) | rock_moss |
+| `rock_lichen` | [lichen_rock](https://polyhaven.com/a/lichen_rock) | rock_lichen |
+| `rock_rough` | [rocky_terrain](https://polyhaven.com/a/rocky_terrain) | rock_rough |
+| `brick_castle` | [castle_brick_07](https://polyhaven.com/a/castle_brick_07) | brick_castle, tile_wall |
+| `brick_red` | [large_red_bricks](https://polyhaven.com/a/large_red_bricks) | brick_red |
+| `brick_dark` | [dark_brick_wall](https://polyhaven.com/a/dark_brick_wall) | brick_dark |
+| `brick_moss` | [mossy_brick](https://polyhaven.com/a/mossy_brick) | brick_moss |
+| `brick_broken` | [castle_brick_broken_06](https://polyhaven.com/a/castle_brick_broken_06) | brick_broken |
+| `metal_rust` | [rusty_metal_02](https://polyhaven.com/a/rusty_metal_02) | metal_rust |
+| `metal_plate` | [metal_plate](https://polyhaven.com/a/metal_plate) | metal_plate |
+| `metal_grid` | [rusty_metal_grid](https://polyhaven.com/a/rusty_metal_grid) | metal_grid |
+| `metal_corr` | [rusty_corrugated_iron](https://polyhaven.com/a/rusty_corrugated_iron) | metal_corr |
+| `paving` | [cobblestone_floor_04](https://polyhaven.com/a/cobblestone_floor_04) | paving, tile_floor |
+| `paving_large` | [cobblestone_large_01](https://polyhaven.com/a/cobblestone_large_01) | paving_large |
+| `marble_tile` | [marble_01](https://polyhaven.com/a/marble_01) | marble_tile |
+| `marble_cliff` | [marble_cliff_01](https://polyhaven.com/a/marble_cliff_01) | marble_cliff |
+| `marble_rock` | [marble_rock_01](https://polyhaven.com/a/marble_rock_01) | marble_rock |
+| `sandstone` | [sandstone_blocks_08](https://polyhaven.com/a/sandstone_blocks_08) | sandstone |
+| `limestone` | [white_sandstone_bricks_03](https://polyhaven.com/a/white_sandstone_bricks_03) | limestone |
+| `plaster` | [worn_plaster_wall](https://polyhaven.com/a/worn_plaster_wall) | plaster |
+| `stucco` | [white_stucco](https://polyhaven.com/a/white_stucco) | stucco |
+| `planks` | [brown_planks_03](https://polyhaven.com/a/brown_planks_03) | planks, tile_plat |
+| `planks_old` | [old_planks_02](https://polyhaven.com/a/old_planks_02) | planks_old |
+| `bark_brown` | [bark_brown_02](https://polyhaven.com/a/bark_brown_02) | bark_brown |
+| `bark_pine` | [pine_bark](https://polyhaven.com/a/pine_bark) | bark_pine |
+| `mud` | [brown_mud](https://polyhaven.com/a/brown_mud) | mud |
+| `forest_ground` | [forest_ground_04](https://polyhaven.com/a/forest_ground_04) | forest_ground |
+| `snow` | [snow_02](https://polyhaven.com/a/snow_02) | snow |
+| `snow_rough` | [snow_03](https://polyhaven.com/a/snow_03) | snow_rough |
+| `volcanic_burnt` | [burned_ground_01](https://polyhaven.com/a/burned_ground_01) | volcanic_burnt |
+| `volcanic_tiles` | [volcanic_rock_tiles](https://polyhaven.com/a/volcanic_rock_tiles) | volcanic_tiles |
+| `red_ground` | [cracked_red_ground](https://polyhaven.com/a/cracked_red_ground) | red_ground |
+| `tiles_worn` | [worn_tile_floor](https://polyhaven.com/a/worn_tile_floor) | tiles_worn |
+| `slate` | [slate_floor_02](https://polyhaven.com/a/slate_floor_02) | slate |

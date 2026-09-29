@@ -94,6 +94,9 @@ async function boot(base, opts) {
   await session.eval('DS.Scenes.play(4242, {})');
   await waitFor(session, 'DS.currentGame && DS.currentGame.player && DS.currentScene', 30000);
   await cdp.sleep(800);
+  // The HD textures decode asynchronously; a floor built before they have would
+  // fall back to the procedural tiles and make two runs of a tool differ.
+  await waitFor(session, '!DS.TexLib || !DS.TexLib.hd || DS.TexLib.ready', 20000);
   await session.eval(`DS.PostFX && DS.PostFX.setQuality('${opts.quality || 'high'}', { lock: true, quiet: true })`);
   await session.eval(DRIVER);
   await session.eval('__maps.hideHud()');

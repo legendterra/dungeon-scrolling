@@ -10,7 +10,7 @@ Perbarui file ini di akhir setiap fase.
 | 0 | Persiapan, bug senjata, jam menu, `shoot-maps.js`, baseline | **selesai** (18e7331) |
 | 1 | Backdrop world-space (diam, terisi penuh, tanpa mesh di depan bidang main) | **selesai** |
 | 2 | Level diperbesar | **sebagian** (lihat di bawah) |
-| 3 | Tekstur CC0 HD | belum |
+| 3 | Tekstur CC0 HD | **selesai** |
 | 4-6 | Map per act + monster | belum |
 | 7 | MC baru | belum |
 | 8 | Suara, dokumen, review | belum |
@@ -60,3 +60,20 @@ Ditunda (dengan alasan):
   (Fase 4-6), jadi dibuat bersama definisi itu.
 - Frame time di level besar (`qa:frame`) dan ekonomi koin (musuh per lantai naik ~1.7x, harga toko belum
   disetel ulang) harus dicek user di lokal.
+
+## Fase 3: tekstur HD
+
+- **Sumber: Poly Haven (CC0), bukan ambientCG.** Setiap zip ambientCG 9,7 MB (5 peta), sedangkan Poly Haven
+  menyediakan diffuse 1k JPG langsung (~0,7 MB, dengan md5 di API). 41 aset, 28,1 MB total, diunduh oleh
+  `tools/assets/fetch-textures.js` ke `tools/assets/cache/` (gitignored, dicek md5) dan di-bake oleh
+  `tools/assets/bake-textures.js` ke `src/art/textures/common.gen.js` (44 tekstur x 256 px, 0,86 MB, di repo).
+- `src/core/texlib.js` (`DS.TexLib`): decode async, mipmap, anisotropi 4, `clone(id, rx, ry)` per material.
+  Jatuh kembali ke tekstur prosedural bila tidak ada data. `?hdtex=0` mematikan semuanya, `DS.TexLib.tiles = false`
+  hanya tile level.
+- Backdrop: setiap family prosedural punya pengganti HD dengan rata-rata warna sama (`familyMap`), dipasang di
+  **semua rung** dan tiga slab ground.
+- Tile level: dinding/lantai/platform memakai foto grayscale yang di-sampel dengan posisi **dunia**
+  (`worldUvPatch`, dirantai dengan patch peta obor), jadi susunan bata menerus antar-tile; warna material = warna
+  palet biome, jadi mood tiap lantai tetap.
+- Ditunda: file per act yang dimuat dinamis (total 0,86 MB masih di bawah anggaran 1,5 MB, jadi semua dimuat
+  statis; `tests/textures.test.js` menjaga anggaran itu). Tekstur per map (Fase 4-6) tinggal menunjuk id di manifest.
