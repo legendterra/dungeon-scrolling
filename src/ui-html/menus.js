@@ -15,7 +15,7 @@ window.DS = window.DS || {};
   const K = function () { return DS.HKit; };
   function h(tag, cls, props, kids) { return DS.HUI.el(tag, cls, props, kids); }
 
-  const VERSION = 'v6.0.0';
+  const VERSION = DS.VERSION || 'v7.0.0';
 
   // --- shared: the controls sheet -------------------------------------------
 
@@ -47,8 +47,9 @@ window.DS = window.DS || {};
 
   function controlsSheet(compact) {
     const wrap = h('div', 'hm-controls' + (compact ? ' is-compact' : ''));
-    for (let i = 0; i < CONTROLS.length; i++) {
-      const grp = CONTROLS[i];
+    const groups = DS.Input && DS.Input.controlGroups ? DS.Input.controlGroups() : CONTROLS;
+    for (let i = 0; i < groups.length; i++) {
+      const grp = groups[i];
       const list = h('div', 'hm-ctl-list');
       for (let r = 0; r < grp.rows.length; r++) {
         const keys = h('span', 'hm-ctl-keys');
@@ -92,7 +93,7 @@ window.DS = window.DS || {};
     { label: 'START RUN', desc: 'Choose your steel and descend' },
     { label: 'HOW TO PLAY', desc: 'Controls, elements and the rules of the dungeon' },
     { label: 'RECORDS', desc: 'Your deepest runs and finest steel' },
-    { label: 'SOUND', desc: 'Toggle music and effects' }
+    { label: 'OPTIONS', desc: 'Graphics, audio, controls and more' }
   ];
 
   const M = { nodes: [], bar: null };
@@ -111,14 +112,13 @@ window.DS = window.DS || {};
 
   function mainMenu(state, act) {
     const s = K().screen('menu');
-    const muted = DS.Audio.isMuted();
-    K().rebuild(s, 'main|' + muted + '|' + Math.round(DS.HUI.frame.h), function (root) {
+    K().rebuild(s, 'main|' + Math.round(DS.HUI.frame.h), function (root) {
       M.nodes = [];
       const list = h('nav', 'hm-list');
       M.bar = h('div', 'hm-bar');
       list.appendChild(M.bar);
       for (let i = 0; i < ITEMS.length; i++) {
-        const label = i === 3 ? 'SOUND · ' + (muted ? 'OFF' : 'ON') : ITEMS[i].label;
+        const label = ITEMS[i].label;
         const item = h('button', 'hm-item', { type: 'button', tabindex: '-1' }, [
           h('span', 'hm-idx ui-num', { text: '0' + (i + 1) }),
           h('span', 'hm-item-text', null, [
@@ -397,6 +397,7 @@ window.DS = window.DS || {};
     else if (state.page === 'loadout') loadout(state, act);
     else if (state.page === 'help') howTo(state, act);
     else if (state.page === 'records') records(state, act);
+    else if (state.page === 'options' && state.options) state.options.draw();
     else mainMenu(state, act);
   }
 
@@ -464,7 +465,7 @@ window.DS = window.DS || {};
 
   // --- pause ----------------------------------------------------------------
 
-  const PAUSE = ['RESUME', 'INVENTORY', 'CONTROLS', 'GRAPHICS', 'SOUND', 'ABANDON RUN'];
+  const PAUSE = ['RESUME', 'INVENTORY', 'OPTIONS', 'ABANDON RUN'];
   const P = { nodes: [], side: null, sideKey: '' };
 
   function pauseState(g) {
@@ -499,23 +500,11 @@ window.DS = window.DS || {};
     if (key !== 'ABANDON RUN') st.confirm = false;
     if (key === 'RESUME') { DS.Profile.close(g); return; }
     if (key === 'INVENTORY') { DS.Audio.play('menuPick'); g.paused = false; DS.UI.openBag(g); return; }
-    if (key === 'CONTROLS') {
-      if (DS.HUD && typeof DS.HUD.showControls === 'function') {
-        DS.Audio.play('menuPick');
-        g.paused = false;
-        DS.HUD.showControls(g);
-      } else {
-        st.sheet = !st.sheet;
-        DS.Audio.play('menuPick');
-      }
+    if (key === 'OPTIONS') {
+      DS.Audio.play('menuPick');
+      st.options = DS.Options.create({ fromMenu: false, onClose: function () { st.options = null; } });
       return;
     }
-    if (key === 'GRAPHICS') {
-      const Q = DS.PostFX ? DS.PostFX.QUALITIES : ['high'];
-      setQualityTo(Q[(Q.indexOf(quality()) + 1) % Q.length]);
-      return;
-    }
-    if (key === 'SOUND') { DS.Audio.toggleMute(); DS.Audio.play('menuPick'); return; }
     if (!st.confirm) { st.confirm = true; DS.Audio.play('error'); return; }
     st.confirm = false;
     DS.Audio.play('menuPick');
@@ -525,6 +514,7 @@ window.DS = window.DS || {};
   function pauseUpdate(g) {
     const In = DS.Input;
     const st = pauseState(g);
+    if (st.options) { st.options.update(); return; }
     if (In.justPressed('pause') || In.justPressed('back')) {
       In.consume('pause'); In.consume('back');
       if (st.confirm) { st.confirm = false; DS.Audio.play('menuMove'); return; }
@@ -533,32 +523,12 @@ window.DS = window.DS || {};
     }
     if (In.justPressed('up')) { st.action = (st.action + PAUSE.length - 1) % PAUSE.length; st.confirm = false; DS.Audio.play('menuMove'); }
     if (In.justPressed('down')) { st.action = (st.action + 1) % PAUSE.length; st.confirm = false; DS.Audio.play('menuMove'); }
-    const key = PAUSE[st.action];
-    if (key === 'GRAPHICS') {
-      if (In.justPressed('left')) stepQuality(-1);
-      if (In.justPressed('right')) stepQuality(1);
-    } else if (key === 'SOUND' && (In.justPressed('left') || In.justPressed('right'))) {
-      DS.Audio.toggleMute();
-      DS.Audio.play('menuMove');
-    }
     if (In.justPressed('confirm')) { In.consume('confirm'); pauseRun(g, st.action); }
   }
 
   function pauseItem(g, i, st) {
     const key = PAUSE[i];
-    let value = null;
-    if (key === 'GRAPHICS') {
-      value = h('span', 'hm-seg');
-      const Q = DS.PostFX ? DS.PostFX.QUALITIES : ['low', 'med', 'high'];
-      for (let q = 0; q < Q.length; q++) {
-        const seg = h('span', 'hm-seg-opt' + (Q[q] === quality() ? ' is-on' : ''), { text: Q[q].toUpperCase() });
-        seg.addEventListener('click', function (e) { e.stopPropagation(); st.action = i; setQualityTo(Q[q]); });
-        value.appendChild(seg);
-      }
-    } else if (key === 'SOUND') {
-      const muted = DS.Audio.isMuted();
-      value = h('span', 'hm-toggle' + (muted ? '' : ' is-on'), null, [h('i', ''), h('span', '', { text: muted ? 'OFF' : 'ON' })]);
-    }
+    const value = null;
     const danger = key === 'ABANDON RUN';
     const label = danger && st.confirm ? 'CONFIRM · ABANDON?' : key;
     const node = h('button', 'hm-pitem' + (danger ? ' is-danger' : '') + (danger && st.confirm ? ' is-armed' : ''),
@@ -626,9 +596,10 @@ window.DS = window.DS || {};
   }
 
   function pauseDraw(g) {
-    const s = K().screen('pause');
     const st = pauseState(g);
-    const sig = 'pause|' + st.confirm + '|' + DS.Audio.isMuted() + '|' + quality() + '|' + Math.round(DS.HUI.frame.h);
+    if (st.options) { st.options.draw(); return; }
+    const s = K().screen('pause');
+    const sig = 'pause|' + st.confirm + '|' + Math.round(DS.HUI.frame.h);
     K().rebuild(s, sig, function (root) {
       P.nodes = [];
       root.appendChild(h('div', 'hk-scrim is-pause'));
@@ -643,13 +614,14 @@ window.DS = window.DS || {};
       P.side = h('div', 'hm-pside-host');
       P.sideKey = '';
       root.appendChild(h('main', 'hk-body hm-pause', null, [col, P.side]));
-      root.appendChild(K().foot([['↑ ↓', 'Select'], ['← →', 'Adjust'], ['ENTER', 'Confirm'], ['ESC', 'Resume']]));
+      root.appendChild(K().foot([['↑ ↓', 'Select'], ['ENTER', 'Confirm'], ['ESC', 'Resume']]));
     });
     K().setFocus(P.nodes, st.action);
     /* The right pane follows the cursor: the controls sheet while CONTROLS is
        focused (or opened), the run summary otherwise. */
-    const showSheet = PAUSE[st.action] === 'CONTROLS' || st.sheet;
-    const key = (showSheet ? 'sheet' : 'run') + '|' + g.inv.coins + '|' + (g.inv.boons || []).length;
+    const showSheet = PAUSE[st.action] === 'OPTIONS';
+    const key = (showSheet ? 'sheet' : 'run') + '|' + g.inv.coins + '|' + (g.inv.boons || []).length +
+      (showSheet ? '|' + JSON.stringify(DS.Input.exportBindings()) : '');
     if (P.side && P.sideKey !== key) {
       P.sideKey = key;
       while (P.side.firstChild) P.side.removeChild(P.side.firstChild);

@@ -179,6 +179,7 @@ window.DS = window.DS || {};
      fans out instead of stacking into one unreadable column. */
   let serial = 0;
   function number(x, y, text, color, scale, hint) {
+    if (DS.Settings && DS.Settings.get('game', 'damageNumbers') === false && /^[0-9+-]/.test(String(text))) return;
     const n = numbers[nIndex];
     nIndex = (nIndex + 1) % MAX_NUMBERS;
     n.x = x; n.y = y;

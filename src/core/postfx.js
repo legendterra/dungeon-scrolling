@@ -247,6 +247,8 @@ window.DS = window.DS || {};
 
   const grade = { lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1, 1, 1],
                   sat: 1.1, contrast: 1.05, vignette: 0.3 };
+  /* v7 options: multipliers laid over whatever the theme chose. */
+  const user = { bloom: 1, vignette: 1, brightness: 1 };
 
   function setTheme(row, name) {
     if (!row) return;
@@ -267,11 +269,19 @@ window.DS = window.DS || {};
     if (!gradePass) return;
     const u = gradePass.uniforms;
     u.lift.value.fromArray(grade.lift);
-    u.gamma.value.fromArray(grade.gamma);
+    u.gamma.value.set(grade.gamma[0] * user.brightness, grade.gamma[1] * user.brightness, grade.gamma[2] * user.brightness);
     u.gain.value.fromArray(grade.gain);
     u.saturation.value = grade.sat;
     u.contrast.value = grade.contrast;
-    u.vignette.value = grade.vignette;
+    u.vignette.value = Math.min(1, grade.vignette * user.vignette);
+  }
+
+  function tune(o) {
+    if (o && typeof o.bloom === 'number') user.bloom = o.bloom;
+    if (o && typeof o.vignette === 'number') user.vignette = o.vignette;
+    if (o && typeof o.brightness === 'number') user.brightness = o.brightness;
+    if (bloomPass) bloomPass.strength = BLOOM.strength * user.bloom;
+    applyGrade();
   }
 
   /* --- god rays input --------------------------------------------------------- */
@@ -358,6 +368,7 @@ window.DS = window.DS || {};
       BLOOM.strength, BLOOM.radius, BLOOM.threshold);
     bloomPass.highPassUniforms.smoothWidth.value = BLOOM.smooth;
     softKneeBloom(bloomPass);
+    bloomPass.strength = BLOOM.strength * user.bloom;
 
     gradePass = new THREE.ShaderPass(GradeShader);
     gradePass.material.depthTest = false;
@@ -554,6 +565,7 @@ window.DS = window.DS || {};
     setTheme: setTheme,
     setRays: setRays,
     setQuality: setQuality,
+    tune: tune,
     cycle: cycle,
     track: track,
     warm: warm,

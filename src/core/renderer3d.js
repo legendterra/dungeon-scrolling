@@ -205,6 +205,7 @@ window.DS = window.DS || {};
   /* Retina-class screens: the post chain runs at device resolution, and past 2x
      the fill cost buys nothing the eye can see at this art scale. */
   const MAX_DPR = 2;
+  let renderScale = 1;     // v7 options: 0.5..1 of the device's pixel ratio
   /* The view ships STRAIGHT, and that is deliberate: the dungeon is a side-on
      platformer, so a turned camera slides the whole level diagonally and the
      frame stops agreeing with the physics the player is reading -- ledges look
@@ -1121,7 +1122,7 @@ window.DS = window.DS || {};
        stopped lining up on anything but an exactly 16:9 screen. */
     const w = window.innerWidth || (DS.C.W * (DS.C.RS || 2));
     const h = window.innerHeight || (DS.C.H * (DS.C.RS || 2));
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_DPR));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_DPR) * renderScale);
     renderer.setSize(w, h, false);
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
@@ -4974,6 +4975,12 @@ window.DS = window.DS || {};
   DS.R3D = {
     init: init,
     resize: resize,
+    setRenderScale: function (s) {
+      const next = Math.min(1, Math.max(0.5, +s || 1));
+      if (next === renderScale) return;
+      renderScale = next;
+      resize();
+    },
     /* Camera rig: presets + the live readout the HUD shows. */
     get rig() { return camRig; },
     presets: CAM_PRESETS,

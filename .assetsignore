@@ -28,6 +28,7 @@ docs/
 dist/
 prompts/
 tools/
+tests/
 assets/
 node_modules/
 

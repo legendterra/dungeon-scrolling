@@ -46,6 +46,7 @@ window.DS = window.DS || {};
   let renderStamp = -100;      // game frame of the last voxel render
   let advanced = false;        // did the last update move time forward?
   let qScale = 1;
+  let density = 1;         // v7 options: 0.25..1
 
   F.P2U = P2U;
   F.Z = ACTOR_Z;
@@ -81,7 +82,7 @@ window.DS = window.DS || {};
     advanced = steps > 0;
     clock += dt;
     const q = DS.PostFX && DS.PostFX.quality;
-    qScale = q === 'low' ? 0.55 : 1;
+    qScale = (q === 'low' ? 0.55 : 1) * density;
     if (F.runLater) F.runLater();
     F.add.update(dt);
     F.soft.update(dt);
@@ -286,7 +287,8 @@ window.DS = window.DS || {};
     rnd: rnd, pick: pick, n: n, col: col, col1: col1, cssHex: cssHex, wx: wx, wy: wy,
     floorY: floorY, glowAt: glowAt, sparkAt: sparkAt, sparkBurst: sparkBurst,
     puffAt: puffAt, chunkAt: chunkAt, chipAt: chipAt, ringAt: ringAt,
-    PRESETS: PRESETS, register: register, at: at, spawn: spawn, stats: stats, hook: hook
+    PRESETS: PRESETS, register: register, at: at, spawn: spawn, stats: stats, hook: hook,
+    setDensity: function (d) { density = Math.min(1, Math.max(0.25, +d || 1)); }
   });
 
   /* Live state as real getters: Object.assign would copy their values once

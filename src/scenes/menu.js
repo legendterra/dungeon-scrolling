@@ -225,7 +225,7 @@ window.DS = window.DS || {};
 
   // --- main menu ------------------------------------------------------------
 
-  const ITEMS = ['START RUN', 'HOW TO PLAY', 'RECORDS', 'MUTE'];
+  const ITEMS = ['START RUN', 'HOW TO PLAY', 'RECORDS', 'OPTIONS'];
 
   // The item column sits to the left of the camp, so neither covers the other.
   const MENU_X = 16, MENU_Y = 74, MENU_W = 130, MENU_H = 16;
@@ -282,6 +282,7 @@ window.DS = window.DS || {};
         // Only the name prompt takes typed text; every other page hands the
         // letter keys straight back to the game.
         if (state.page !== 'name') In.setTextSink(null);
+        if (state.page === 'options') { state.options.update(); return; }
         if (state.page === 'name') { updateName(state); return; }
 
         if (state.page === 'loadout') { updateLoadout(state); return; }
@@ -339,8 +340,7 @@ window.DS = window.DS || {};
         for (let i = 0; i < ITEMS.length; i++) {
           const r = menuRect(i);
           const selected = i === state.cursor;
-          let label = ITEMS[i];
-          if (i === 3) label = DS.Audio.isMuted() ? 'UNMUTE' : 'MUTE';
+          const label = ITEMS[i];
 
           R.rectS(r.x, r.y, r.w, r.h,
                   selected ? 'rgba(242,193,78,0.14)' : 'rgba(7,11,12,0.5)');
@@ -364,7 +364,10 @@ window.DS = window.DS || {};
     if (state.cursor === 0) state.page = DS.Board.hasName() ? 'loadout' : 'name';
     else if (state.cursor === 1) state.page = 'help';
     else if (state.cursor === 2) { state.stats = DS.Storage.load(); state.page = 'records'; }
-    else DS.Audio.toggleMute();
+    else {
+      state.options = DS.Options.create({ fromMenu: true, onClose: function () { state.page = 'menu'; state.options = null; } });
+      state.page = 'options';
+    }
   }
 
   // --- name prompt ----------------------------------------------------------

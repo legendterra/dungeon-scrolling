@@ -1,0 +1,76 @@
+/* The Options screen (src/ui-html/options.js) and the small overlays the
+   options switch on. Sizes are in --s units like every other screen. */
+
+.hk-fps {
+  position: absolute; right: calc(10 * var(--s)); top: calc(8 * var(--s)); padding: calc(2 * var(--s)) calc(8 * var(--s));
+  font-family: var(--font-display); font-weight: 700; font-size: calc(13 * var(--s)); letter-spacing: 0.12em;
+  color: var(--sp); background: rgba(0, 0, 0, 0.55); pointer-events: none; z-index: 50;
+}
+
+.ho-wrap { display: grid; grid-template-columns: calc(230 * var(--s)) 1fr; gap: calc(18 * var(--s)); align-items: stretch; }
+.ho-tabs { display: flex; flex-direction: column; gap: calc(6 * var(--s)); }
+.ho-tab {
+  text-align: left; padding: calc(13 * var(--s)) calc(18 * var(--s)); cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(17 * var(--s)); letter-spacing: 0.16em;
+  color: var(--ink-dim); background: rgba(12, 16, 30, 0.6); border: 1px solid rgba(150, 190, 255, 0.14);
+  border-left: calc(3 * var(--s)) solid transparent;
+}
+.ho-tab:hover { color: var(--ink); background: rgba(20, 28, 52, 0.75); }
+.ho-tab.is-on { color: var(--ink); border-left-color: var(--accent); background: rgba(24, 34, 62, 0.85); }
+.ho-tab.is-focus { border-color: var(--accent); box-shadow: 0 0 calc(14 * var(--s)) rgba(111, 211, 255, 0.28); }
+
+.ho-panel { padding: calc(10 * var(--s)) calc(14 * var(--s)) calc(8 * var(--s)); display: flex; flex-direction: column; min-height: 0; }
+.ho-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--accent) rgba(255, 255, 255, 0.05); }
+.ho-note { flex: 0 0 auto; min-height: calc(26 * var(--s)); padding-top: calc(8 * var(--s)); font-size: calc(13.5 * var(--s)); color: var(--gold); }
+
+.ho-row {
+  position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: calc(16 * var(--s));
+  padding: calc(9 * var(--s)) calc(12 * var(--s)); border-left: calc(3 * var(--s)) solid transparent; cursor: default;
+}
+.ho-row + .ho-row { border-top: 1px solid rgba(150, 190, 255, 0.07); }
+.ho-row.is-focus { background: rgba(111, 211, 255, 0.09); border-left-color: var(--accent); }
+.ho-label { font-size: calc(16 * var(--s)); color: var(--ink); }
+.ho-row.ho-info .ho-label { color: var(--ink-mute); }
+.ho-info { font-size: calc(14 * var(--s)); color: var(--ink-dim); text-align: right; }
+.ho-rnote { display: none; }
+.ho-ctl { display: inline-flex; align-items: center; gap: calc(8 * var(--s)); justify-content: flex-end; }
+
+.ho-range {
+  -webkit-appearance: none; appearance: none; width: calc(260 * var(--s)); height: calc(6 * var(--s)); margin: 0; outline: none; cursor: pointer;
+  background: linear-gradient(90deg, var(--accent) var(--fill, 50%), rgba(255, 255, 255, 0.13) var(--fill, 50%));
+}
+.ho-range::-webkit-slider-thumb { -webkit-appearance: none; width: calc(16 * var(--s)); height: calc(16 * var(--s)); background: #fff; border: calc(2 * var(--s)) solid var(--accent); transform: rotate(45deg); }
+.ho-range::-moz-range-thumb { width: calc(14 * var(--s)); height: calc(14 * var(--s)); background: #fff; border: calc(2 * var(--s)) solid var(--accent); border-radius: 0; }
+.ho-val { min-width: calc(54 * var(--s)); text-align: right; font-size: calc(16 * var(--s)); color: var(--gold); }
+
+.ho-switch {
+  display: inline-flex; align-items: center; gap: calc(10 * var(--s)); cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(14 * var(--s)); letter-spacing: 0.14em; color: var(--ink-mute);
+}
+.ho-switch i { position: relative; width: calc(38 * var(--s)); height: calc(18 * var(--s)); background: rgba(255, 255, 255, 0.12); border: 1px solid var(--edge); }
+.ho-switch i::after { content: ''; position: absolute; top: calc(2 * var(--s)); left: calc(2 * var(--s)); width: calc(12 * var(--s)); height: calc(12 * var(--s)); background: var(--ink-mute); transition: transform 0.12s; }
+.ho-switch.is-on { color: var(--sp); }
+.ho-switch.is-on i { background: rgba(123, 224, 140, 0.25); border-color: var(--sp); }
+.ho-switch.is-on i::after { transform: translateX(calc(20 * var(--s))); background: var(--sp); }
+.ho-sw-text { min-width: calc(28 * var(--s)); }
+
+.ho-seg {
+  padding: calc(5 * var(--s)) calc(12 * var(--s)); cursor: pointer; border: 1px solid var(--edge); color: var(--ink-dim);
+  font-family: var(--font-display); font-weight: 700; font-size: calc(13 * var(--s)); letter-spacing: 0.14em;
+}
+.ho-seg:hover { color: var(--ink); }
+.ho-seg.is-on { color: #1c1406; background: var(--gold); border-color: var(--gold); }
+
+.ho-key {
+  min-width: calc(86 * var(--s)); padding: calc(6 * var(--s)) calc(10 * var(--s)); cursor: pointer; text-align: center;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(14 * var(--s)); letter-spacing: 0.1em; color: var(--ink);
+  background: rgba(0, 0, 0, 0.35); border: 1px solid var(--edge);
+}
+.ho-key:hover { border-color: var(--edge-strong); }
+.ho-key.is-focus { border-color: var(--gold); box-shadow: 0 0 calc(10 * var(--s)) rgba(242, 198, 109, 0.35); }
+.ho-key.is-capturing { color: #1c1406; background: var(--gold); animation: ho-blink 0.6s steps(2) infinite; }
+@keyframes ho-blink { 50% { opacity: 0.6; } }
+
+.ho-btn { min-width: calc(130 * var(--s)); height: calc(36 * var(--s)); font-size: calc(14 * var(--s)); }
+.ho-btn.is-danger { border-color: var(--danger); color: var(--danger); }
+.ho-btn.is-armed { background: var(--danger); color: #fff; }

@@ -743,6 +743,10 @@ window.DS = window.DS || {};
   }
 
   function updateHints(g) {
+    if (DS.Settings && DS.Settings.get('game', 'hints') === false) {
+      if (hint.cur) { hint.cur = null; flag(N.hint, 'is-on', false); }
+      return;
+    }
     loadSeen();
     if (hint.cur) {
       if (--hint.t <= 0) { hint.cur = null; hint.gap = HINT_GAP; flag(N.hint, 'is-on', false); }
@@ -777,22 +781,32 @@ window.DS = window.DS || {};
   ];
   let sheet = null, sheetTimer = 0;
 
+  /* The rows as the player has the keys set now (DS.Input.controlGroups), flat. */
+  function liveControls() {
+    if (!DS.Input || !DS.Input.controlGroups) return CONTROLS;
+    const out = [];
+    DS.Input.controlGroups().forEach(function (grp) { grp.rows.forEach(function (r) { out.push(r); }); });
+    return out;
+  }
+
   function showControls() {
     build();
     if (!sheet) {
       sheet = el('div', 'hud-controls ui-panel ui-interactive');
       sheet.appendChild(el('div', 'ui-title', { text: 'Controls' }));
-      const grid = el('div', 'grid');
-      for (let i = 0; i < CONTROLS.length; i++) {
-        const keys = el('span', 'keys');
-        for (let k = 0; k < CONTROLS[i][0].length; k++) keys.appendChild(key(CONTROLS[i][0][k]));
-        grid.appendChild(keys);
-        grid.appendChild(el('span', 'lbl', { text: CONTROLS[i][1] }));
-      }
-      sheet.appendChild(grid);
+      sheet.grid = el('div', 'grid');
+      sheet.appendChild(sheet.grid);
       sheet.appendChild(el('div', 'foot', { text: 'Click to close' }));
       sheet.addEventListener('click', hideControls);
       HUI.layer('overlay').appendChild(sheet);
+    }
+    const rows = liveControls();
+    while (sheet.grid.firstChild) sheet.grid.removeChild(sheet.grid.firstChild);
+    for (let i = 0; i < rows.length; i++) {
+      const keys = el('span', 'keys');
+      for (let k = 0; k < rows[i][0].length; k++) keys.appendChild(key(rows[i][0][k]));
+      sheet.grid.appendChild(keys);
+      sheet.grid.appendChild(el('span', 'lbl', { text: rows[i][1] }));
     }
     sheet.hidden = false;
     sheetTimer = performance.now() + 15000;

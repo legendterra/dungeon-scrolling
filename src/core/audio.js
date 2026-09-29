@@ -12,6 +12,9 @@ window.DS = window.DS || {};
   let noiseBuffer = null;
   let unlocked = false;
   let muted = false;
+  /* v7 options: the three sliders, and whether losing focus silences the game. */
+  const vols = { master: 1, music: 1, sfx: 1 };
+  let muteUnfocused = false, blurred = false;
   /* Per-play variation, set once by play() so every layer of one sound shares it:
      `pitch` detunes, `volMul` attenuates (distance, quiet variants). */
   let pitch = 1;
@@ -34,16 +37,14 @@ window.DS = window.DS || {};
     try {
       ctx = new AC();
       master = ctx.createGain();
-      master.gain.value = muted ? 0 : 0.5;
       master.connect(ctx.destination);
 
       sfxBus = ctx.createGain();
-      sfxBus.gain.value = 0.8;
       sfxBus.connect(master);
 
       musicBus = ctx.createGain();
-      musicBus.gain.value = 0.26;
       musicBus.connect(master);
+      applyVolumes();
 
       noiseBuffer = makeNoiseBuffer();
     } catch (err) {
@@ -509,9 +510,35 @@ window.DS = window.DS || {};
     }
   }
 
+  function silent() { return muted || (muteUnfocused && blurred); }
+
+  function applyVolumes() {
+    if (!master) return;
+    master.gain.value = silent() ? 0 : 0.5 * vols.master;
+    sfxBus.gain.value = 0.8 * vols.sfx;
+    musicBus.gain.value = 0.26 * vols.music;
+  }
+
+  function setVolumes(v) {
+    ['master', 'music', 'sfx'].forEach(function (k) {
+      if (v && typeof v[k] === 'number' && isFinite(v[k])) vols[k] = Math.min(1, Math.max(0, v[k]));
+    });
+    if (v && typeof v.muteUnfocused === 'boolean') muteUnfocused = v.muteUnfocused;
+    applyVolumes();
+  }
+
+  // (guarded: the unit tests load this file with no window events and no document)
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('blur', function () { blurred = true; applyVolumes(); });
+    window.addEventListener('focus', function () { blurred = false; applyVolumes(); });
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', function () { blurred = document.hidden; applyVolumes(); });
+  }
+
   function toggleMute() {
     muted = !muted;
-    if (master) master.gain.value = muted ? 0 : 0.5;
+    applyVolumes();
     return muted;
   }
 
@@ -528,6 +555,7 @@ window.DS = window.DS || {};
     stopMusic: stopMusic,
     update: update,
     toggleMute: toggleMute,
+    setVolumes: setVolumes,
     isMuted: function () { return muted; },
     isReady: function () { return !!ctx; }
   };

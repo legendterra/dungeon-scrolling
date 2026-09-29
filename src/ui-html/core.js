@@ -16,6 +16,7 @@ window.DS = window.DS || {};
   const LAYERS = ['world', 'hud', 'panel', 'overlay'];
 
   let root = null;
+  let uiScale = 1;          // v7 options: 0.85..1.25 on top of the frame's own scale
   const layers = {};
   const frame = { x: 0, y: 0, w: 0, h: 0, s: 1 };
   let hoverCount = 0;
@@ -61,8 +62,8 @@ window.DS = window.DS || {};
     const x = v ? v.x : 0, y = v ? v.y : 0;
     const w = v ? v.w : window.innerWidth, h = v ? v.h : window.innerHeight;
     if (x === frame.x && y === frame.y && w === frame.w && h === frame.h) return;
-    frame.x = x; frame.y = y; frame.w = w; frame.h = h;
-    frame.s = h / DESIGN_H;
+    frame.x = x; frame.y = y; frame.w = w; frame.h = h; frame.u = uiScale;
+    frame.s = h / DESIGN_H * uiScale;
     root.style.left = x + 'px';
     root.style.top = y + 'px';
     root.style.width = w + 'px';
@@ -128,6 +129,10 @@ window.DS = window.DS || {};
     DESIGN_H: DESIGN_H,
     init: init,
     sync: sync,
+    setUiScale: function (v) {
+      uiScale = Math.min(1.25, Math.max(0.85, +v || 1));
+      frame.w = -1;         // force the next sync to rewrite --s
+    },
     el: el,
     layer: layer,
     pool: pool,

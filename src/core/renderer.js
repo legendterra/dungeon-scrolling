@@ -114,8 +114,11 @@ window.DS = window.DS || {};
     else cam.y = DS.M.clamp(cam.y, minY + up + lift, maxY - down + lift);
   }
 
+  /* v7 options: how much of the camera's violence the player wants. */
+  const comfort = { shake: 1, flash: true, motion: true };
+
   function shake(amount) {
-    shakeAmount = Math.max(shakeAmount, amount);
+    shakeAmount = Math.max(shakeAmount, amount * (comfort.motion ? comfort.shake : 0));
   }
 
   let zoomLevel = 1, zoomTarget = 1;
@@ -159,10 +162,12 @@ window.DS = window.DS || {};
   }
 
   function punch(amount) {
-    zoomLevel = Math.max(zoomLevel, 1 + amount);
+    if (!comfort.motion) return;
+    zoomLevel = Math.max(zoomLevel, 1 + amount * comfort.shake);
   }
 
   function flash(color, frames) {
+    if (!comfort.flash || !comfort.motion) return;
     flashColorLight = DS.UI3 ? DS.UI3.hexOf(color || '#ffffff') : 0xffffff;
     flashFrames = flashMax = frames || 6;
   }
@@ -587,6 +592,7 @@ window.DS = window.DS || {};
     setCam: setCam,
     clampCam: clampCam,
     shake: shake,
+    comfort: comfort,
     punch: punch,
     flash: flash,
     drawFlash: drawFlash,

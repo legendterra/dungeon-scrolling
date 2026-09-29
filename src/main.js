@@ -85,6 +85,8 @@ window.DS = window.DS || {};
     if (steps === MAX_CATCHUP) accumulator = 0;
 
     DS.Audio.update();
+    // The frame-rate cap skips the picture, never the simulation.
+    if (DS.Prefs && !DS.Prefs.wantDraw(now)) return;
     current.draw();
 
     /* The pointer, drawn once, here: one owner, so no screen can forget it and
@@ -98,11 +100,13 @@ window.DS = window.DS || {};
     DS.R.present(now * 0.001);
     /* The HTML layer follows the frame the canvas just letterboxed. */
     DS.HUI.sync();
+    if (DS.Prefs) DS.Prefs.fpsTick(now);
   }
 
   function boot() {
     DS.R.init();
     DS.HUI.init();
+    if (DS.Prefs) DS.Prefs.applyAll();
     if (DS.Notice && DS.Notice.needed()) DS.Scenes.notice();
     else DS.Scenes.menu();
     requestAnimationFrame(frame);

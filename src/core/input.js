@@ -44,6 +44,39 @@ window.DS = window.DS || {};
     debug:    ['F1']
   };
 
+  /* --- rebinding ---------------------------------------------------------------
+
+     What a player can change is the keyboard and mouse half of an action: up to
+     three codes each. The gamepad half (PAD*) stays as authored. MAP is rebuilt
+     from the two whenever one changes, so everything that asks isDown('jump')
+     keeps working without knowing any of this. */
+  const REBINDABLE = ['left', 'right', 'up', 'down', 'jump', 'attack', 'dash', 'minidash', 'interact',
+                      'skill', 'ult', 'swap', 'bag', 'infuse', 'infuseBack', 'pause'];
+  const SLOTS = 3;
+  const PAD_PART = {};
+  const DEFAULT_KB = {};
+  const KB = {};
+  const isPad = function (c) { return c.indexOf('PAD') === 0; };
+  REBINDABLE.forEach(function (a) {
+    DEFAULT_KB[a] = MAP[a].filter(function (c) { return !isPad(c); });
+    PAD_PART[a] = MAP[a].filter(isPad);
+    KB[a] = DEFAULT_KB[a].slice();
+  });
+  // R is both the reroll at a shrine and the infusion key; they follow each other.
+  const ALIAS = { reroll: 'infuse' };
+
+  function rebuild(action) {
+    MAP[action] = KB[action].concat(PAD_PART[action]);
+    for (const a in ALIAS) if (ALIAS[a] === action) MAP[a] = MAP[action].slice();
+  }
+
+  let capture = null;
+  function finishCapture(code) {
+    const fn = capture;
+    capture = null;
+    if (fn) fn(code);
+  }
+
   // Keys the browser would otherwise act on (scrolling, focus cycling, quick find).
   const SWALLOW = new Set([
     'Space', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
@@ -76,6 +109,13 @@ window.DS = window.DS || {};
     if (SWALLOW.has(e.code)) {
       e.preventDefault();
       e.stopImmediatePropagation();
+    }
+    // A screen waiting for "press the key you want" takes this one and nothing else does.
+    if (capture) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (!e.repeat) finishCapture(e.code);
+      return;
     }
     /* A screen that wants typed text (the name prompt) installs a sink. While
        one is installed the letter keys are delivered to it and consumed, so
@@ -121,6 +161,7 @@ window.DS = window.DS || {};
 
   window.addEventListener('mousedown', function (e) {
     const code = 'MOUSE' + e.button;
+    if (capture) { e.preventDefault(); finishCapture(code); return; }
     down.add(code);
     pressed.add(code);
     anyPressedFlag = true;
@@ -232,6 +273,122 @@ window.DS = window.DS || {};
       const codes = MAP[action] || [];
       for (let i = 0; i < codes.length; i++) pressed.delete(codes[i]);
     },
+
+    /* --- rebinding (see the block above MAP) --- */
+    REBINDABLE: REBINDABLE,
+    SLOTS: SLOTS,
+    /* The keyboard / mouse codes of an action, always SLOTS long ('' = empty). */
+    keysOf: function (action) {
+      const out = (KB[action] || []).slice(0, SLOTS);
+      while (out.length < SLOTS) out.push('');
+      return out;
+    },
+    defaultKeysOf: function (action) {
+      const out = (DEFAULT_KB[action] || []).slice(0, SLOTS);
+      while (out.length < SLOTS) out.push('');
+      return out;
+    },
+    /* Put `code` in slot i of `action`. A code is unique among the rebindable
+       actions: whoever held it loses it, and is named in the return so the
+       screen can say so. Returns { ok, stolenFrom }. */
+    bind: function (action, slot, code) {
+      if (!KB[action] || slot < 0 || slot >= SLOTS) return { ok: false };
+      let stolen = null;
+      if (code) {
+        for (let i = 0; i < REBINDABLE.length; i++) {
+          const other = REBINDABLE[i];
+          if (other === action) continue;
+          // jump / up / down share the arrow and W keys by design: a menu and a rope want them too.
+          if ((action === 'jump' && other === 'up') || (action === 'up' && other === 'jump')) continue;
+          const at = KB[other].indexOf(code);
+          if (at >= 0) { KB[other].splice(at, 1); rebuild(other); stolen = other; }
+        }
+        const mine = KB[action].indexOf(code);
+        if (mine >= 0 && mine !== slot) KB[action].splice(mine, 1);
+      }
+      const list = KB[action].slice();
+      while (list.length < slot) list.push('');
+      if (code) list[slot] = code; else list.splice(slot, 1);
+      KB[action] = list.filter(Boolean);
+      rebuild(action);
+      return { ok: true, stolenFrom: stolen };
+    },
+    resetBindings: function () {
+      REBINDABLE.forEach(function (a) { KB[a] = DEFAULT_KB[a].slice(); rebuild(a); });
+    },
+    /* The whole keyboard half as a plain object, and back: what Settings stores. */
+    exportBindings: function () {
+      const out = {};
+      REBINDABLE.forEach(function (a) { out[a] = KB[a].slice(0, SLOTS); });
+      return out;
+    },
+    importBindings: function (obj) {
+      if (!obj || typeof obj !== 'object') return;
+      REBINDABLE.forEach(function (a) {
+        const list = obj[a];
+        if (!Array.isArray(list)) return;
+        const clean = list.filter(function (c) { return typeof c === 'string' && /^[A-Za-z0-9]{1,24}$/.test(c) && !isPad(c); }).slice(0, SLOTS);
+        if (clean.length) { KB[a] = clean; rebuild(a); }
+      });
+    },
+    /* The controls sheets are written from what is bound NOW: [{ group, rows: [[labels], text]}]. */
+    controlGroups: function () {
+      const two = function (a) {
+        const seen = [];
+        Input.labelsOf(a).forEach(function (l) { if (seen.indexOf(l) < 0) seen.push(l); });
+        return seen.length ? seen.slice(0, 2) : ['\u2014'];
+      };
+      const one = function (a) { return two(a).slice(0, 1); };
+      return [
+        { group: 'MOVE', rows: [
+          [one('left').concat(one('right')), 'Run'],
+          [two('jump'), 'Jump \u00b7 again in the air'],
+          [two('dash'), 'Dash'],
+          [two('minidash'), 'Mini dash \u00b7 two charges']
+        ] },
+        { group: 'FIGHT', rows: [
+          [two('attack'), 'Attack \u00b7 chain the combo'],
+          [['HOLD'].concat(one('attack')), 'Charge a heavy blow'],
+          [two('skill'), 'Weapon skill \u00b7 mana'],
+          [two('ult'), 'Ultimate \u00b7 mana'],
+          [two('swap'), 'Swap hands']
+        ] },
+        { group: 'ELEMENTS', rows: [
+          [two('infuse'), 'Infuse \u00b7 next known essence'],
+          [two('infuseBack'), 'Infuse \u00b7 previous essence'],
+          [['MOUSE'], 'Aim \u00b7 arrows and bolts fly at it']
+        ] },
+        { group: 'WORLD', rows: [
+          [two('interact'), 'Interact \u00b7 open \u00b7 pick up'],
+          [two('bag'), 'Bag and equipment'],
+          [two('pause'), 'Pause']
+        ] }
+      ];
+    },
+    /* A code as a player reads it: KeyA -> A, ShiftLeft -> SHIFT, MOUSE0 -> LMB. */
+    label: function (code) {
+      if (!code) return '';
+      if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+      if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+      if (/^Numpad/.test(code)) return 'NUM ' + code.slice(6).toUpperCase();
+      const names = {
+        Space: 'SPACE', ShiftLeft: 'SHIFT', ShiftRight: 'SHIFT', ControlLeft: 'CTRL', ControlRight: 'CTRL',
+        AltLeft: 'ALT', AltRight: 'ALT', ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+        Escape: 'ESC', Enter: 'ENTER', Tab: 'TAB', Backspace: 'BKSP', Delete: 'DEL', Insert: 'INS', Home: 'HOME',
+        End: 'END', PageUp: 'PGUP', PageDown: 'PGDN', CapsLock: 'CAPS', Backquote: '`', Minus: '-', Equal: '=',
+        BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/',
+        Backslash: '\\', MOUSE0: 'LMB', MOUSE1: 'MMB', MOUSE2: 'RMB', MOUSE3: 'M4', MOUSE4: 'M5'
+      };
+      return names[code] || code.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+    },
+    /* The labels of an action's keyboard / mouse codes, empty slots dropped. */
+    labelsOf: function (action) {
+      return Input.keysOf(action).filter(Boolean).map(Input.label);
+    },
+    /* The next key, mouse button or nothing at all: press Escape to cancel. */
+    captureNext: function (fn) { capture = fn || null; },
+    isCapturing: function () { return !!capture; },
+    onBindingsChanged: null,
 
     // Horizontal intent as -1 / 0 / 1.
     axisX: function () {
