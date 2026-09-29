@@ -1,0 +1,56 @@
+/* The startup notice (src/ui-html/notice.js): a long, plain document in a panel
+   that has to be read to the end before its buttons wake, and the short apology
+   that follows a decline. Sizes are in --s units like every other screen. */
+
+.hn-panel {
+  position: relative; width: calc(760 * var(--s)); max-height: calc(640 * var(--s));
+  padding: calc(28 * var(--s)) calc(34 * var(--s)) calc(22 * var(--s));
+  display: flex; flex-direction: column; gap: calc(6 * var(--s));
+}
+.hn-title { font-family: var(--font-display); font-weight: 700; font-size: calc(36 * var(--s)); line-height: 1.05; text-transform: uppercase; }
+.hn-sub { font-size: calc(14 * var(--s)); color: var(--ink-dim); margin-bottom: calc(8 * var(--s)); }
+
+.hn-body {
+  position: relative; flex: 1 1 auto; min-height: calc(220 * var(--s)); max-height: calc(360 * var(--s));
+  overflow-y: auto; padding: calc(14 * var(--s)) calc(20 * var(--s)) calc(14 * var(--s)) calc(16 * var(--s));
+  background: rgba(0, 0, 0, 0.32); border: 1px solid rgba(170, 210, 255, 0.14);
+  scrollbar-width: thin; scrollbar-color: var(--accent) rgba(255, 255, 255, 0.06);
+}
+.hn-body::-webkit-scrollbar { width: calc(8 * var(--s)); }
+.hn-body::-webkit-scrollbar-thumb { background: var(--accent); }
+.hn-sec + .hn-sec { margin-top: calc(14 * var(--s)); }
+.hn-sec-title {
+  font-family: var(--font-display); font-weight: 700; font-size: calc(15 * var(--s)); letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--gold); margin-bottom: calc(4 * var(--s));
+}
+.hn-sec-text { font-size: calc(14.5 * var(--s)); line-height: 1.55; color: var(--ink-dim); }
+.hn-sec-text b { color: var(--ink); font-weight: 700; }
+
+.hn-progress { display: flex; align-items: center; gap: calc(12 * var(--s)); margin-top: calc(8 * var(--s)); }
+.hn-track { flex: 1 1 auto; height: calc(4 * var(--s)); background: rgba(255, 255, 255, 0.1); }
+.hn-fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.12s linear; }
+.hn-hint { flex: 0 0 auto; font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s)); letter-spacing: 0.16em; color: var(--ink-mute); text-transform: uppercase; }
+.hn-hint.is-done { color: var(--sp); }
+.hn-hint.is-nudge { color: var(--danger); animation: hn-nudge 0.32s linear; }
+@keyframes hn-nudge { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(calc(-4 * var(--s))); } 75% { transform: translateX(calc(4 * var(--s))); } }
+
+.hn-check {
+  display: flex; align-items: center; gap: calc(10 * var(--s)); margin-top: calc(10 * var(--s));
+  font-size: calc(14 * var(--s)); color: var(--ink-dim); cursor: pointer; user-select: none;
+}
+.hn-box { position: relative; width: calc(18 * var(--s)); height: calc(18 * var(--s)); border: calc(2 * var(--s)) solid var(--edge-strong); background: rgba(0, 0, 0, 0.4); }
+.hn-check.is-on .hn-box { border-color: var(--gold); }
+.hn-check.is-on .hn-box::after { content: ''; position: absolute; inset: calc(2 * var(--s)); background: var(--gold); }
+.hn-check.is-focus { color: var(--ink); }
+.hn-check.is-focus .hn-box { box-shadow: 0 0 calc(10 * var(--s)) rgba(242, 198, 109, 0.5); }
+
+.hn-actions { margin-top: calc(14 * var(--s)); }
+.hn-actions .hm-btn.is-locked { opacity: 0.4; cursor: not-allowed; filter: saturate(0.4); }
+
+.hn-pop {
+  position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 4, 10, 0.78);
+}
+.hn-pop-card { width: calc(560 * var(--s)); padding: calc(28 * var(--s)) calc(34 * var(--s)); display: flex; flex-direction: column; gap: calc(10 * var(--s)); }
+.hn-pop-title { font-family: var(--font-display); font-weight: 700; font-size: calc(30 * var(--s)); text-transform: uppercase; }
+.hn-pop-text { font-size: calc(15 * var(--s)); line-height: 1.6; color: var(--ink-dim); }

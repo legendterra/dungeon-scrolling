@@ -19,6 +19,10 @@ window.DS = window.DS || {};
   DS.Scenes = {
     menu: function () { setScene(DS.Menu.createMenu()); },
 
+    /* The startup notice (ui-html/notice.js), then the title screen. Either
+       answer goes on to the game. */
+    notice: function () { setScene(DS.Notice.createScene(function () { DS.Scenes.menu(); })); },
+
     // Straight to the weapon choice, used by "run again" after a death. The
     // intro is skipped from here: it explains how the run started, and a
     // restart is not a new story.
@@ -99,7 +103,8 @@ window.DS = window.DS || {};
   function boot() {
     DS.R.init();
     DS.HUI.init();
-    DS.Scenes.menu();
+    if (DS.Notice && DS.Notice.needed()) DS.Scenes.notice();
+    else DS.Scenes.menu();
     requestAnimationFrame(frame);
   }
 
