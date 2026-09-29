@@ -3412,7 +3412,11 @@ window.DS = window.DS || {};
      an element is a table entry rather than another special case. */
   const ELEM_RECIPE = {
     fire:      { core: 0xe8743b, accent: 0xfff0a8, shape: 'jets',    n: 5, h: 0.66, light: 0xff7a2a, rise: 1.6 },
-    ice:       { core: 0x4fb3e0, accent: 0xcdefff, shape: 'shards',  n: 7, h: 0.86, light: 0x4fb3e0, rise: 0 },
+    /* Additive shards over a pale floor clip straight to white, so ice is drawn
+       in saturated blues at half strength: it reads as cold crystal instead of
+       a white patch (the accent used to be 0xcdefff, which IS white once added
+       to sandstone). */
+    ice:       { core: 0x2f86b8, accent: 0x6fc0ea, shape: 'shards',  n: 7, h: 0.86, light: 0x4fb3e0, rise: 0, alpha: 0.6 },
     lightning: { core: 0xf2c14e, accent: 0xfff0a8, shape: 'arcs',    n: 5, h: 0.58, light: 0xf2c14e, rise: 0 },
     poison:    { core: 0x5cbf62, accent: 0xa3e86b, shape: 'vents',   n: 5, h: 0.34, light: 0x5cbf62, rise: 1.2 },
     water:     { core: 0x2f6fa8, accent: 0x4fb3e0, shape: 'ripples', n: 3, h: 0.05, light: 0,        rise: 0 },
@@ -3469,7 +3473,7 @@ window.DS = window.DS || {};
         mesh = new THREE.Mesh(new THREE.ConeGeometry(0.11, rec.h, 5), glowMat(col, 0.8));
         mesh.position.set(Math.cos(a) * r, rec.h * 0.5, Math.sin(a) * r);
       } else if (rec.shape === 'shards') {
-        mesh = new THREE.Mesh(new THREE.ConeGeometry(0.085, rec.h, 4), glowMat(col, 0.72));
+        mesh = new THREE.Mesh(new THREE.ConeGeometry(0.085, rec.h, 4), glowMat(col, 0.72 * (rec.alpha || 1)));
         mesh.position.set(Math.cos(a) * r, rec.h * 0.5, Math.sin(a) * r);
         mesh.rotation.set(rnd(-0.3, 0.3), a, rnd(-0.3, 0.3));
       } else if (rec.shape === 'arcs') {
@@ -3581,7 +3585,7 @@ window.DS = window.DS || {};
         mesh.scale.y = 0.75 + 0.35 * (wob * 0.5 + 0.5);
         mesh.material.opacity = (0.55 + 0.3 * (wob * 0.5 + 0.5)) * fade;
       } else if (p.kind === 'shards') {
-        mesh.material.opacity = (0.55 + 0.22 * (wob * 0.5 + 0.5)) * fade;
+        mesh.material.opacity = (0.55 + 0.22 * (wob * 0.5 + 0.5)) * (rec.alpha || 1) * fade;
       } else if (p.kind === 'arcs') {
         // Arcs snap on and off rather than glowing steadily.
         const blip = (Math.sin(t * 9 + p.phase * 3) > 0.25) ? 1 : 0;
