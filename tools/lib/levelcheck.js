@@ -65,7 +65,9 @@ const FILES = [
   'src/world/puzzle.js',
   'src/world/bonus.js',
   'src/world/hazards.js',
-  'src/world/generator.js'
+  'src/world/generator.js',
+  'src/world/maps.js',
+  'src/world/maps/act1.js'
 ];
 
 function loadGame() {

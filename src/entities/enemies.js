@@ -73,6 +73,9 @@ window.DS = window.DS || {};
     throne:   { shielder: 1.4, necromancer: 1.4, cultist: 1.6, slime: 1.2 }
   };
 
+  /* v7: a place brings its own spawn affinity (DS.Maps.define). */
+  function registerAffinity(key, weights) { BIOME_AFFINITY[key] = weights; }
+
   function biomeKeyFor(depth) {
     const rung = DS.Difficulty && DS.Difficulty.biomeForDepth
       ? DS.Difficulty.biomeForDepth(depth) : null;
@@ -858,6 +861,7 @@ window.DS = window.DS || {};
     draw: draw,
     windRatio: windRatio,
     spawnTable: spawnTable,
+    registerAffinity: registerAffinity,
     spreadSpawns: spreadSpawns,
     BIOME_AFFINITY: BIOME_AFFINITY,
     // Shared pieces the deep bestiary builds on.

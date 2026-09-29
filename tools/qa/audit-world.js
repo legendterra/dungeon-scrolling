@@ -234,6 +234,11 @@ async function main() {
       const roofY = rep.anchorY + rep.roofRel;
       const roofs = anchors.filter((a) => a.anchor === 'roof');
       const floating = roofs.filter((a) => a.minTop < roofY - 0.06);
+      // A layer that HANGS from the roof (chandeliers, cage beams) only has to touch it.
+      const hung = anchors.filter((a) => a.anchor === 'roofhang');
+      const loose = hung.filter((a) => a.hi < roofY - 0.06 || a.hi > roofY + 0.9);
+      check('every roof-hung layer reaches the roof', loose.length === 0,
+            hung.length ? `${hung.length} layers` + (loose.length ? ', loose: ' + loose.map((a) => `${a.kind} top ${a.hi}`).join('; ') : '') : 'none');
       check('every hanging thing is rooted in the roof', floating.length === 0,
             roofs.length ? `${roofs.length} layers, roof underside ${roofY.toFixed(2)}` +
               (floating.length ? ', floating: ' + floating.map((a) => `${a.kind} root ${a.minTop}`).join('; ') : '')

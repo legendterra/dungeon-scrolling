@@ -228,6 +228,104 @@
       "gray": true,
       "mean": 204,
       "span": 4.8
+    },
+    {
+      "id": "tile_rock",
+      "asset": "gray_rocks",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
+    },
+    {
+      "id": "tile_rockdark",
+      "asset": "dark_rock",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
+    },
+    {
+      "id": "tile_marble",
+      "asset": "marble_cliff_01",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
+    },
+    {
+      "id": "tile_plaster",
+      "asset": "worn_plaster_wall",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
+    },
+    {
+      "id": "tile_metal",
+      "asset": "metal_plate",
+      "gray": true,
+      "mean": 204,
+      "span": 4.8
+    },
+    {
+      "id": "tile_limestone",
+      "asset": "white_sandstone_bricks_03",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
+    },
+    {
+      "id": "tile_brickred",
+      "asset": "large_red_bricks",
+      "gray": true,
+      "mean": 204,
+      "span": 6.4
+    },
+    {
+      "id": "tile_slate",
+      "asset": "slate_floor_02",
+      "gray": true,
+      "mean": 204,
+      "span": 6.4
+    },
+    {
+      "id": "tile_pavelarge",
+      "asset": "cobblestone_large_01",
+      "gray": true,
+      "mean": 204,
+      "span": 6.4
+    },
+    {
+      "id": "tile_sand",
+      "asset": "sandstone_blocks_08",
+      "gray": true,
+      "mean": 204,
+      "span": 6.4
+    },
+    {
+      "id": "tile_mossbrick",
+      "asset": "mossy_brick",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
+    },
+    {
+      "id": "tile_volcanic",
+      "asset": "volcanic_rock_tiles",
+      "gray": true,
+      "mean": 204,
+      "span": 6.4
+    },
+    {
+      "id": "tile_planksold",
+      "asset": "old_planks_02",
+      "gray": true,
+      "mean": 204,
+      "span": 4.8
+    },
+    {
+      "id": "tile_mud",
+      "asset": "brown_mud",
+      "gray": true,
+      "mean": 204,
+      "span": 8.0
     }
   ],
   "_tiles": "tile_* entries are grayscale (mean 204/255) so the level's tile materials can multiply them by the biome's own colour; `span` is how many world units one copy covers (the tiles sample by WORLD position, so masonry runs on across tiles instead of repeating each one)."

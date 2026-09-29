@@ -236,6 +236,8 @@ window.DS = window.DS || {};
     shore:    { sat: 1.1 }
   };
 
+  function registerGrade(name, tweak) { GRADE_TWEAK[name] = tweak; }
+
   const tmpColor = new THREE.Color();
   function hue(hex) {
     tmpColor.setHex(hex == null ? 0x808080 : hex);

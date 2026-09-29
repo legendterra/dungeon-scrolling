@@ -121,7 +121,7 @@ window.DS = window.DS || {};
   // Bake each biome's tile set once at load, at the same detail sprites.js used.
   const D = DS.SPR.tileDetail || 1;
 
-  BIOMES.forEach(function (biome) {
+  function bake(biome) {
     const pal = biome.pal;
     biome.tile = {
       wall: A.makeSprite(raw.WALL, pal, D),
@@ -135,7 +135,19 @@ window.DS = window.DS || {};
       deathspike: DS.SPR.tile.deathspike,
       table: DS.SPR.tile.table
     };
-  });
+  }
+
+  BIOMES.forEach(bake);
+
+  /* v7: a place brings its own palette (DS.Maps.define). The key is the map's
+     key, so the tiles, the 3D theme and the HUD name all come from one entry. */
+  function register(def) {
+    if (BY_KEY[def.key]) throw new Error('DS.Biomes.register: ' + def.key + ' already exists');
+    BIOMES.push(def);
+    BY_KEY[def.key] = def;
+    bake(def);
+    return def;
+  }
 
   /* One depth -> one palette, asked of the biome ladder so the tiles and the 3D
      theme can never disagree again. Falls back to the old depth-1 index if the
@@ -149,5 +161,5 @@ window.DS = window.DS || {};
     return BIOMES[DS.M.clamp(depth - 1, 0, BIOMES.length - 1)];
   }
 
-  DS.Biomes = { LIST: BIOMES, forDepth: forDepth };
+  DS.Biomes = { LIST: BIOMES, forDepth: forDepth, register: register, get: function (key) { return BY_KEY[key] || null; } };
 })(window.DS);

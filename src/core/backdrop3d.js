@@ -249,7 +249,7 @@ window.DS = window.DS || {};
   /* Which band kinds hang free of the ground (everything else is anchored to
      it, and a roofed theme's stalactites to its roof). The audit reads the
      anchor each layer group declares and measures it against the geometry. */
-  const FREE_KINDS = { clouds: true, islands: true };
+  const FREE_KINDS = { clouds: true, islands: true, cloudsea: true, hangcage: true, chandelier: true };
 
   const SWAY_KINDS = {
     islands: { spd: 0.30, bob: 0.22 }
@@ -2861,12 +2861,26 @@ window.DS = window.DS || {};
          group is scaled by k about the floor's centre). */
       const lx0 = cov ? (cov.x0 - WU * 0.5 * (1 - k)) / k : WU * 0.5 - (WU * 0.5 + margin) / k;
       const lx1 = cov ? (cov.x1 - WU * 0.5 * (1 - k)) / k : WU * 0.5 + (WU * 0.5 + margin) / k;
-      const n = bandCount(L, lx1 - lx0);
-      const Lk = (L.kind === 'stalactites' && roofRel) ? Object.assign({}, L, { roof: roofRel / k }) : L;
+      /* A kind that builds a WHOLE band (a wall with openings, a river) is
+         called once and told the span it has to fill, in its own units: the x
+         range the camera can see, where world x = 0 falls in it, and how high
+         and low the frame reaches at this plane. */
+      const whole = !!kind.whole || !!L.whole;
+      const n = whole ? 1 : bandCount(L, lx1 - lx0);
+      const Lk = Object.assign({}, L, {
+        span: {
+          lx0: lx0, lx1: lx1, k: k, WU: WU, originX: (0 - WU * 0.5 * (1 - k)) / k,
+          top: cov ? (cov.y1 - anchorY) / k : 30, bottom: cov ? (cov.y0 - anchorY) / k : -10
+        }
+      });
+      /* `hang`: a thing that hangs from the roof (a chandelier, a cage's beam)
+         hangs from THE roof -- its beam is put at the roof's underside. */
+      if ((L.kind === 'stalactites' || L.hang) && roofRel) Lk.roof = roofRel / k;
+      if (L.hang && roofRel) Lk.top = roofRel / k;
       for (let j = 0; j < n; j++) {
         /* Stratified: one object per slot, jittered inside it, so a band has
            no clumps and no holes -- a gap in a range reads as a missing tile. */
-        const x = L.solo
+        const x = whole ? (lx0 + lx1) * 0.5 : L.solo
           ? WU * 0.5 + (rng.float(0.32, 0.68) * WU - WU * 0.5) / k
           : lx0 + (j + rng.float(0.1, 0.9)) * ((lx1 - lx0) / n);
         const b0 = o.boxes.length, s0 = o.shards.length, g0 = o.glow.length;
@@ -2936,7 +2950,7 @@ window.DS = window.DS || {};
       const layerGroup = new THREE.Group();
       layerGroup.position.set(WU * 0.5 * (1 - k), anchorY, -d);
       layerGroup.scale.setScalar(k);
-      layerGroup.userData.anchor = (L.kind === 'stalactites' && roofRel) ? 'roof'
+      layerGroup.userData.anchor = (L.hang && roofRel) ? 'roofhang' : (L.kind === 'stalactites' && roofRel) ? 'roof'
         : (FREE_KINDS[L.kind] || L.glow) ? 'free' : 'ground';
       layerGroup.userData.kind = L.kind;
       if (o.boxes.length) layerGroup.add(instancedBoxes(o.boxes, mat, 0.22, palette, G.box));
@@ -3163,7 +3177,36 @@ window.DS = window.DS || {};
     if (heroAurora) heroAurora.position.x = Math.sin(time * 0.05) * 3;
   }
 
+  /* v7: a place brings its own horizon (DS.Maps.define): the recipe, the body
+     it hangs its light on and its light curve. */
+  /* `like` starts a place from an authored theme (and, with `variant`, one of
+     its variants): the recipe is that one's, with whatever `recipe` names laid
+     over it (layers replace the whole ladder), the body the same with `hero`
+     laid over it, and the curve inherited unless given. The place then owns its
+     copy: it never reads its own variant pool, so one place is one picture. */
+  function registerTheme(name, def) {
+    if (RECIPE[name]) throw new Error('DS.Backdrop.registerTheme: ' + name + ' already exists');
+    let rec = def.recipe || {}, hero = def.hero, curve = def.curve;
+    if (def.like) {
+      const base = RECIPE[def.like];
+      if (!base) throw new Error('DS.Backdrop.registerTheme: ' + name + ' is like ' + def.like + ', which does not exist');
+      let v = null;
+      if (def.variant) {
+        v = (base.variants || []).filter(function (x) { return x.name === def.variant; })[0];
+        if (!v) throw new Error('DS.Backdrop.registerTheme: ' + def.like + ' has no variant ' + def.variant);
+      }
+      rec = Object.assign({}, base, v || {}, rec);
+      delete rec.variants; delete rec.acts; delete rec.when; delete rec.name;
+      hero = Object.assign({}, HEROES[def.like], v && v.hero, hero);
+      curve = curve || CURVE[def.like];
+    }
+    RECIPE[name] = rec;
+    if (hero) HEROES[name] = hero;
+    if (curve) CURVE[name] = curve;
+  }
+
   DS.Backdrop = {
+    registerTheme: registerTheme,
     build: build,
     update: update,
     heroInfo: heroInfo,
@@ -3205,6 +3248,10 @@ window.DS = window.DS || {};
     heroSpan: { sky: SKY_HERO_SPAN, room: ROOM_HERO_SPAN },
     families: TEX_FAMILIES,
     kinds: BACKDROP_KINDS,
+    /* What a kind written in another file (src/core/backdrop/kinds-*.js) needs
+       from this one: the box writer and the ridge machinery. */
+    helpers: { box: box, coinTone: coinTone, hash01: hash01, ridgeProfile: ridgeProfile,
+               ridgeColumns: ridgeColumns, ridgeHeight: ridgeHeight },
     get report() { return lastReport; },
     /* Shared with the renderer: the water batches build their own instanced
        boxes and must not grow a second copy of the same helper. */

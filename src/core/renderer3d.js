@@ -402,8 +402,15 @@ window.DS = window.DS || {};
      has not decoded (the caller then builds the pixel-art ones). */
   function hdTileMaterials(biome) {
     const L = DS.TexLib;
-    if (!L || !L.tiles || !L.ready || !L.has('tile_wall') || !L.has('tile_floor') || !L.has('tile_plat')) return null;
+    if (!L || !L.tiles || !L.ready) return null;
     const pal = (biome && biome.pal) || {};
+    /* A place names its own masonry (DS.Maps `tiles`): { wall, top, plat }, each
+       { tex, color }; anything it leaves out is the default stone in the
+       palette's own colour. */
+    const T = (biome && biome.tiles) || {};
+    const spec = function (which, tex) { return Object.assign({ tex: tex }, T[which] || {}); };
+    const sw = spec('wall', 'tile_wall'), st = spec('top', 'tile_floor'), sp = spec('plat', 'tile_plat');
+    if (!L.has(sw.tex) || !L.has(st.tex) || !L.has(sp.tex)) return null;
     const make = function (id, hex, gain) {
       const meta = DS.TexMeta && DS.TexMeta[id];
       const mat = new THREE.MeshLambertMaterial({ map: L.clone(id, 1, 1) });
@@ -412,9 +419,9 @@ window.DS = window.DS || {};
       return mat;
     };
     return {
-      wall: make('tile_wall', pal.D || '#3e3752', HD_TILE_GAIN),
-      top: make('tile_floor', pal.G || pal.D || '#484060', HD_TILE_GAIN * 0.92),
-      plat: make('tile_plat', '#7a5a3a', HD_TILE_GAIN)
+      wall: make(sw.tex, sw.color || pal.D || '#3e3752', HD_TILE_GAIN),
+      top: make(st.tex, st.color || pal.G || pal.D || '#484060', HD_TILE_GAIN * 0.92),
+      plat: make(sp.tex, sp.color || '#7a5a3a', HD_TILE_GAIN)
     };
   }
 
@@ -1174,7 +1181,16 @@ window.DS = window.DS || {};
     }
   }
 
+  /* v7: a place brings its own light rig (DS.Maps.define). */
+  function registerTheme(name, def) {
+    if (THEMES[name]) throw new Error('DS.R3D.registerTheme: ' + name + ' already exists');
+    THEMES[name] = def;
+  }
+
   function resolveTheme(depth, biome, flavor) {
+    /* The QA can pin a theme (tools/qa/shoot-kinds.js): a band kind is judged
+       on a floor built for looking at it, not on whichever depth it lands on. */
+    if (DS.__forceTheme && THEMES[DS.__forceTheme]) return DS.__forceTheme;
     /* The trial chamber has to look like a place that wants you dead, not like
        whichever depth it was reached from. */
     if (flavor === 'trial') return 'trial';
@@ -5001,6 +5017,7 @@ window.DS = window.DS || {};
     /* Everything the horizon built lives in here, so the QA pass can walk it and
        a teardown has one group to dispose. */
     get themeGroup() { return themeGroup; },
+    registerTheme: registerTheme,
     /* DS.WorldFrame.forMap for the floor on screen: the camera's travel and the
        eye's height range. Read by the backdrop audit. */
     get worldFrame() { return worldFrame; },

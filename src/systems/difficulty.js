@@ -113,15 +113,23 @@ window.DS = window.DS || {};
   let endlessCache = {};
   let endlessCount = 0;
 
+  /* v7: a place registered with DS.Maps (src/world/maps.js) wins over the static
+     table above, which stays as the fallback for depths with no definition (and
+     for the level checker, which loads no maps). */
+  function ladderRung(d) {
+    return (DS.Maps && DS.Maps.rung(d)) || BY_DEPTH[d] || null;
+  }
+
   function biomeForDepth(depth) {
     const d = depthOf(depth);
-    if (d <= LADDER_END) return BY_DEPTH[d] || BY_DEPTH[1];
+    if (d <= LADDER_END) return ladderRung(d) || BY_DEPTH[1];
     if (endlessCache[d]) return endlessCache[d];
 
-    const src = BY_DEPTH[((d - LADDER_END - 1) % LADDER_END) + 1];
+    const lap = Math.floor((d - LADDER_END - 1) / LADDER_END) + 1;
+    const src = ladderRung(((d - LADDER_END - 1) % LADDER_END) + 1);
     const rung = {
       depth: d, key: src.key, label: src.label, flavor: src.flavor,
-      theme: src.theme, endless: true
+      theme: src.theme, closed: !!src.closed, endless: true, lap: lap
     };
     /* Rungs are pure functions of the depth, so dropping the cache is free;
        it only keeps the same object for the depth being played. Bounded so an
