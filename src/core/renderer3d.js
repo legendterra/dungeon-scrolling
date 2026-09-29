@@ -67,19 +67,15 @@ window.DS = window.DS || {};
   let shadowGroup = null;
   let propsGroup = null;
   let themeGroup = null;
-  /* The horizon's vertical life: themeAnchorY is the line the theme was built
-     around, horizonY is where that line is being carried now. See render(). */
+  /* v7: the horizon STANDS STILL. themeAnchorY is the ground line the theme was
+     built on (the foot of the level, see footRow) and horizonY is only that
+     same number, kept so the QA's lightRig report still has a field to read.
+     What used to live here -- a lock, a dead zone, a slow drift to catch up with
+     the hero -- is gone: the backdrop is built to fill what the camera can ever
+     see (src/core/worldframe.js) and the rig moves through it. */
   let themeAnchorY = null;
   let horizonY = 0;
-  let horizonSettled = false;   // false until the first frame of a level has placed it
-  /* The locked horizon's slow drift on tall floors (see render). */
-  let horizonGoal = 0;          // median ground around the hero, re-read every 16 frames
-  let horizonVel = 0;           // units per second, smoothed
-  let horizonAway = 0;          // seconds the goal has sat outside the dead zone
-  const HORIZON_DEAD = 7;       // units: inside this, the horizon never moves
-  const HORIZON_WAIT = 2.5;     // seconds outside it before any drift starts
-  const HORIZON_SPEED = 0.9;    // units per second, at most
-  const HORIZON_DT = 1 / 60;     // seconds per SIM frame; see simDt for what render() actually uses
+  let worldFrame = null;        // DS.WorldFrame.forMap for the floor on screen
 
   /* The horizon -- its sky, its light body, its landmarks, its texture and all
      of their motion -- lives in src/core/backdrop3d.js (DS.Backdrop). What stays
@@ -661,10 +657,9 @@ window.DS = window.DS || {};
     scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(THEMES.forest.fog, FOG_DENSITY);
 
-    /* The far plane has to reach PAST the sky: the sky plane stands at z=-150 and
-       the camera orbits 26 units out on the other side of the world, so a 160
-       unit far plane clips it and the top of the frame comes up empty. */
-    camera = new THREE.PerspectiveCamera(FOV, DS.C.W / DS.C.H, 0.5, 320);
+    /* The far plane has to reach PAST everything the backdrop stands: the sky
+       plane at z=-150 and, since v7, the giant landmarks on the far rungs. */
+    camera = new THREE.PerspectiveCamera(FOV, DS.C.W / DS.C.H, 0.5, 900);
 
     ambientLight = new THREE.AmbientLight(THEMES.forest.ambient, AMBIENT_I);
     scene.add(ambientLight);
@@ -1138,47 +1133,24 @@ window.DS = window.DS || {};
     return 'forest';
   }
 
-  /* Where a floor's horizon is, in pixels: the median of the level's own
-     WALKING surface, sampled across the map.
+  /* Where the backdrop's ground stands, in level pixels: the FOOT of the level.
 
-     The backdrop used to be anchored to the map's bottom row, which is a
-     different place on every floor: a 22-tile corridor put the horizon just
-     under the eye line and a 44-tile carved floor put it 70 units down, so the
-     same theme's horizon moved between rooms and the bands ended up either
-     buried or towering. The walking surface is the one line that means the same
-     thing everywhere, and the player is standing on it. */
-  function horizonRow(map) {
+     The horizon used to stand on the MEDIAN of the walking surface, which is a
+     different place on every floor and, on a climb, the middle of the mountain --
+     so half the floor sat under its own ground and the horizon had to be lowered,
+     locked and dragged to keep it under the eye. The foot is the lowest ground
+     the level really walks on (the 85th percentile of the column heights, so a
+     single pit cannot drag it down). Everything above it is the level climbing
+     up out of the world, which is what the backdrop now shows. */
+  function footRow(map) {
     const rows = [];
-    for (let tx = 2; tx < map.w - 2; tx += 3) {
+    for (let tx = 2; tx < map.w - 2; tx += 2) {
       const g = map.groundBelow(tx);
       if (g < map.pixelH) rows.push(g);
     }
     if (!rows.length) return map.pixelH;
     rows.sort(function (a, b) { return a - b; });
-    return rows[rows.length >> 1];
-  }
-
-  /* The ground line the horizon is standing on, right now.
-
-     A MEDIAN over a window either side of the player, in the level's own pixels,
-     returned in world units. horizonRow() already trusts the median -- but over
-     the WHOLE level, which is one line for terrain that moves 6 to 20 tiles, and
-     that is what used to hide the horizon on any floor with a hill on it. A
-     window keeps the same robustness (a pit is a narrow feature and cannot drag
-     the median down) while letting the line follow the ground the player is
-     actually on. Columns with no floor at all (a pit, the level's edge) are left
-     out rather than counted as the bottom of the world. */
-  function localHorizonY(map, px) {
-    const t0 = Math.round(px / 16);
-    const rows = [];
-    for (let t = t0 - 16; t <= t0 + 16; t += 2) {
-      if (t < 2 || t > map.w - 3) continue;
-      const gy = map.groundBelow(t);
-      if (gy < map.pixelH) rows.push(gy);
-    }
-    if (!rows.length) return null;
-    rows.sort(function (a, b) { return a - b; });
-    return -rows[rows.length >> 1] * P2U;
+    return rows[Math.min(rows.length - 1, Math.floor(rows.length * 0.85))];
   }
 
   /* Mood + backdrop. Everything big and distant lives here; the walkway
@@ -1232,11 +1204,18 @@ window.DS = window.DS || {};
     backdropRef = null;
     activeThemeName = themeName;
     /* The line this theme is built around, and where that line starts. render()
-       carries it to the ground the player is walking on (see localHorizonY). */
+       stands it on the foot of the level (see footRow). */
     themeAnchorY = anchorY;
     horizonY = anchorY;
-    horizonSettled = false;
     themeGroup.position.y = 0;
+    /* What the camera can ever see on this floor, for the rig it wears now. */
+    worldFrame = null;
+    if (DS.WorldFrame) {
+      worldFrame = DS.WorldFrame.forMap(w * 16, h * 16, {
+        fov: camRig.fov, pitch: camRig.pitch, dist: camRig.dist, yaw: camRig.yaw,
+        lift: camRig.lift, aspect: DS.C.W / DS.C.H
+      }, []);
+    }
     themeGroup.rotation.y = camRig.yaw * 0.85;
 
     /* The horizon is its own module now (src/core/backdrop3d.js), standing on the
@@ -1246,7 +1225,7 @@ window.DS = window.DS || {};
     if (DS.Backdrop) {
       backdropRef = DS.Backdrop.build({
         scene: scene, theme: t, p2u: P2U,
-        fogCol: t.fog, fogDensity: FOG_DENSITY
+        fogCol: t.fog, fogDensity: FOG_DENSITY, frame: worldFrame
       }, themeName, w, h, anchorY);
       if (backdropRef && backdropRef.group) themeGroup.add(backdropRef.group);
       skyRig = backdropRef ? backdropRef.skyRig : null;
@@ -1923,7 +1902,7 @@ window.DS = window.DS || {};
     const flavor = (g && g.flavor) || '';
     const themeName = resolveTheme(depth, biome, flavor);
 
-    setupTheme(themeName, w, h, biome, -horizonRow(map) * P2U);
+    setupTheme(themeName, w, h, biome, -footRow(map) * P2U);
 
     const wallTex = makeWallTexture(biome);
     const floorTex = makeFloorTexture(biome);
@@ -4651,51 +4630,12 @@ window.DS = window.DS || {};
        its edge. Turning the theme group with the rig keeps the horizon framed:
        the bands are rigid, the eye orbits them. */
     if (themeGroup) themeGroup.rotation.y = camRig.yaw * 0.85;
-    /* The horizon STAYS PUT.
-
-       It used to be re-seated onto the ground around the player every eighth
-       frame and eased there at 0.22 a step. On a floor that rolls, that line
-       moves whenever the window of columns under the player does, in eighth-
-       frame steps -- and with the old follow lifting the camera on every jump,
-       the whole backdrop stepped up and down under the hero: the "blinking"
-       the player reported. A background is something at a distance; it does
-       not follow your feet.
-
-       So the line is LOCKED once per level, on the first frame, to the median
-       ground in a window around where the hero starts (localHorizonY: a pit
-       cannot drag a median down). Horizontal parallax needs nothing from here:
-       the bands stand at their own depths and the camera's pan parallaxes them.
-
-       The one concession is a long climb (the Climb floors, 7/22/26): when the
-       ground around the hero has been more than HORIZON_DEAD units from the
-       locked line for HORIZON_WAIT seconds, the line DRIFTS toward it -- a
-       smoothed velocity capped at HORIZON_SPEED units a second, stopping as
-       soon as it is back inside the dead zone. The ground median does not move
-       when the hero jumps, so this can never answer a jump; it reads as the
-       far horizon catching up, not as a cut. Until then the horizon may sit
-       partly out of frame -- which is what a real one does when you climb. */
-    if (themeGroup && themeAnchorY !== null && g && g.map && g.player) {
-      const hx = DS.Ent.centerX(g.player);
-      if (!horizonSettled) {
-        const start = localHorizonY(g.map, hx);
-        horizonY = start != null ? start : themeAnchorY;
-        horizonGoal = horizonY;
-        horizonVel = 0;
-        horizonAway = 0;
-        horizonSettled = true;
-      } else if ((g.frames & 15) === 0) {
-        const goal = localHorizonY(g.map, hx);
-        if (goal != null) horizonGoal = goal;
-      }
-      const off = horizonGoal - horizonY;
-      horizonAway = Math.abs(off) > HORIZON_DEAD ? horizonAway + simDt : 0;
-      const wantVel = horizonAway > HORIZON_WAIT
-        ? M.clamp(off * 0.35, -HORIZON_SPEED, HORIZON_SPEED) : 0;
-      horizonVel += (wantVel - horizonVel) * simDt * 1.2;
-      horizonY += horizonVel * simDt;
-      themeGroup.position.y = horizonY - themeAnchorY;
-    }
-
+    /* The horizon STANDS STILL. It is a world-space diorama built to fill what
+       the camera can ever see on this floor, so there is nothing to lock, drift
+       or catch up: the rig moves through it, and depth alone gives the parallax.
+       (It used to be re-seated onto the ground around the player, then locked,
+       then dragged toward it at up to 0.9 u/s -- the "blinking" on a jump and
+       the 26 second crawl on a climb.) */
     if (g.player && playerLight) {
       playerLight.position.x = (g.player.x + g.player.w * 0.5) * P2U;
       playerLight.position.y = -(g.player.y + g.player.h * 0.5) * P2U;
@@ -4854,7 +4794,7 @@ window.DS = window.DS || {};
     }
     /* The horizon keeps its own clock: drifting air, breathing bands, the
        silhouettes crossing the sky, and the pulse of the body in it. */
-    if (DS.Backdrop) DS.Backdrop.update(time, 0.016);
+    if (DS.Backdrop) DS.Backdrop.update(time, simDt);
 
     /* No parallax scroll to drive any more: the backdrop bands are solid
        geometry at fixed depth, so the camera's own pan produces the parallax. */
@@ -4976,6 +4916,9 @@ window.DS = window.DS || {};
     /* Everything the horizon built lives in here, so the QA pass can walk it and
        a teardown has one group to dispose. */
     get themeGroup() { return themeGroup; },
+    /* DS.WorldFrame.forMap for the floor on screen: the camera's travel and the
+       eye's height range. Read by the backdrop audit. */
+    get worldFrame() { return worldFrame; },
     /* The LEVEL's own geometry, and the props standing on it. Exposed for one
        reason: the QA has to tell "the horizon is not there" apart from "the
        player is standing behind the level's own rock", and those two look

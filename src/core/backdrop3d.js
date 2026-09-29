@@ -20,6 +20,19 @@
    instead of guessing, which is what makes the checks in tools/qa/audit-backdrop
    possible at all.
 
+   --- v7: the horizon stands still ---
+
+   The backdrop no longer follows the hero. It is built once per floor to FILL
+   what the camera can ever see on that floor (src/core/worldframe.js), and then
+   it stands in world space while the rig moves through it: nothing is locked,
+   nothing drifts to catch up, nothing is lowered when the eye gets close.
+   Rules the QA holds (tools/qa/audit-backdrop.js):
+     - no mesh in front of FRONT_Z, so nothing can cross the play plane;
+     - a roof is never lower than the highest the eye reaches plus ROOF_CLEAR,
+       and whatever hangs from it is anchored TO it (no floating teeth);
+     - the ground carries on below its own line, so a floor that dips under its
+       horizon looks at the face of the ground and not at the void.
+
    --- v6: the backlit side-scroller horizon ---
 
    The brief, in the player's own words: the background should be the light,
@@ -103,8 +116,17 @@ window.DS = window.DS || {};
   const SKY_HERO_SPAN = 36;   // how far `az` moves a sky body off the aim, units
   const ROOM_HERO_SPAN = 14;  // the same for a room's light
   const EYE_ABOVE = 4.8;      // the action rig's eye over the ground line, units
-  const EYE_MIN_DROP = 4.4;   // the stage's ground line never rises closer than this
-  const STAGE_EASE = 4.0;     // how fast the stage settles when it has to drop (1/s)
+  /* v7: nothing of the backdrop may stand in front of this depth. The tiles
+     occupy z -0.75..+1.08 and bodies stand at 0.3; a backdrop mesh nearer than
+     FRONT_Z can cross the play plane and show up as a slab over the hero. */
+  const FRONT_Z = -1.6;
+  const ROOF_CLEAR = 3.0;     // a roof stays this far over the highest the eye ever gets
+  /* Where the sky's colour stops sit, in units over the eye line (the plane
+     itself grows with the floor: see the sky rig in build). Taken from the
+     v6 gradient so the shipped look is unchanged. */
+  const SKY_MID_U = 79;
+  const SKY_LOW_U = 21;
+  const SKY_HAZE_U = -3;
   const DEFAULT_GAIN = 0.30;  // sky value for a theme without a curve row
   const DEFAULT_FOG = 0.008;  // the renderer's FogExp2 density, for unfog()
   const FOG_LIFT_MAX = 5.0;   // how far a colour may be lifted against the fog
@@ -224,6 +246,11 @@ window.DS = window.DS || {};
      about its base, which for a band two hundred units wide swung the far end
      of it up and down by metres -- a range that breathes is a range that pops.
      What moves now moves as itself: a floating island bobs, a cloud drifts. */
+  /* Which band kinds hang free of the ground (everything else is anchored to
+     it, and a roofed theme's stalactites to its roof). The audit reads the
+     anchor each layer group declares and measures it against the geometry. */
+  const FREE_KINDS = { clouds: true, islands: true };
+
   const SWAY_KINDS = {
     islands: { spd: 0.30, bob: 0.22 }
   };
@@ -615,8 +642,10 @@ window.DS = window.DS || {};
     bricks: function (o, x, rng, L) {
       const rows = L.rows || 8;
       for (let r = 0; r < rows; r++) {
-        if (rng.chance(0.22)) continue;
-        const y = 0.9 + r * 1.0;
+        // The bottom course always stands: a wall that starts in mid-air is the
+        // one gap a mortar-loss joke cannot excuse (the audit's ground anchor).
+        if (r > 0 && rng.chance(0.22)) continue;
+        const y = 0.45 + r * 1.0;
         box(o.boxes, x + rng.float(-0.5, 0.5), y, 0, rng.float(2.6, 5.2), 0.9, 1.1, 0, 0);
       }
     },
@@ -662,7 +691,10 @@ window.DS = window.DS || {};
       /* Hanging teeth are the one shape where a repeated row reads as a
          pattern in a heartbeat: the drop point varies by a couple of units and
          one in four is a long one, so the fringe has a profile. */
-      const top = (L.top || 8.5) + rng.float(-1.2, 1.2);
+      /* v7: with `roof` the tooth is ANCHORED to the roof line (root a hair
+         inside it), and only its length varies; without it the old free hang. */
+      const anchored = L.roof != null;
+      const top = anchored ? L.roof + 0.1 : (L.top || 8.5) + rng.float(-1.2, 1.2);
       const h = rng.float(L.h0 || 1.4, L.h1 || 3.4) * (rng.chance(0.26) ? 1.45 : 1);
       o.shards.push([x, top - h * 0.5, rng.float(-0.9, 0.9), h * rng.float(0.2, 0.52), h, 0.0]);
     },
@@ -1887,7 +1919,7 @@ window.DS = window.DS || {};
      whole job of it is the bright haze band that sits ON the horizon line. Four
      stops, canvas top to bottom: dark overhead, the theme's mid sky, a still-hazy
      band, and the haze itself at the ground line. */
-  function makeSkyTexture(topHex, midHex, lowHex, hazeHex) {
+  function makeSkyTexture(topHex, midHex, lowHex, hazeHex, drop) {
     const cv = document.createElement('canvas');
     cv.width = 2; cv.height = 128;
     const ctx = cv.getContext('2d');
@@ -1902,11 +1934,12 @@ window.DS = window.DS || {};
        enough that a ray from a camera standing high over a far-away ground
        line still lands on sky -- so the stops are solved from where the eye
        line falls on the canvas rather than written as fixed fractions. */
-    const eye = 1 - SKY_DROP / (SKY_H + SKY_DROP);
+    const total = SKY_H + drop;
+    const at = function (u) { return M.clamp(1 - (drop + u) / total, 0, 1); };   // u over the eye line
     grd.addColorStop(0, topHex);
-    grd.addColorStop(eye - 0.26, midHex);
-    grd.addColorStop(eye - 0.07, lowHex);
-    grd.addColorStop(eye + 0.01, hazeHex);
+    grd.addColorStop(at(SKY_MID_U), midHex);
+    grd.addColorStop(at(SKY_LOW_U), lowHex);
+    grd.addColorStop(at(SKY_HAZE_U), hazeHex);
     grd.addColorStop(1, hazeHex);
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, 2, 128);
@@ -2155,9 +2188,7 @@ window.DS = window.DS || {};
   let followers = [];         // rigs that ride the camera's aim across the floor
   let scrolls = [];           // textures that scroll: falls, shimmer, glitter
   let builtGroup = null;      // the group the last build returned
-  let stage = null;           // everything in it but the sky: see settleStage()
-  let stageAnchor = 0;        // the ground line the stage was built on
-  let stageSettled = false;
+  let roomRig = null;         // a roofed theme's light rig, and the eye height it was built for
   let lastReport = null;
   let lastTime = 0;
   let lastResolved = null;    // { theme, depth, rec, hero, name }
@@ -2524,6 +2555,7 @@ window.DS = window.DS || {};
 
   function build(env, themeName, w, h, anchorY) {
     if (typeof THREE === 'undefined') return null;
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
     const depth = currentDepth(env);
     const R = resolveVariant(themeName, depth);
     const rec = R.rec;
@@ -2548,6 +2580,24 @@ window.DS = window.DS || {};
     const camD = liveCamDist();
     const inRoom = !!rec.ceiling;
 
+    /* The world frame for this floor (worldframe.js): every rectangle of every
+       plane the camera can ever see. A caller with no live rig gets no frame and
+       falls back to the widest span the old margin implied. */
+    const frame = (env && env.frame) || null;
+    const covAt = function (d) {
+      return frame && DS.WorldFrame ? DS.WorldFrame.coverageAt(d, frame.range, frame.rig) : null;
+    };
+    const eyeTopRel = frame ? frame.eye.y1 - anchorY : EYE_ABOVE + 1;
+    /* The roof of a roofed theme: its authored height, but never lower than
+       ROOF_CLEAR over the highest the eye ever gets on this floor. A roof the
+       camera can climb through was the dark band across the frame. */
+    const roofRel = inRoom ? Math.max(rec.ceiling.y, eyeTopRel + ROOF_CLEAR) : 0;
+    /* The sky is pinned to the eye, so it has to reach as far below it as the
+       lens looks down at the sky plane -- on a tall floor the ground line is far
+       under the eye and the plane must not run out before the frame does. */
+    const skySpan = frame && DS.WorldFrame ? DS.WorldFrame.eyeSpan(-SKY_Z, frame.rig) : null;
+    const skyDrop = skySpan ? Math.max(SKY_DROP, Math.ceil(skySpan.down * 1.08)) : SKY_DROP;
+
     backdropAir = [];
     backdropSway = [];
     flock = null;
@@ -2555,7 +2605,7 @@ window.DS = window.DS || {};
     scrolls = [];
     heroRef = null;
     heroAurora = null;
-    stage = null;
+    roomRig = null;
     /* Every shared texture is rebuilt per floor rather than cached across them:
        the renderer disposes every map in the group when the level tears down,
        and a second floor drawn with a freed texture draws garbage. */
@@ -2583,7 +2633,9 @@ window.DS = window.DS || {};
       window: 0, wu: WU, camDist: camD, draws: 0, budget: DRAW_BUDGET,
       haze: hazeHex,
       skyValue: new THREE.Color(hazeHex).multiplyScalar(skyGain).getHex(),
-      rungs: RUNGS.slice(), layers: [], hero: null, textures: [], fogLift: []
+      rungs: RUNGS.slice(), layers: [], hero: null, textures: [], fogLift: [],
+      roofRel: roofRel, skyDrop: skyDrop, frame: !!frame, frontZ: FRONT_Z,
+      range: frame ? frame.range : null, eye: frame ? frame.eye : null
     };
 
     /* The haze the horizon fades into. The sky's lowest band IS this colour; the
@@ -2604,6 +2656,7 @@ window.DS = window.DS || {};
        player however far they walk: something at infinity does not scroll. */
     const skyRig = new THREE.Group();
     skyRig.position.set(WU * 0.5, 0, SKY_Z);
+    skyRig.userData.follows = true;
     followers.push(skyRig);
 
     const skyCss = function (col, k) {
@@ -2613,11 +2666,12 @@ window.DS = window.DS || {};
       map: makeSkyTexture(skyCss(new THREE.Color(topHex), 1),
                           skyCss(new THREE.Color(mixHex(tintFog, heroHaze, 0.18 * glow)), skyGain),
                           skyCss(new THREE.Color(mixHex(mixHex(tintFog, heroHaze, 0.6 * glow), hon.col, 0.22 * glow)), skyGain),
-                          '#' + skyHaze.clone().lerp(new THREE.Color(hon.col).multiplyScalar(skyGain), 0.25).getHexString()),
+                          '#' + skyHaze.clone().lerp(new THREE.Color(hon.col).multiplyScalar(skyGain), 0.25).getHexString(),
+                          skyDrop),
       fog: false, depthWrite: false
     });
-    const sky = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(WU * 4, 900), SKY_H + SKY_DROP), skyMat);
-    sky.position.set(0, (SKY_H - SKY_DROP) * 0.5, 0);
+    const sky = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(WU * 4, 900), SKY_H + skyDrop), skyMat);
+    sky.position.set(0, (SKY_H - skyDrop) * 0.5, 0);
     sky.frustumCulled = false;
     skyRig.add(sky);
 
@@ -2652,9 +2706,13 @@ window.DS = window.DS || {};
     if (inRoom) {
       const lightRig = new THREE.Group();
       lightRig.position.set(WU * 0.5, 0, 0);
+      lightRig.userData.follows = true;
       followers.push(lightRig);
       group.add(lightRig);
       heroParent = lightRig;
+      /* The room's light rides the eye upward too (never below where it was
+         built), so a floor that climbs keeps its far light in front of the eye. */
+      roomRig = { rig: lightRig, base: anchorY + EYE_ABOVE };
       heroY = anchorY + heroObj.elev;
       heroZ = ROOM_HERO_D;
       /* The room's own glow sits behind the bands between it and the back wall,
@@ -2685,7 +2743,7 @@ window.DS = window.DS || {};
        light the way a plain does under a low sun. */
     const groundHex = mixHex(rec.ground != null ? rec.ground : tintFog, hazeHex, 0.3);
     const GSEG = [
-      { near: 1.2, far: 16, tone: 0.5 },
+      { near: -FRONT_Z, far: 16, tone: 0.5 },
       { near: 16, far: 46, tone: 0.62 },
       { near: 46, far: 88, tone: 0.76 },
       { near: 88, far: GROUND_D, tone: 0.9 }
@@ -2706,6 +2764,25 @@ window.DS = window.DS || {};
       seg.position.set(WU * 0.5, anchorY - 1.3, -(s.near + s.far) * 0.5);
       seg.frustumCulled = false;
       group.add(seg);
+    }
+    /* Under the plain: solid, to below the lowest the frame ever reaches there.
+       A floor that dips under its own ground line then looks at the FACE of the
+       ground, not at the void beneath the slabs. */
+    {
+      const c0 = covAt(-FRONT_Z);
+      const bottom = c0 ? Math.min(anchorY - 8, c0.y0 - 6) : anchorY - 40;
+      const thick = (anchorY - 2.6) - bottom;
+      if (thick > 0.5) {
+        const ft = bandTexture(rec.tex).clone();
+        ft.needsUpdate = true;
+        ft.repeat.set(Math.max(2, Math.round(WU * 2 / 12)), Math.max(1, Math.round(thick / 8)));
+        const fm = rimMaterial({ color: new THREE.Color(groundHex).multiplyScalar(0.42), map: ft },
+                               new THREE.Color(hon.col).multiplyScalar(0.06), sun);
+        const fnd = new THREE.Mesh(new THREE.BoxGeometry(WU * 2 + 200, thick, GROUND_D + FRONT_Z), fm);
+        fnd.position.set(WU * 0.5, anchorY - 2.6 - thick * 0.5, -(-FRONT_Z + GROUND_D) * 0.5);
+        fnd.frustumCulled = false;
+        group.add(fnd);
+      }
     }
 
     /* --- water ---------------------------------------------------------------
@@ -2736,6 +2813,7 @@ window.DS = window.DS || {};
 
       const glintRig = new THREE.Group();
       glintRig.position.set(WU * 0.5, 0, 0);
+      glintRig.userData.follows = true;
       followers.push(glintRig);
       const reach = inRoom ? -ROOM_HERO_D : farZ;
       const gl = new THREE.Mesh(makeGlintGeometry(d0 + 0.5, reach, 0.8, heroObj.r * 1.05),
@@ -2751,7 +2829,7 @@ window.DS = window.DS || {};
     const layers = rec.layers || [];
     /* Nothing in a roofed room may poke through the roof: a far band is scaled
        up by its rung, so the roof in its own authored units is lower. */
-    const roofAuth = rec.ceiling ? (rec.ceiling.y - 1.6) : 0;
+    const roofAuth = roofRel;   // the roof's underside, over the ground line
     let flowOn = false;
     for (let li = 0; li < layers.length; li++) {
       const L = layers[li];
@@ -2766,16 +2844,22 @@ window.DS = window.DS || {};
          side-on rig's lens as the worst case), scaled back by the rung. A far
          band scaled 3.8x does not need 3.8 floors of rock. */
       const margin = 0.72 * (camD * 1.2 + d) + 6;
-      const halfSpan = (WU * 0.5 + margin) / k;
-      const n = bandCount(L, halfSpan * 2);
+      const cov = covAt(d);
+      /* v7: the span comes from the world frame -- exactly what the camera can
+         see of this plane on this floor -- mapped into the band's own units (the
+         group is scaled by k about the floor's centre). */
+      const lx0 = cov ? (cov.x0 - WU * 0.5 * (1 - k)) / k : WU * 0.5 - (WU * 0.5 + margin) / k;
+      const lx1 = cov ? (cov.x1 - WU * 0.5 * (1 - k)) / k : WU * 0.5 + (WU * 0.5 + margin) / k;
+      const n = bandCount(L, lx1 - lx0);
+      const Lk = (L.kind === 'stalactites' && roofRel) ? Object.assign({}, L, { roof: roofRel / k }) : L;
       for (let j = 0; j < n; j++) {
         /* Stratified: one object per slot, jittered inside it, so a band has
            no clumps and no holes -- a gap in a range reads as a missing tile. */
         const x = L.solo
           ? WU * 0.5 + (rng.float(0.32, 0.68) * WU - WU * 0.5) / k
-          : WU * 0.5 - halfSpan + (j + rng.float(0.1, 0.9)) * (halfSpan * 2 / n);
+          : lx0 + (j + rng.float(0.1, 0.9)) * ((lx1 - lx0) / n);
         const b0 = o.boxes.length, s0 = o.shards.length, g0 = o.glow.length;
-        kind(o, x, rng, L);
+        kind(o, x, rng, Lk);
         if (sc !== 1) scaleEmitted(o, b0, s0, g0, x, sc);
       }
       if (roofAuth) capToRoof(o, roofAuth / k);
@@ -2839,6 +2923,9 @@ window.DS = window.DS || {};
       const layerGroup = new THREE.Group();
       layerGroup.position.set(WU * 0.5 * (1 - k), anchorY, -d);
       layerGroup.scale.setScalar(k);
+      layerGroup.userData.anchor = (L.kind === 'stalactites' && roofRel) ? 'roof'
+        : (FREE_KINDS[L.kind] || L.glow) ? 'free' : 'ground';
+      layerGroup.userData.kind = L.kind;
       if (o.boxes.length) layerGroup.add(instancedBoxes(o.boxes, mat, 0.22, palette, G.box));
       if (o.shards.length) {
         const shape = SHARD_SHAPES[L.kind] || 'coneDown';
@@ -2879,31 +2966,41 @@ window.DS = window.DS || {};
 
     /* An underground theme gets a roof: one long slab with teeth under it, which
        is what tells the eye "this room has a roof". It runs PAST the sky, because
-       a roof that stops short shows a stripe of daylight past its own end. */
+       a roof that stops short shows a stripe of daylight past its own end.
+
+       v7: the slab starts BEHIND the play plane (FRONT_Z) -- it used to run from
+       z = +2 back, straight through the tiles and the hero, which is the dark band
+       that crossed the frame -- and sits at roofRel, which the frame keeps above
+       the highest the eye ever gets. Its teeth are rooted IN its underside. */
     if (rec.ceiling) {
       const c = rec.ceiling;
       const cmat = new THREE.MeshLambertMaterial({ color: mixHex(c.col, hazeHex, 0.14) });
       const cg = new THREE.Group();
       cg.position.y = anchorY;
-      const depthC = GROUND_D + 46;
+      const roofNear = -FRONT_Z + 0.2;
+      const depthC = GROUND_D + 46 - roofNear;
       const slab = new THREE.Mesh(new THREE.BoxGeometry(WU * 1.6 + 200, 2.0, depthC), cmat);
-      slab.position.set(WU * 0.5, c.y + 1.0, -depthC * 0.5 + 2);
+      slab.position.set(WU * 0.5, roofRel + 1.0, -(roofNear + depthC * 0.5));
       slab.frustumCulled = false;
       cg.add(slab);
       const teeth = [];
       const toothCount = bandCount({ sp: 4.5 }, WU);
+      const tc = covAt(REF_D);
+      const tx0 = tc ? tc.x0 : -0.04 * WU, tx1 = tc ? tc.x1 : 1.04 * WU;
       for (let i = 0; i < toothCount; i++) {
         const th = rng.float(1.0, 2.6);
-        box(teeth, rng.float(-0.04, 1.04) * WU, c.y - th * 0.5, rng.float(-26, -2),
+        box(teeth, rng.float(tx0, tx1), roofRel - th * 0.5 + 0.1, rng.float(-26, FRONT_Z - 1),
             rng.float(0.7, 1.6), th, rng.float(0.7, 1.6));
       }
-      cg.add(instancedBoxes(teeth, cmat, 0.3, null, G.box));
+      const toothMesh = instancedBoxes(teeth, cmat, 0.3, null, G.box);
+      toothMesh.userData.anchor = 'roof';
+      cg.add(toothMesh);
       group.add(cg);
     }
 
     /* The shafts, for the themes whose light comes down through the roof. */
     if (hon.kind === 'shaft' && inRoom) {
-      buildShafts(group, hon, WU, anchorY, rec.ceiling.y, rng, G);
+      buildShafts(group, hon, WU, anchorY, roofRel, rng, G);
     }
 
     if (rec.mist) { const m = backdropMotes(rec.mist, WU, anchorY, rng); m.frustumCulled = false; group.add(m); }
@@ -2912,15 +3009,6 @@ window.DS = window.DS || {};
     /* Living silhouettes belong to a sky: birds under a stone ceiling would be
        the one thing that breaks the read of the room. */
     if (!inRoom) buildSkyLife(group, rec, WU, anchorY, rng, G);
-
-    /* The stage: everything but the sky rig, in one group that settleStage()
-       may lower (see there). The sky stays where the renderer pins it. */
-    stage = new THREE.Group();
-    const kids = group.children.slice();
-    for (let i = 0; i < kids.length; i++) if (kids[i] !== skyRig) stage.add(kids[i]);
-    group.add(stage);
-    stageAnchor = anchorY;
-    stageSettled = false;
 
     report.hero = {
       kind: hon.kind, col: '#' + hon.col.toString(16).padStart(6, '0'),
@@ -2934,6 +3022,7 @@ window.DS = window.DS || {};
     heroRef.report = report.hero;
     updateHeroReport();
     report.draws = countDraws(group);
+    report.buildMs = typeof performance !== 'undefined' ? +(performance.now() - t0).toFixed(1) : 0;
     lastReport = report;
     return { group: group, skyRig: skyRig, hero: heroRef, report: report };
   }
@@ -2948,7 +3037,7 @@ window.DS = window.DS || {};
     const rig = heroRef.rig, g = heroRef.group;
     heroRef.report.worldX = rig.position.x + g.position.x;
     heroRef.report.z = rig.position.z + g.position.z;
-    heroRef.report.worldY = heroRef.room ? (stage ? stage.position.y : 0) + rig.position.y + g.position.y : null;
+    heroRef.report.worldY = heroRef.room ? rig.position.y + g.position.y : null;
   }
 
   /* Ride the camera. The aim is where the camera's view crosses the actor
@@ -2968,37 +3057,12 @@ window.DS = window.DS || {};
     builtGroup.worldToLocal(t.aim);
     if (!Number.isFinite(t.aim.x)) return;
     for (let i = 0; i < followers.length; i++) followers[i].position.x = t.aim.x;
-    updateHeroReport();
-  }
-
-  /* Keep the stage's ground line BELOW the eye.
-
-     The renderer carries the horizon onto the ground around the player (a
-     median over a window of columns), which is right on a floor that rolls and
-     wrong in one place: in a trench under a ridge -- the Climb is made of them
-     -- the median is the ridge, the ground line lands above the camera, and
-     the whole horizon is behind the front face of its own ground slab. What the
-     player saw was a black band over a white one: no mountains, no moon.
-
-     A real horizon is always at eye level, so the ground line is not allowed
-     to rise to within EYE_MIN_DROP of it: when it would, the stage is lowered
-     (eased, so it never pops). The sky rig is not in the stage and stays
-     pinned to the eye line by the renderer. */
-  function settleStage(step) {
-    if (!stage || !builtGroup || !builtGroup.parent) return;
-    const cam = DS.R3D && DS.R3D.camera;
-    if (!cam) return;
-    const t = scratch();
-    t.eye.copy(cam.position);
-    builtGroup.worldToLocal(t.eye);
-    if (!Number.isFinite(t.eye.y)) return;
-    const target = Math.min(0, t.eye.y - EYE_MIN_DROP - stageAnchor);
-    if (!stageSettled) {
-      stage.position.y = target;
-      stageSettled = true;
-    } else {
-      stage.position.y += (target - stage.position.y) * (1 - Math.exp(-step * STAGE_EASE));
+    if (roomRig) {
+      t.eye.copy(cam.position);
+      builtGroup.worldToLocal(t.eye);
+      if (Number.isFinite(t.eye.y)) roomRig.rig.position.y = Math.max(0, t.eye.y - roomRig.base);
     }
+    updateHeroReport();
   }
 
   /* The light, for the renderer: where the body is in WORLD space this frame,
@@ -3018,10 +3082,11 @@ window.DS = window.DS || {};
      clock so the horizon keeps its own time (the bands are not simulated).
      Nothing here allocates, writes a light, or flags a material for a rebuild. */
   function update(time, dt) {
-    const step = dt > 0 && dt < 0.1 ? dt : 0.016;
+    /* A step of 0 is a frame with no sim time in it (a paused loop, or a QA that
+       steps by hand): the horizon holds still with it. */
+    const step = dt >= 0 && dt < 0.1 ? dt : 0.016;
     lastTime = time;
     follow();
-    settleStage(step);
 
     for (let i = 0; i < backdropAir.length; i++) {
       const a = backdropAir[i];

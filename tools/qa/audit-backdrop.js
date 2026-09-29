@@ -112,77 +112,6 @@ async function ensureAlive(session, depth, why, force) {
   return session.eval('window.__BQA.alive()');
 }
 
-/* Wait for the horizon to STOP moving, then answer where it landed.
-
-   The renderer eases the line onto the player's ground at 0.22 every 8 frames,
-   so a floor whose start is seventeen units off the built line needs about ten
-   of those to come inside a unit -- and on the heaviest floors that is more than
-   two seconds (depth 8 measured 40 fps with the horizon in the frame). A fixed
-   sleep therefore fails on frame rate rather than on placement, which is not a
-   property worth testing. So the wait is on CONVERGENCE: the error has to stop
-   changing between samples. A line still sliding after the deadline is a real
-   failure and is reported as one.
-
-   ...SO THE WAIT IS FOR ARRIVAL, and the verdict is on the NUMBERS rather than
-   on this loop's opinion of them. Two things a single pair of samples cannot
-   tell apart from convergence, both of which cost a run to learn:
-
-     - an ENDED run. If the frame loop stops, the last translation simply stays
-       there -- nineteen units from a floor the player was teleported onto -- and
-       it reads as perfectly steady. So a sample only counts while the frame
-       counter is ADVANCING; `frozen` counts the samples where it did not, and
-       the caller treats that as an ended run (restart it) rather than a horizon
-       bug. The player also has to have stopped FALLING: the line lags a moving
-       target by a fixed distance, which is steady too.
-
-     - the EASING GAPS. Placement after a teleport is not instant and does not
-       tick evenly: measured with a timeline probe, the line moves in bursts and
-       sits still for 600-900 ms in between, so two samples 400 ms apart can
-       both land in a gap and read as converged while the line is still 24 units
-       out. Three samples IN A ROW inside the tolerance over at least 1.2 s is
-       what this loop waits for -- but if the deadline passes first, the caller
-       still decides on the error it was handed, because a line that is standing
-       on the player's ground is not less correct for having taken its time.
-
-   `best` is the smallest error seen, which is what the caller falls back to:
-   the target is a MEDIAN of tile rows, so a player standing on a tile boundary
-   can make it flicker by one row (1.6 units) for reasons that have nothing to
-   do with the horizon. */
-async function settledHorizon(session, ms) {
-  const t0 = Date.now();
-  const deadline = t0 + (ms || 12000);
-  let hz = null, prevFrames = null, frozen = 0;
-  let quiet = 0, quietSince = 0, best = null;
-  while (Date.now() < deadline) {
-    hz = await session.eval('window.__BQA.horizon()');
-    const now = Date.now();
-    if (hz && hz.err != null) {
-      if (best === null || Math.abs(hz.err) < Math.abs(best)) best = hz.err;
-      if (prevFrames !== null && hz.frames === prevFrames) {
-        frozen++;
-        if (frozen >= 2) {
-          return { hz: hz, settled: false, ms: now - t0, frozen: frozen, best: best };
-        }
-      } else {
-        frozen = 0;
-      }
-      prevFrames = hz.frames;
-      if (Math.abs(hz.err) <= 0.75 && Math.abs(hz.vy) < 2) {
-        if (!quietSince) quietSince = now;
-        quiet++;
-        if (quiet >= 3 && now - quietSince >= 1200) {
-          return { hz: hz, settled: true, ms: now - t0, frozen: 0, best: best };
-        }
-      } else {
-        quiet = 0;
-        quietSince = 0;
-      }
-    }
-    await cdp.sleep(250);
-  }
-  return { hz: hz, settled: false, ms: Date.now() - t0, frozen: frozen, best: best };
-}
-
 /* The in-page half -- the walk, the census, the raycast, the body projection --
    is shared with shoot-backdrop.js, which frames its contact sheet around the
    exact same helpers. See tools/qa/lib/backdrop-page.js. */
@@ -354,7 +283,6 @@ async function main() {
     /* Every horizon shift seen this run, so the level-wide check at the end can
        tell "the line follows the terrain" from "the line was built right by
        luck and never moves". */
-    const shifts = [];
 
     for (const depth of DEPTHS) {
       console.log('');
@@ -547,54 +475,10 @@ async function main() {
       check('depth ' + depth + ': the run survived the walk',
             alive0.live && !alive0.dead, JSON.stringify(alive0));
 
-      /* --- does the horizon stand on the ground the player is actually on? ---
-
-         The horizon is built around a MEDIAN ground row taken over the WHOLE
-         level, and this game's levels are not flat: measured across depths 1..10
-         the ground wanders 6 to 20 tiles around that line. The renderer now
-         translates the group every frame to follow a window around the player,
-         so the check is not "the shift is zero" -- that is what broke it -- but
-         "the line is on the player's own ground". Two places on the floor, well
-         apart, because a shift that only works where the level happens to be
-         level is not a fix. The 2.4 s wait is the renderer's own easing (0.22
-         every 8 frames), not slack: at a run this fast it converges to about a
-         quarter of a world unit, and the tolerance below is four times that. */
-      for (const f of [0.08, 0.78]) {
-        let got = null;
-        /* Two attempts, because the first can honestly lose the run: eighteen
-           seconds of standing still on depth 7 is eighteen seconds of being shot
-           at, and a stopped frame loop is not a placement failure. The second
-           attempt re-loads the floor and walks it again -- and the harness SAYS
-           so, so an ended run is never quietly averaged away. */
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          await session.eval(`window.__BQA.frac(${f})`);
-          got = await settledHorizon(session);
-          if (got.hz && !got.frozen) break;
-          /* Forced: the frame loop is stopped, so the floor is reloaded even if
-             the run still reports itself alive (a paused game reads that way). */
-          await ensureAlive(session, depth,
-            'the frame loop stopped while the horizon settled at ' + f, true);
-        }
-        const hz = got.hz;
-        if (!hz) {
-          check('depth ' + depth + ': the horizon can be measured at ' + f, false, 'no group');
-          break;
-        }
-        shifts.push({ depth: depth, at: f, shift: hz.shift, err: hz.err });
-        /* The verdict is on the numbers: the line has to have STOOD on the
-           player's ground inside the window it was watched for. A line still on
-           its way out of a teleport at the deadline is a failure, and so is one
-           that never got closer than a world unit, but a flickering median is
-           not -- see settledHorizon. */
-        const onGround = hz.err != null && Math.abs(hz.err) <= 0.75;
-        const reached = got.best != null && Math.abs(got.best) <= 0.75;
-        check('depth ' + depth + ': the horizon stands on the ground under the player at ' + f,
-              !got.frozen && onGround && reached,
-              'ground line ' + hz.top + ' vs the player\'s ground ' + hz.local +
-              ' (built around ' + hz.anchorY + ', shifted ' + hz.shift + ', best ' + got.best +
-              ', ' + (got.settled ? 'settled' : 'watched') + ' for ' +
-              (got.ms / 1000).toFixed(1) + 's' + (got.frozen ? ', FRAME LOOP STOPPED' : '') + ')');
-      }
+      /* (v7) The horizon no longer stands on the player's ground: it is a
+         still, world-space diorama. That it stays still, has no hole from the
+         top or the bottom of a climb, and keeps nothing in front of the play
+         plane is tools/qa/audit-world.js's job. */
 
       /* --- coverage, three places on the floor ---
 
@@ -700,16 +584,6 @@ async function main() {
            (hero.clamped ? ' (clamped under the roof)' : '') +
            '   ' + vals.instances + ' band objects in ' + vals.layers + ' rungs');
     }
-
-    /* A horizon that never leaves the line it was built on is the bug this
-       rework removed, and on a level whose terrain happens to BE the median it
-       would pass every check above by luck. So the run has to show the line
-       moving, somewhere, by more than the tolerance. */
-    const moved = shifts.filter((s) => Math.abs(s.shift) > 1);
-    info('the horizon against the built line  ' +
-         shifts.map((s) => 'd' + s.depth + '@' + s.at + ' ' + s.shift).join('  '));
-    check('the horizon moves to meet the terrain it is standing on', moved.length > 0,
-          moved.length + ' of ' + shifts.length + ' samples more than a unit off the built line');
 
     console.log('');
     console.log('3. the run\'s light curve, measured off the pixels');
