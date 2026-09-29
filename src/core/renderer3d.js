@@ -2475,12 +2475,14 @@ window.DS = window.DS || {};
       heroWeaponMesh = null;
     } else if (key !== heroArmorKey) {
       heroArmorKey = key;
-      const wpn = heroWeaponMesh;
       actorGroup.remove(heroModel.root);
-      disposeModel(heroModel);
+      disposeModel(heroModel);   // takes the gripped weapon with it
       heroModel = DS.Voxel.build('hero', { armor: p.inv.armor });
       actorGroup.add(shadowize(heroModel.root));
-      heroWeaponMesh = wpn;   // reattach below on the next pose pass
+      // The old grip is gone, so forget it; the weapon pass below re-grips.
+      heroWeaponRef = null;
+      heroWeaponMesh = null;
+      heroWeaponAura = null;
     }
 
     const item = DS.Inv.weapon(p.inv);

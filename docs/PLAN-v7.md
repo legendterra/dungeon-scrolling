@@ -413,3 +413,47 @@ cek bahwa senjata tetap ada setelah ganti armour.
 - Level lebih besar berarti run lebih lama. Perlu checkpoint di tengah level atau tidak?
 - Opsional: tombol "lihat dunia" (tahan untuk zoom out sesaat) supaya dunia raksasa bisa
   dinikmati; coverage Fase 1 akan dihitung untuk zoom terjauhnya bila disetujui.
+
+---
+
+## Lampiran Fase 0: temuan pemakai API (dikumpulkan sebelum Fase 1-2)
+
+### Yang harus diubah atau dihapus di Fase 1 (semuanya di `renderer3d.js`)
+
+| Baris | Isi | Nasib |
+|---|---|---|
+| 69-82 | `themeGroup`, `horizonY/Goal/Vel`, `HORIZON_DEAD/WAIT/SPEED/DT` | dihapus; `horizonY` jadi nilai tetap untuk QA lama |
+| 1230-1256 | `buildTheme`: reset `horizonY = anchorY`, `themeGroup.position.y = 0`, `Backdrop.build`, `skyRig` | diganti: `Backdrop.build(env, themeName, extents)` |
+| 4647-4648 | `skyRig.position.y = camera.position.y - themeGroup.y` (langit ikut kamera) | tetap, tetapi hanya untuk benda langit dan bintang |
+| 4670-4696 | blok drift horizon (`horizonAway`, `wantVel`, `themeGroup.position.y = horizonY - themeAnchorY`) | dihapus |
+| 4857 | `Backdrop.update(time, 0.016)` | diganti `simDt` |
+| 4978, 4994-4997 | getter `themeGroup`, `lightRig.horizonY/horizonShift` | dipertahankan (nilai tetap) |
+
+### Pemakai API backdrop di luar `backdrop3d.js`
+
+- `renderer3d.js:1215` `DS.Backdrop.heroLight(themeName, yaw)`; `:1256` `DS.Backdrop.recipe(themeName)`
+  (untuk `screenParticleManager`); `:2183-2194` `DS.Backdrop.instancedBoxes` (dipakai **tile level**, jadi
+  helper ini harus tetap ada setelah `backdrop3d.js` dipecah); `:4484-4485` `heroInfo()`.
+- `tools/qa/audit-backdrop.js`: `DS.Backdrop.themeNames/rungs/drawBudget/heroSpan`, `DS.R3D.backdrop`
+  (`draws`, `variant`, `hero`, `anchorY`, `wu`). Ditulis ulang di Fase 1.
+- `tools/qa/lib/backdrop-page.js`: menelusuri `themeGroup` (cakram benda = plane lebar `2 * hero.r`) dan
+  `R3D.backdrop.hero.worldX`. Harus diadaptasi kalau bentuk report berubah.
+- `tools/qa/shoot-backdrop.js:87-90`, `shoot-phase6.js:58-61, 173-195` (`lightRig.horizonShift`,
+  `keyDir`, `keyAimed`, `torches`, `emitters`).
+
+### Konstanta generator yang terikat tinggi 22 baris
+
+- `generator.js:18` `ROOM_H = 22`; dipakai `:289` (padding boss), `:382` `floorRow = ROOM_H - 2`,
+  `:426` `ROOM_H - 3`, `:493`, `:846`, `:855`, `:909` (`DS.Map.create(..., ROOM_H)`), diekspor `:975`.
+- `parkour.js:23-24` `TOP_ROW = 5`, `BASE_ROW = 20`; `:49-50` `rowFor` memakai keduanya.
+- `water.js:22` `ROOM_H = 22`, `:24` `SHORE = 12` (lebar tepi kering, bukan baris).
+- `mountain.js:23-24` `MAP_W = 96`, `MAP_H = 34`; `:248` `roomCount = floor(MAP_W / 20)`.
+- `trial.js:28, 35` `MAP_H = 22`, `MAP_W = 112`; `:221` `roomCount`.
+
+### Catatan alat QA
+
+- `shoot-maps.js` memindahkan **hero bersama kamera** ke titik ekstrem. Level hanya diterangi lampu MC dan
+  obor, jadi kamera yang diparkir jauh dari MC memotret hitam pekat. Akibatnya MC melayang atau berada
+  di dalam batu di sebagian tangkapan: itu disengaja (sim dijeda).
+- Baseline "sebelum" (`tools/qa/out/maps/before-v7/`, gitignored) sudah memperlihatkan bug plan ini:
+  baris atas dan tengah di depth 2 hampir seluruhnya pita gelap dan slab, level hanya ada di baris bawah.

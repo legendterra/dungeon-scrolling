@@ -210,9 +210,16 @@ window.DS = window.DS || {};
     return true;
   }
 
+  /* `clock` is the diorama's own time in seconds. update() takes a delta and
+     accumulates it, so every cycle below keeps moving instead of freezing on
+     the constant a caller might hand over. */
+  let clock = 0;
+  let lastNow = 0;
+
   function update(dt) {
     if (!build()) return false;
-    const t = dt;
+    clock += dt;
+    const t = clock;
 
     // The fire: one light whose intensity breathes, so the whole clearing
     // brightens and dims with it.
@@ -281,7 +288,12 @@ window.DS = window.DS || {};
 
   /* Called by the menu each frame: advance the camp and hand it to the screen
      layer as a pre-pass, so it lands inside the play frame behind the UI. */
-  function attach(dt) {
+  function attach(fallbackDt) {
+    // Real elapsed time, so the camp runs at the same speed on a 60 or 144 Hz
+    // display; the caller's figure only covers a clock that is not there.
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+    const dt = (now && lastNow) ? Math.min(0.1, (now - lastNow) / 1000) : fallbackDt;
+    lastNow = now;
     if (!update(dt)) return false;
     if (DS.UI3 && DS.UI3.addPrePass) DS.UI3.addPrePass(scene, camera);
     return true;
