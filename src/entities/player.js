@@ -781,12 +781,13 @@ window.DS = window.DS || {};
       height: base.hit.h * (heavy ? 1.25 : (def ? def.height : 1)),
       oy: base.hit.oy,
       heavy: heavy,
+      weapon: base.key,
       both: !!(def && def.both),
       hitstop: def ? def.hitstop : (heavy ? 7 : 3),
       shake: def ? def.shake : (heavy ? 4 : 1.5)
     };
 
-    DS.Audio.play('swing');
+    DS.Audio.swing(base.key, p.attackKey, heavy);
     if (heavy) {
       DS.R.shake(2);
       if (!(DS.FX3D && DS.FX3D.live())) {
@@ -871,6 +872,7 @@ window.DS = window.DS || {};
         elementShare: p.pending.elementShare,
         elemPower: p.pending.elemPower,
         heavy: p.pending.heavy,
+        weapon: p.pending.weapon,
         source: 'melee'
       });
       hitAny = true;
@@ -948,7 +950,7 @@ window.DS = window.DS || {};
       proj.trailColor = W.ELEMENTS[item.element].color;
       DS.Audio.play(W.ELEMENTS[item.element].sfx);
     } else {
-      DS.Audio.play(base.key === 'bow' ? 'shoot' : 'cast');
+      DS.Audio.play(base.key === 'bow' ? 'bowLoose' : 'cast');
     }
 
     Ent.spawnProjectile(g, proj);

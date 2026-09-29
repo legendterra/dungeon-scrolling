@@ -94,7 +94,8 @@ window.DS = window.DS || {};
                  opts.element || (opts.procs && opts.procs.element) || null);
     // The hit spark knows the blow: element, crit and heavy colour the 3D impact.
     DS.FX.hit(centerX(enemy) + dir * 4, centerY(enemy), dir, opts);
-    DS.Audio.play(opts.crit ? 'crit' : 'hit');
+    if (opts.weapon) DS.Audio.impact(opts.weapon, opts.crit, opts.heavy);
+    else DS.Audio.play(opts.crit ? 'crit' : 'hit');
     if (opts.crit) DS.R.shake(2.5);
 
     /* An elemental hit lands its status here, which is also where reactions

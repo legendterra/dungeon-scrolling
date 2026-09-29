@@ -19,6 +19,7 @@ window.DS = window.DS || {};
   const layers = {};
   const frame = { x: 0, y: 0, w: 0, h: 0, s: 1 };
   let hoverCount = 0;
+  let lastHover = null;
 
   function init() {
     if (root) return root;
@@ -37,10 +38,16 @@ window.DS = window.DS || {};
        .ui-interactive) and DS.HUI.pointerOverUI tells the game not to treat
        the click as an attack. */
     root.addEventListener('pointerover', function (e) {
-      if (e.target.closest && e.target.closest('.ui-interactive')) hoverCount = 1;
+      const hit = e.target.closest && e.target.closest('.ui-interactive');
+      if (hit) {
+        // A soft tick when the pointer moves onto a new control (not on its children).
+        if (hit !== lastHover && DS.Audio && DS.Audio.play) DS.Audio.play('uiHover');
+        lastHover = hit;
+        hoverCount = 1;
+      }
     });
     root.addEventListener('pointerout', function (e) {
-      if (!e.relatedTarget || !e.relatedTarget.closest || !e.relatedTarget.closest('.ui-interactive')) hoverCount = 0;
+      if (!e.relatedTarget || !e.relatedTarget.closest || !e.relatedTarget.closest('.ui-interactive')) { hoverCount = 0; lastHover = null; }
     });
     sync();
     return root;

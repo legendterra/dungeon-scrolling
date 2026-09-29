@@ -81,14 +81,14 @@ window.DS = window.DS || {};
      behaviour lives in src/systems/elements.js - this table is only what the
      item layer needs. */
   const ELEMENTS = {
-    fire:      { key: 'fire',      label: 'Fire',      color: '#e8743b', orb: 'fire',      sfx: 'fire' },
-    ice:       { key: 'ice',       label: 'Ice',       color: '#4fb3e0', orb: 'ice',       sfx: 'ice' },
-    lightning: { key: 'lightning', label: 'Lightning', color: '#f2c14e', orb: 'lightning', sfx: 'lightning' },
-    poison:    { key: 'poison',    label: 'Poison',    color: '#5cbf62', orb: 'poison',    sfx: 'cast' },
-    water:     { key: 'water',     label: 'Water',     color: '#2f6fa8', orb: 'water',     sfx: 'ice' },
-    earth:     { key: 'earth',     label: 'Earth',     color: '#b98d5c', orb: 'earth',     sfx: 'slam' },
-    leaf:      { key: 'leaf',      label: 'Leaf',      color: '#a3e86b', orb: 'leaf',      sfx: 'swing' },
-    wind:      { key: 'wind',      label: 'Wind',      color: '#cfe8e0', orb: 'wind',      sfx: 'swing' }
+    fire:      { key: 'fire',      label: 'Fire',      color: '#e8743b', orb: 'fire',      sfx: 'elFire' },
+    ice:       { key: 'ice',       label: 'Ice',       color: '#4fb3e0', orb: 'ice',       sfx: 'elIce' },
+    lightning: { key: 'lightning', label: 'Lightning', color: '#f2c14e', orb: 'lightning', sfx: 'elLightning' },
+    poison:    { key: 'poison',    label: 'Poison',    color: '#5cbf62', orb: 'poison',    sfx: 'elPoison' },
+    water:     { key: 'water',     label: 'Water',     color: '#2f6fa8', orb: 'water',     sfx: 'elWater' },
+    earth:     { key: 'earth',     label: 'Earth',     color: '#b98d5c', orb: 'earth',     sfx: 'elEarth' },
+    leaf:      { key: 'leaf',      label: 'Leaf',      color: '#a3e86b', orb: 'leaf',      sfx: 'elLeaf' },
+    wind:      { key: 'wind',      label: 'Wind',      color: '#cfe8e0', orb: 'wind',      sfx: 'elWind' }
   };
 
   const ELEMENT_KEYS = Object.keys(ELEMENTS);

@@ -12,6 +12,10 @@ window.DS = window.DS || {};
   let noiseBuffer = null;
   let unlocked = false;
   let muted = false;
+  /* Per-play variation, set once by play() so every layer of one sound shares it:
+     `pitch` detunes, `volMul` attenuates (distance, quiet variants). */
+  let pitch = 1;
+  let volMul = 1;
 
   function makeNoiseBuffer() {
     const len = Math.floor(ctx.sampleRate * 0.5);
@@ -55,15 +59,15 @@ window.DS = window.DS || {};
     if (!ctx) return;
     const t0 = ctx.currentTime + (o.delay || 0);
     const dur = o.dur || 0.1;
-    const vol = o.vol == null ? 0.2 : o.vol;
+    const vol = (o.vol == null ? 0.2 : o.vol) * volMul;
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
     osc.type = o.type || 'square';
-    osc.frequency.setValueAtTime(o.freq, t0);
+    osc.frequency.setValueAtTime(o.freq * pitch, t0);
     if (o.to) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.to), t0 + dur);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.to * pitch), t0 + dur);
     }
 
     // Exponential ramps cannot touch zero, hence the 0.0001 floor.
@@ -82,15 +86,15 @@ window.DS = window.DS || {};
     if (!ctx || !noiseBuffer) return;
     const t0 = ctx.currentTime + (o.delay || 0);
     const dur = o.dur || 0.1;
-    const vol = o.vol == null ? 0.2 : o.vol;
+    const vol = (o.vol == null ? 0.2 : o.vol) * volMul;
 
     const src = ctx.createBufferSource();
     src.buffer = noiseBuffer;
 
     const filter = ctx.createBiquadFilter();
     filter.type = o.type || 'lowpass';
-    filter.frequency.setValueAtTime(o.freq || 1200, t0);
-    if (o.freqTo) filter.frequency.exponentialRampToValueAtTime(Math.max(20, o.freqTo), t0 + dur);
+    filter.frequency.setValueAtTime((o.freq || 1200) * pitch, t0);
+    if (o.freqTo) filter.frequency.exponentialRampToValueAtTime(Math.max(20, o.freqTo * pitch), t0 + dur);
     filter.Q.value = o.q || 1;
 
     const gain = ctx.createGain();
@@ -165,13 +169,225 @@ window.DS = window.DS || {};
                              tone({ freq: 120, to: 40, dur: 0.34, type: 'square', vol: 0.18 }); },
     victory:   function () { [523, 659, 784, 1047].forEach(function (f, i) {
                                tone({ freq: f, dur: 0.3, type: 'square', vol: 0.16, delay: i * 0.13 });
-                             }); }
+                             }); },
+
+    grab:      function () { noise({ dur: 0.05, vol: 0.1, freq: 1800, type: 'bandpass', q: 2 });
+                             tone({ freq: 260, to: 200, dur: 0.05, type: 'triangle', vol: 0.08 }); },
+    boom:      function () { noise({ dur: 0.45, vol: 0.26, freq: 1000, freqTo: 50 });
+                             tone({ freq: 100, to: 34, dur: 0.4, type: 'sine', vol: 0.26 }); },
+
+    /* --- weapons: one swing and one impact voice per weapon family ------------ */
+    swingSword:  function () { noise({ dur: 0.12, vol: 0.14, freq: 2600, freqTo: 800, type: 'bandpass', q: 1.6 });
+                               tone({ freq: 1900, to: 900, dur: 0.09, type: 'triangle', vol: 0.04 }); },
+    swingSpin:   function () { noise({ dur: 0.32, vol: 0.15, freq: 1200, freqTo: 3000, type: 'bandpass', q: 1.2 });
+                               noise({ dur: 0.22, vol: 0.12, freq: 3000, freqTo: 700, type: 'bandpass', q: 1.2, delay: 0.16 }); },
+    swingHeavy:  function () { noise({ dur: 0.26, vol: 0.18, freq: 1000, freqTo: 140 });
+                               tone({ freq: 120, to: 55, dur: 0.22, type: 'sawtooth', vol: 0.1 }); },
+    swingDagger: function () { noise({ dur: 0.06, vol: 0.12, freq: 4200, freqTo: 1800, type: 'bandpass', q: 2 }); },
+    swingAxe:    function () { noise({ dur: 0.2, vol: 0.18, freq: 1300, freqTo: 220 });
+                               tone({ freq: 150, to: 70, dur: 0.18, type: 'sawtooth', vol: 0.09 }); },
+    swingSpear:  function () { noise({ dur: 0.09, vol: 0.13, freq: 3200, type: 'highpass' });
+                               tone({ freq: 480, to: 1250, dur: 0.06, type: 'sine', vol: 0.06 }); },
+    swingStaff:  function () { tone({ freq: 300, to: 520, dur: 0.13, type: 'sine', vol: 0.09 });
+                               noise({ dur: 0.08, vol: 0.06, freq: 1800, type: 'bandpass', q: 1 }); },
+    bowLoose:    function () { tone({ freq: 210, to: 110, dur: 0.06, type: 'triangle', vol: 0.14 });
+                               noise({ dur: 0.07, vol: 0.09, freq: 3400, type: 'highpass' }); },
+    hitBlade:    function () { noise({ dur: 0.09, vol: 0.2, freq: 2800, freqTo: 600 });
+                               tone({ freq: 1500, dur: 0.07, type: 'triangle', vol: 0.06 });
+                               tone({ freq: 900, to: 400, dur: 0.06, type: 'square', vol: 0.08 }); },
+    hitBlunt:    function () { noise({ dur: 0.12, vol: 0.24, freq: 700, freqTo: 90 });
+                               tone({ freq: 95, to: 42, dur: 0.14, type: 'sine', vol: 0.2 }); },
+    hitPierce:   function () { noise({ dur: 0.06, vol: 0.16, freq: 3200, type: 'highpass' });
+                               tone({ freq: 320, to: 140, dur: 0.07, type: 'square', vol: 0.09 }); },
+
+    /* --- the eight elements -------------------------------------------------- */
+    elFire:      function () { noise({ dur: 0.34, vol: 0.17, freq: 1500, freqTo: 260 });
+                               [0, 0.06, 0.13, 0.2].forEach(function (d, i) {
+                                 noise({ dur: 0.025, vol: 0.09, freq: 3000 + i * 500, type: 'highpass', delay: d });
+                               }); },
+    elIce:       function () { tone({ freq: 2300, to: 1500, dur: 0.22, type: 'sine', vol: 0.09 });
+                               tone({ freq: 3100, to: 2100, dur: 0.16, type: 'triangle', vol: 0.06, delay: 0.04 });
+                               noise({ dur: 0.1, vol: 0.08, freq: 5200, type: 'highpass' }); },
+    elLightning: function () { noise({ dur: 0.16, vol: 0.2, freq: 4600, type: 'highpass' });
+                               tone({ freq: 1800, to: 300, dur: 0.16, type: 'sawtooth', vol: 0.1 });
+                               tone({ freq: 90, dur: 0.12, type: 'square', vol: 0.08, delay: 0.03 }); },
+    elPoison:    function () { [0, 0.07, 0.15].forEach(function (d, i) {
+                               tone({ freq: 240 + i * 90, to: 520 + i * 120, dur: 0.09, type: 'sine', vol: 0.12, delay: d });
+                             });
+                             noise({ dur: 0.22, vol: 0.06, freq: 700, type: 'bandpass', q: 2 }); },
+    elWater:     function () { noise({ dur: 0.26, vol: 0.14, freq: 900, freqTo: 350, type: 'bandpass', q: 1.2 });
+                               tone({ freq: 700, to: 280, dur: 0.14, type: 'sine', vol: 0.1 }); },
+    elEarth:     function () { noise({ dur: 0.34, vol: 0.22, freq: 380, freqTo: 55 });
+                               tone({ freq: 72, to: 34, dur: 0.34, type: 'sine', vol: 0.22 }); },
+    elLeaf:      function () { noise({ dur: 0.22, vol: 0.1, freq: 3400, freqTo: 1800, type: 'bandpass', q: 1.6 });
+                               noise({ dur: 0.16, vol: 0.08, freq: 2600, freqTo: 4000, type: 'bandpass', q: 1.6, delay: 0.1 }); },
+    elWind:      function () { noise({ dur: 0.42, vol: 0.14, freq: 500, freqTo: 2200, type: 'bandpass', q: 1.4 });
+                               noise({ dur: 0.3, vol: 0.1, freq: 2200, freqTo: 400, type: 'bandpass', q: 1.4, delay: 0.24 }); },
+    infuse:      function () { [0, 0.06, 0.12].forEach(function (d, i) {
+                               tone({ freq: 440 * Math.pow(1.5, i), dur: 0.2, type: 'sine', vol: 0.1, delay: d });
+                             });
+                             noise({ dur: 0.18, vol: 0.06, freq: 2400, freqTo: 5000, type: 'bandpass', q: 2 }); },
+
+    /* --- reactions: one voice per signature style (see FX3D.REACTION_STYLE) ---- */
+    reactChain:  function () { [0, 0.05, 0.11, 0.18].forEach(function (d, i) {
+                               noise({ dur: 0.07, vol: 0.18 - i * 0.03, freq: 4800 - i * 600, type: 'highpass', delay: d });
+                               tone({ freq: 1700 - i * 250, to: 260, dur: 0.09, type: 'sawtooth', vol: 0.08, delay: d });
+                             }); },
+    reactShatter:function () { noise({ dur: 0.1, vol: 0.2, freq: 5200, type: 'highpass' });
+                               [0, 0.03, 0.07, 0.1, 0.15].forEach(function (d, i) {
+                                 tone({ freq: 2600 + i * 430, to: 1700 + i * 300, dur: 0.06, type: 'triangle', vol: 0.09, delay: d });
+                               }); },
+    reactExplosion: function () { noise({ dur: 0.55, vol: 0.28, freq: 1200, freqTo: 45 });
+                               tone({ freq: 95, to: 30, dur: 0.5, type: 'sine', vol: 0.3 });
+                               tone({ freq: 200, to: 50, dur: 0.2, type: 'square', vol: 0.1 }); },
+    reactVortex: function () { noise({ dur: 0.6, vol: 0.16, freq: 300, freqTo: 3200, type: 'bandpass', q: 2.2 });
+                               tone({ freq: 180, to: 760, dur: 0.55, type: 'sine', vol: 0.09 }); },
+    reactSteam:  function () { noise({ dur: 0.55, vol: 0.14, freq: 5200, freqTo: 2000, type: 'highpass' });
+                               tone({ freq: 300, to: 180, dur: 0.3, type: 'sine', vol: 0.05 }); },
+    reactBloom:  function () { [0, 0.07, 0.14, 0.22].forEach(function (d, i) {
+                               tone({ freq: 392 * Math.pow(1.26, i), dur: 0.24, type: 'sine', vol: 0.11, delay: d });
+                             }); },
+
+    /* --- bosses: a roar per boss, and the tells the new enemies give ------------ */
+    roarWarden:  function () { tone({ freq: 90, to: 38, dur: 1.3, type: 'sawtooth', vol: 0.26 });
+                               noise({ dur: 1.2, vol: 0.2, freq: 260, freqTo: 50 });
+                               tone({ freq: 50, dur: 1.0, type: 'sine', vol: 0.2, delay: 0.1 }); },
+    roarKing:    function () { tone({ freq: 180, to: 70, dur: 1.0, type: 'sawtooth', vol: 0.24 });
+                               tone({ freq: 184, to: 66, dur: 1.0, type: 'square', vol: 0.1 });
+                               noise({ dur: 0.9, vol: 0.14, freq: 700, freqTo: 120 }); },
+    roarArbiter: function () { [0, 0.12, 0.24].forEach(function (d, i) {
+                               tone({ freq: 196 * Math.pow(1.5, i), dur: 0.9, type: 'sawtooth', vol: 0.11, delay: d });
+                             });
+                             noise({ dur: 0.7, vol: 0.08, freq: 1500, freqTo: 400, delay: 0.1 }); },
+    roarWyrm:    function () { tone({ freq: 340, to: 110, dur: 1.2, type: 'sawtooth', vol: 0.22 });
+                               tone({ freq: 700, to: 200, dur: 0.9, type: 'square', vol: 0.06 });
+                               noise({ dur: 1.1, vol: 0.18, freq: 2200, freqTo: 300, type: 'bandpass', q: 0.8 }); },
+    roarLich:    function () { tone({ freq: 130, to: 65, dur: 1.4, type: 'triangle', vol: 0.22 });
+                               tone({ freq: 133, to: 61, dur: 1.4, type: 'sine', vol: 0.16 });
+                               noise({ dur: 1.2, vol: 0.09, freq: 900, freqTo: 200, type: 'bandpass', q: 3 }); },
+    roarMagma:   function () { tone({ freq: 70, to: 32, dur: 1.5, type: 'sawtooth', vol: 0.28 });
+                               noise({ dur: 1.4, vol: 0.24, freq: 900, freqTo: 70 });
+                               [0.2, 0.5, 0.8].forEach(function (d) {
+                                 noise({ dur: 0.1, vol: 0.12, freq: 2500, type: 'highpass', delay: d });
+                               }); },
+    telegraph:   function () { tone({ freq: 660, dur: 0.05, type: 'square', vol: 0.08 });
+                               tone({ freq: 880, dur: 0.07, type: 'square', vol: 0.08, delay: 0.07 }); },
+    screech:     function () { tone({ freq: 1300, to: 2400, dur: 0.22, type: 'sawtooth', vol: 0.1 });
+                               tone({ freq: 1340, to: 2300, dur: 0.22, type: 'square', vol: 0.05 }); },
+    growl:       function () { tone({ freq: 110, to: 70, dur: 0.3, type: 'sawtooth', vol: 0.14 });
+                               noise({ dur: 0.26, vol: 0.07, freq: 500, freqTo: 200 }); },
+    squish:      function () { tone({ freq: 240, to: 90, dur: 0.11, type: 'sine', vol: 0.14 });
+                               noise({ dur: 0.07, vol: 0.06, freq: 900, type: 'bandpass', q: 1.5 }); },
+    rattle:      function () { [0, 0.04, 0.09, 0.13].forEach(function (d) {
+                               noise({ dur: 0.03, vol: 0.09, freq: 3500 + Math.random() * 1500, type: 'bandpass', q: 3, delay: d });
+                             }); },
+    landHard:    function () { noise({ dur: 0.14, vol: 0.2, freq: 600, freqTo: 80 });
+                               tone({ freq: 100, to: 50, dur: 0.12, type: 'sine', vol: 0.14 }); },
+
+    /* --- ambience --------------------------------------------------------------- */
+    torch:       function () { [0, 0.05, 0.11].forEach(function (d) {
+                               noise({ dur: 0.02 + Math.random() * 0.03, vol: 0.05 + Math.random() * 0.04,
+                                       freq: 1800 + Math.random() * 3000, type: 'bandpass', q: 2, delay: d });
+                             });
+                             noise({ dur: 0.3, vol: 0.02, freq: 500, freqTo: 350 }); },
+
+    /* --- interface (the HTML menus and HUD) -------------------------------------- */
+    uiHover:     function () { tone({ freq: 1250, dur: 0.025, type: 'sine', vol: 0.045 }); },
+    uiClick:     function () { tone({ freq: 720, to: 980, dur: 0.06, type: 'triangle', vol: 0.11 });
+                               noise({ dur: 0.02, vol: 0.05, freq: 3000, type: 'highpass' }); },
+    uiConfirm:   function () { tone({ freq: 600, dur: 0.07, type: 'triangle', vol: 0.12 });
+                               tone({ freq: 900, dur: 0.11, type: 'triangle', vol: 0.12, delay: 0.06 }); },
+    uiOpen:      function () { tone({ freq: 380, to: 760, dur: 0.14, type: 'sine', vol: 0.1 });
+                               noise({ dur: 0.1, vol: 0.05, freq: 1500, freqTo: 4000, type: 'bandpass', q: 1.5 }); },
+    uiClose:     function () { tone({ freq: 760, to: 360, dur: 0.12, type: 'sine', vol: 0.09 }); },
+    uiTab:       function () { tone({ freq: 540, dur: 0.035, type: 'square', vol: 0.06 }); },
+    uiEquip:     function () { noise({ dur: 0.07, vol: 0.14, freq: 2200, freqTo: 900, type: 'bandpass', q: 2 });
+                               tone({ freq: 340, to: 500, dur: 0.09, type: 'triangle', vol: 0.11 }); },
+    uiDeny:      function () { tone({ freq: 200, to: 140, dur: 0.12, type: 'square', vol: 0.11 }); }
   };
 
-  function play(name) {
+  /* Sounds that would smear into noise if every hit in a crowd fired one: the
+     minimum gap between two plays of the same name, in milliseconds. */
+  const MIN_GAP = {
+    hit: 40, crit: 40, arrowHit: 40, hitBlade: 40, hitBlunt: 40, hitPierce: 40,
+    coin: 30, shard: 30, uiHover: 35, uiTab: 35, torch: 250, telegraph: 120,
+    rattle: 120, squish: 90, growl: 200, land: 60, landHard: 60, enemyDie: 60
+  };
+  /* Names that are detuned a little on every play so a repeated sound does not
+     sound like a sample loop. Tonal cues (UI, jingles) stay exact. */
+  const DETUNE = {
+    hit: 0.07, crit: 0.05, arrowHit: 0.08, hitBlade: 0.07, hitBlunt: 0.07, hitPierce: 0.07,
+    swing: 0.06, swingSword: 0.06, swingSpin: 0.04, swingHeavy: 0.05, swingDagger: 0.08,
+    swingAxe: 0.05, swingSpear: 0.06, swingStaff: 0.05, bowLoose: 0.06, shoot: 0.06,
+    enemyDie: 0.08, hurt: 0.04, jump: 0.05, land: 0.08, landHard: 0.05, dash: 0.05,
+    squish: 0.12, rattle: 0.1, growl: 0.1, torch: 0.1, screech: 0.08
+  };
+  const lastPlayed = {};
+
+  /* play(name, opts): opts.vol scales the volume (0..1, e.g. by distance),
+     opts.pitch multiplies the pitch on top of the random detune. */
+  function play(name, opts) {
     if (!unlocked || !ctx || muted) return;
     const fn = SFX[name];
-    if (fn) fn();
+    if (!fn) return;
+    const gap = MIN_GAP[name];
+    if (gap) {
+      const now = Date.now();
+      if (now - (lastPlayed[name] || 0) < gap) return;
+      lastPlayed[name] = now;
+    }
+    const d = DETUNE[name] || 0;
+    pitch = (1 + (Math.random() * 2 - 1) * d) * (opts && opts.pitch || 1);
+    volMul = opts && opts.vol != null ? opts.vol : 1;
+    try { fn(); } finally { pitch = 1; volMul = 1; }
+  }
+
+  /* --- named helpers the game calls instead of picking a raw sound ---------- */
+
+  const WEAPON_SWING = {
+    sword: 'swingSword', dagger: 'swingDagger', greataxe: 'swingAxe', axe: 'swingAxe',
+    spear: 'swingSpear', staff: 'swingStaff', bow: 'bowLoose', hammer: 'swingHeavy'
+  };
+  const WEAPON_HIT = {
+    sword: 'hitBlade', dagger: 'hitBlade', greataxe: 'hitBlade', axe: 'hitBlade',
+    spear: 'hitPierce', hammer: 'hitBlunt', staff: 'hitBlunt', bow: 'hitPierce'
+  };
+
+  /* A melee swing: the weapon's own voice, or the spin / heavy whoosh for its
+     finishers. Unknown weapons fall back to the plain swing. */
+  function swing(weaponKey, stepKey, heavy) {
+    if (heavy) return play('swingHeavy');
+    if (stepKey === 'spin') return play('swingSpin');
+    play(WEAPON_SWING[weaponKey] || 'swing');
+  }
+
+  /* An impact: the weapon's hit voice, with the crit ring layered on top. */
+  function impact(weaponKey, crit, heavy) {
+    play(heavy ? 'hitBlunt' : (WEAPON_HIT[weaponKey] || 'hit'));
+    if (crit) play('crit');
+  }
+
+  /* An elemental reaction, voiced by its signature style (FX3D.REACTION_STYLE). */
+  function reaction(pairKey) {
+    const map = DS.FX3D && DS.FX3D.REACTION_STYLE;
+    const style = (map && map[pairKey]) || 'vortex';
+    play('react' + style.charAt(0).toUpperCase() + style.slice(1));
+  }
+
+  const ROARS = { warden: 'roarWarden', king: 'roarKing', arbiter: 'roarArbiter',
+                  wyrm: 'roarWyrm', lich: 'roarLich', magma: 'roarMagma' };
+  function roar(bossKey) { play(ROARS[bossKey] || 'bossRoar'); }
+
+  /* Torches crackle when the hero is near one. `dist` is the distance in level
+     pixels to the nearest torch; the renderer calls this once a frame. Quiet
+     past 140 px, and a random gap so it never sounds like a loop. */
+  let torchAt = 0;
+  function torchNear(dist) {
+    if (!ctx || dist > 140) return;
+    const now = Date.now();
+    if (now < torchAt) return;
+    torchAt = now + 500 + Math.random() * 1400;
+    play('torch', { vol: Math.max(0.15, 1 - dist / 140) });
   }
 
   // --- procedural music -----------------------------------------------------
@@ -247,6 +463,12 @@ window.DS = window.DS || {};
   DS.Audio = {
     unlock: unlock,
     play: play,
+    swing: swing,
+    impact: impact,
+    reaction: reaction,
+    roar: roar,
+    torchNear: torchNear,
+    sfxNames: function () { return Object.keys(SFX); },
     setMusic: setMusic,
     stopMusic: stopMusic,
     update: update,

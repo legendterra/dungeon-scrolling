@@ -19,38 +19,38 @@ window.DS = window.DS || {};
   const ELEMENTS = {
     fire: {
       key: 'fire', label: 'Fire', color: '#e8743b', spark: ['#e8743b', '#f2c14e', '#fff0a8'],
-      sfx: 'fire', field: 'fire'
+      sfx: 'elFire', field: 'fire'
     },
     ice: {
       key: 'ice', label: 'Ice', color: '#4fb3e0', spark: ['#a8e4ff', '#4fb3e0', '#ffffff'],
-      sfx: 'ice', field: 'ice'
+      sfx: 'elIce', field: 'ice'
     },
     lightning: {
       key: 'lightning', label: 'Lightning', color: '#f2c14e', spark: ['#fff0a8', '#f2c14e', '#ffffff'],
-      sfx: 'lightning', field: 'lightning'
+      sfx: 'elLightning', field: 'lightning'
     },
     poison: {
       key: 'poison', label: 'Poison', color: '#5cbf62', spark: ['#5cbf62', '#a3e86b', '#2f7d4f'],
-      sfx: 'cast', field: 'poison'
+      sfx: 'elPoison', field: 'poison'
     },
     water: {
       key: 'water', label: 'Water', color: '#2f6fa8', spark: ['#4fb3e0', '#a8e4ff', '#2f6fa8'],
-      sfx: 'ice', field: 'water'
+      sfx: 'elWater', field: 'water'
     },
     earth: {
       key: 'earth', label: 'Earth', color: '#b98d5c', spark: ['#b98d5c', '#8a6340', '#5c3f2a'],
-      sfx: 'slam', field: 'earth'
+      sfx: 'elEarth', field: 'earth'
     },
     leaf: {
       key: 'leaf', label: 'Leaf', color: '#a3e86b', spark: ['#a3e86b', '#5cbf62', '#2f7d4f'],
-      sfx: 'swing', field: 'leaf'
+      sfx: 'elLeaf', field: 'leaf'
     },
     /* Wind is the eighth: it burns nothing and freezes nothing on its own. It
        AGITATES - it picks up whatever aura a target already carries and throws
        it at the neighbours, which is what makes it worth a weapon slot. */
     wind: {
       key: 'wind', label: 'Wind', color: '#cfe8e0', spark: ['#ffffff', '#cfe8e0', '#9fb8b0'],
-      sfx: 'swing', field: 'wind'
+      sfx: 'elWind', field: 'wind'
     }
   };
 
@@ -424,14 +424,14 @@ window.DS = window.DS || {};
      gameplay rider the skill owner may add, `colors` the palette
      (core, glow, spark). Nothing here runs by itself. */
   const SKILL_VARIANT = {
-    fire:      { shape: 'flame-wave',   extra: 'leaves a burning trail on the ground',       colors: ['#e8743b', '#f2c14e', '#fff0a8'], sfx: 'fire' },
-    ice:       { shape: 'shard-fan',    extra: 'adds a chill stack to everything it hits',   colors: ['#4fb3e0', '#a8e4ff', '#ffffff'], sfx: 'ice' },
-    lightning: { shape: 'forked-bolt',  extra: 'chains to 2 extra foes',                     colors: ['#f2c14e', '#fff0a8', '#ffffff'], sfx: 'lightning' },
-    poison:    { shape: 'toxic-cloud',  extra: 'lingers as a poison mist field',             colors: ['#5cbf62', '#a3e86b', '#2f7d4f'], sfx: 'cast' },
-    water:     { shape: 'tide-crash',   extra: 'wide knockback wave, soaks (wet)',           colors: ['#2f6fa8', '#4fb3e0', '#a8e4ff'], sfx: 'ice' },
-    earth:     { shape: 'rock-spikes',  extra: 'erupts spikes along the ground, staggers',   colors: ['#b98d5c', '#8a6340', '#5c3f2a'], sfx: 'slam' },
-    leaf:      { shape: 'petal-spiral', extra: 'roots foes, heals the player a little',      colors: ['#a3e86b', '#5cbf62', '#2f7d4f'], sfx: 'swing' },
-    wind:      { shape: 'vortex',       extra: 'pulls foes to the centre then lifts them',   colors: ['#cfe8e0', '#ffffff', '#9fb8b0'], sfx: 'swing' }
+    fire:      { shape: 'flame-wave',   extra: 'leaves a burning trail on the ground',       colors: ['#e8743b', '#f2c14e', '#fff0a8'], sfx: 'elFire' },
+    ice:       { shape: 'shard-fan',    extra: 'adds a chill stack to everything it hits',   colors: ['#4fb3e0', '#a8e4ff', '#ffffff'], sfx: 'elIce' },
+    lightning: { shape: 'forked-bolt',  extra: 'chains to 2 extra foes',                     colors: ['#f2c14e', '#fff0a8', '#ffffff'], sfx: 'elLightning' },
+    poison:    { shape: 'toxic-cloud',  extra: 'lingers as a poison mist field',             colors: ['#5cbf62', '#a3e86b', '#2f7d4f'], sfx: 'elPoison' },
+    water:     { shape: 'tide-crash',   extra: 'wide knockback wave, soaks (wet)',           colors: ['#2f6fa8', '#4fb3e0', '#a8e4ff'], sfx: 'elWater' },
+    earth:     { shape: 'rock-spikes',  extra: 'erupts spikes along the ground, staggers',   colors: ['#b98d5c', '#8a6340', '#5c3f2a'], sfx: 'elEarth' },
+    leaf:      { shape: 'petal-spiral', extra: 'roots foes, heals the player a little',      colors: ['#a3e86b', '#5cbf62', '#2f7d4f'], sfx: 'elLeaf' },
+    wind:      { shape: 'vortex',       extra: 'pulls foes to the centre then lifts them',   colors: ['#cfe8e0', '#ffffff', '#9fb8b0'], sfx: 'elWind' }
   };
 
   // --- reactions ------------------------------------------------------------
@@ -848,7 +848,7 @@ window.DS = window.DS || {};
     def.run(g, e, power);
     DS.FX.number(DS.Ent.centerX(e), e.y - 10, def.name, def.color);
     DS.FX.ring(DS.Ent.centerX(e), DS.Ent.centerY(e), 12, def.color, 2);
-    DS.Audio.play('upgrade');
+    DS.Audio.reaction(pairKey(a, b));
     if (g.onReaction) g.onReaction(def);
     return def;
   }

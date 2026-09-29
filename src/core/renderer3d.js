@@ -4264,6 +4264,18 @@ window.DS = window.DS || {};
         : (e.kind === 1 ? src.smooth * TORCH_I * DS.TorchLight.flicker(frameSec, src.phase)
           : src.light.intensity);
     }
+    if (DS.Audio && DS.Audio.torchNear && DS.currentGame && DS.currentGame.player) {
+      const hp = DS.currentGame.player;
+      const hx = (hp.x + hp.w * 0.5) * P2U, hy = (-hp.y - hp.h * 0.5) * P2U;
+      let nearest = 1e9;
+      for (let i = 0; i < emitters.length; i++) {
+        if (emitters[i].kind === 2) continue;
+        const dx = emitters[i].x - hx, dy = emitters[i].y - hy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < nearest) nearest = d2;
+      }
+      DS.Audio.torchNear(Math.sqrt(nearest) / P2U);
+    }
     DS.TorchLight.assignPool(lightPool, emitters, emitters.length, camX, camY, 1 / 60,
                              noFlamePool ? -1 : FLAME_REACH2);
     for (let k = 0; k < n; k++) {

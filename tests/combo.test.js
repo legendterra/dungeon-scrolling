@@ -7,7 +7,7 @@ const { load } = require('./_load');
    hits for, and that a full chain keeps the old one-swing damage rate. */
 
 const STUBS = `
-  window.DS.Audio = { play: function () {} };
+  window.DS.Audio = autoStub();
   window.DS.R = { shake: function () {}, flash: function () {}, punch: function () {} };
   window.DS.FX = autoStub();
   window.DS.Boons = { flag: function () { return 0; }, bonus: function () { return 0; }, onHurt: function () {} };

@@ -115,7 +115,7 @@ window.DS = window.DS || {};
 
     g.enemies.push(e);
     g.boss = e;
-    DS.Audio.play('bossRoar');
+    DS.Audio.roar(key);
     DS.R.shake(6);
     return e;
   }
@@ -136,7 +136,7 @@ window.DS = window.DS || {};
       e.state = 'ENRAGE';
       e.stateTimer = 66;
       e.invuln = 66;
-      DS.Audio.play('bossRoar');
+      DS.Audio.roar(e.bossKey);
       DS.R.shake(8);
       DS.FX.ring(Ent.centerX(e), Ent.centerY(e), 26, e.def.color, 2.6);
       if (e.def.onEnrage) e.def.onEnrage(g, e);

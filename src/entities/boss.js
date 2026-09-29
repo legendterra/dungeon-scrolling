@@ -58,7 +58,7 @@ window.DS = window.DS || {};
 
     g.enemies.push(e);
     g.boss = e;
-    DS.Audio.play('bossRoar');
+    DS.Audio.roar('king');
     return e;
   }
 
@@ -81,7 +81,7 @@ window.DS = window.DS || {};
       e.state = 'ENRAGE';
       e.stateTimer = 70;
       e.invuln = 70;
-      DS.Audio.play('bossRoar');
+      DS.Audio.roar('king');
       DS.R.shake(7);
       DS.FX.ring(Ent.centerX(e), Ent.centerY(e), 24, '#c86ee0', 2.6);
       DS.Audio.setMusic('boss');

@@ -313,7 +313,13 @@ window.DS = window.DS || {};
 
   // --- attack state machine -------------------------------------------------
 
+  /* The tell each kind gives as its wind-up begins. Anything not listed gets
+     the generic two-note warning; the audio layer throttles a crowd. */
+  const TELL_SFX = { harpy: 'screech', bat: 'screech', zombie: 'growl', slime: 'squish',
+                     skeleton: 'rattle', goldslime: 'squish' };
+
   function beginAttack(e) {
+    DS.Audio.play(TELL_SFX[e.kind] || 'telegraph', { vol: e.tier ? 1 : 0.7 });
     e.attackState = 'wind';
     e.attackTimer = Math.round(e.cfg.wind * e.windScale);
     e.struck = false;
