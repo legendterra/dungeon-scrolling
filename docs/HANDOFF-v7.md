@@ -15,7 +15,8 @@ Izin dari user: kalau tes, audit, dan review lolos, **merge ke `main` dan deploy
 | Rencana v7b 1 | Options lengkap + rebind + controls sheet mengikuti tombol (`ui-html/options.js`, `core/settings.js`, `prefs.js`) | selesai |
 | Rencana v7b 2 | leaderboard berhalaman + peringkat sendiri (`/api/board`, `menus.js leaderboard`) | selesai |
 | Rencana v7b 3-4 | pembuat karakter, katalog skin, dompet kunci, toko | belum |
-| Rencana v7b 6-7 | efek portal shader + cutscene masuk portal 3D | belum |
+| Rencana v7b 7 | efek portal shader (`fx3d/portal.js`, dipakai di pintu keluar), `tools/qa/shoot-portal.js` | selesai |
+| Rencana v7b 6 | cutscene 3D masuk portal (`scenes/intro3d.js`, bisa di-skip), `tools/qa/shoot-intro.js`; memakai hero default sampai pembuat karakter jadi | selesai |
 | Monster Act II-III | 9 monster A + 4 B (Act II), 8 A + 6 B (Act III), roster map 11-30 | belum |
 | Boss baru | Hades, Zeus, Minotaur, Medusa, Talos; arena per boss; rotasi endless | belum |
 | Fase 7 MC | voxel MC baru (menyatu dengan pembuat karakter) | belum |
