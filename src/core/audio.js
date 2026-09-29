@@ -285,6 +285,14 @@ window.DS = window.DS || {};
     landHard:    function () { noise({ dur: 0.14, vol: 0.2, freq: 600, freqTo: 80 });
                                tone({ freq: 100, to: 50, dur: 0.12, type: 'sine', vol: 0.14 }); },
 
+    /* --- v7: the door in the opening ---------------------------------------------- */
+    portalHum:   function () { tone({ freq: 90, to: 140, dur: 1.6, type: 'sine', vol: 0.16 });
+                               tone({ freq: 93, to: 146, dur: 1.6, type: 'triangle', vol: 0.09 });
+                               noise({ dur: 1.4, vol: 0.05, freq: 500, freqTo: 1600, type: 'bandpass', q: 3 }); },
+    warp:        function () { noise({ dur: 0.9, vol: 0.2, freq: 300, freqTo: 6000, type: 'bandpass', q: 1.4 });
+                               tone({ freq: 160, to: 1600, dur: 0.8, type: 'sawtooth', vol: 0.1 });
+                               tone({ freq: 80, to: 800, dur: 0.9, type: 'sine', vol: 0.18 }); },
+
     /* --- v7: the tells of the bestiary of the three acts ------------------------ */
     clack:       function () { [0, 0.07].forEach(function (d) {
                                noise({ dur: 0.03, vol: 0.13, freq: 2800, type: 'bandpass', q: 4, delay: d });

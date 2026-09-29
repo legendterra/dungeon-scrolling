@@ -22,6 +22,7 @@
      opts.w, opts.h       the opening in world units (default 1.5 x 2.8)
      opts.y               height of its centre over the group's origin (default 1.6)
      opts.open            start open (default true)
+     opts.fx              false: no pooled particles (a portal in a private scene)
      opts.palette         { edge, mid, core, sealEdge, sealMid } as hex numbers
 
    The group is placed by the caller (the exit door in renderer3d.js, the
@@ -183,7 +184,8 @@ window.DS = window.DS || {};
 
     // --- state -----------------------------------------------------------------------
     const st = { open: opts.open === false ? 0 : 1, wasOpen: opts.open !== false, near: 0, enter: 0, seal: 0, fxT: 0 };
-    const F = function () { return DS.FX3D && DS.FX3D.ready ? DS.FX3D : null; };
+    // opts.fx === false: a portal in a scene of its own (the opening) has no pooled particles to emit into.
+    const F = function () { return opts.fx !== false && DS.FX3D && DS.FX3D.ready ? DS.FX3D : null; };
 
     function centre() {
       return { x: group.position.x, y: group.position.y + Y, z: group.position.z + 0.12 };

@@ -31,7 +31,9 @@ window.DS = window.DS || {};
     /* The opening cutscene, then the run it set up. The options are held here
        rather than inside the scene so a skip lands on exactly the same run. */
     intro: function (opts) {
-      setScene(DS.Cutscene.createIntro(function () { DS.Scenes.play(null, opts); }));
+      const done = function () { DS.Scenes.play(null, opts); };
+      // The door in the dark (scenes/intro3d.js); the old corridor is the fallback.
+      setScene((DS.Intro3D && DS.Intro3D.createIntro(done)) || DS.Cutscene.createIntro(done));
     },
 
     play: function (seed, opts) {
