@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v7.0.0] - 2026-09-30 - A World That Stands Still, Thirty Places, And A Way To Make The Game Your Own
+
+### Added
+- **The backdrop is a diorama in world space** (`src/core/worldframe.js`, `backdrop3d.js`): built once per floor from what the camera can ever see, it stands still while the camera crosses it; nothing stands in front of the play plane, the roof and foundation are rooted, and near bands are flattened in z so none can cross it (`npm run qa:world`, 312 checks over 30 floors).
+- **Bigger floors**: corridors x1.8, carved caves 32 rows, lakes 30 rows, a 128 x 60 mountain, a 144-wide trial; the level checker and solver cover the new sizes.
+- **CC0 photo textures** from Poly Haven on every backdrop rung and on level tiles sampled in world space (58 textures, 1.25 MB, `src/core/texlib.js`, `tools/assets/`); `?hdtex=0` turns them off.
+- **Thirty places** (`src/world/maps.js`, `maps/act1-3.js`): each depth is one definition - palette, light, grade, backdrop, tiles, spawn roster - with about 40 new band kinds (`src/core/backdrop/kinds-*.js`); masonry-course walls for closed halls; Act III is Greek.
+- **Act I bestiary** (`src/entities/enemies4.js`, `src/core/voxel-bestiary.js`): crab, spore shroom, crystal beetle, jailer, chained prisoner, bogman, mountain goat, drowned knight, ash hound, gull, eagle, sewer rats and frog shaman, each with a voxel model, a tell sound and a place in its map's roster; new player states (slowed, hauled) and packs.
+- **Options** (`src/ui-html/options.js`, `src/core/settings.js`, `prefs.js`): graphics (quality, render scale, bloom, vignette, brightness, particles, interface size, frame-rate cap, FPS), audio (three volumes), rebindable controls with conflict handling, gameplay, accessibility (reduce motion, flashes) and an About page. Saved on the device; the controls sheets follow the keys you set.
+- **Paged leaderboard** in the title menu (`GET /api/board`): ten rows a page, the player's own rank pinned, FIND ME, offline fallback.
+- **Startup notice** (`src/ui-html/notice.js`): a terms-style research notice in English that must be read to the end; agree or decline both enter the game; "do not show again", re-enabled from Options.
+- **QA**: `tools/qa/audit-world.js`, `shoot-maps.js`, `shoot-monsters.js`, `check-notice.js`, `check-options.js`, `check-leaderboard.js`, `check-bestiary.js --only v7`; 173 unit tests.
+
+### Fixed
+- The weapon vanished after an armour change; the menu diorama clock did not run; a boulder could spawn on the mountain's start; a dark band crossed the frame on roofed floors.
+
+### Changed
+- Spawns come from each map's roster on the first pass through the ladder (the old depth formula still drives the endless floors). The Worker orders the ladder by depth, kills, age and id, so a rank never wobbles. Game version string `v7.0.0`; cache-buster `?v=7.0.0`.
+- The pause menu's CONTROLS / GRAPHICS / SOUND are one OPTIONS entry; the title's SOUND is OPTIONS.
+- Still to come (see `docs/PLAN-v7b.md`, `docs/HANDOFF-v7.md`): act II and III monsters, the new bosses, the character creator and skin shop, the portal effect and intro cutscene.
+
 ## [v6.0.0] - 2026-09-29 - Acts, A 3D Stage, And A Body That Has Weight
 
 ### Added

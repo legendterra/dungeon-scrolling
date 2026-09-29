@@ -202,7 +202,7 @@ window.DS = window.DS || {};
   def('crystalbeetle', {
     w: 12, h: 9, hp: 16, touch: 0, speed: 0.6, sight: 160, armor: 2,
     heavy: true, gore: ['#7fe8ff', '#6a5cae', '#2c2650'], sprite: 'spider',
-    wind: 30, strike: 52, recover: 44, range: 110, damage: 2,
+    wind: 30, strike: 52, recover: 44, extra: 30, range: 110, damage: 2,
     behavior: beetle, minDepth: 3, tell: 'clack'
   });
 
