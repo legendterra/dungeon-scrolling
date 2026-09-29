@@ -32,6 +32,7 @@
     theme: { fog: 0x101c26, ambient: 0x64788a, hemiSky: 0x88a6c0, hemiGround: 0x2a3238, dir: 0xfff0cc, dirI: 0.62 },
     grade: { sat: 1.1 },
     affinity: { slime: 1.6, bat: 1.2 },
+    roster: { crab: 36, slime: 26, gull: 14, bat: 10 },
     backdrop: {
       like: 'shore',
       recipe: {
@@ -66,6 +67,7 @@
     theme: { fog: 0x0a1c1e, ambient: 0x3c6a68, hemiSky: 0x4c8c8e, hemiGround: 0x142220, dir: 0xffd9a0, dirI: 0.46 },
     grade: { gamma: 1.05 },
     affinity: { bat: 1.5, spider: 1.6, zombie: 1.2, spitter: 1.3 },
+    roster: { sporeshroom: 28, bat: 22, zombie: 22, spitter: 14, slime: 8 },
     backdrop: {
       curve: { gain: 0.5, warm: 0.36 },
       hero: { kind: 'sun', col: 0xffc880, core: 0xfff0d0, edge: 0xe08a30, az: 0.5, elev: 7.0, r: 5.6,
@@ -106,6 +108,7 @@
     theme: { fog: 0x06121c, ambient: 0x2c4a68, hemiSky: 0x3c688c, hemiGround: 0x0e1a24, dir: 0x7ad0ff, dirI: 0.34 },
     grade: { sat: 1.08, gamma: 1.05 },
     affinity: { spider: 1.6, bat: 1.3, skeleton: 1.2 },
+    roster: { crystalbeetle: 30, spider: 26, bat: 16, skeleton: 18 },
     backdrop: {
       curve: { gain: 0.3, warm: 0.3 },
       hero: { kind: 'sigil', col: 0x5ec8ff, core: 0xe0f6ff, edge: 0x1f5a8a, az: 0.48, elev: 6.2, r: 3.2,
@@ -149,6 +152,7 @@
     theme: { fog: 0x1a1006, ambient: 0x6e5638, hemiSky: 0x846845, hemiGround: 0x241810, dir: 0xfbbf24, dirI: 0.50 },
     grade: { contrast: 1.06 },
     affinity: { skeleton: 1.5, shielder: 1.6, cultist: 1.4, harpy: 0.4 },
+    roster: { jailer: 24, prisoner: 22, skeleton: 20, shielder: 16, sewerrat: 18 },
     backdrop: {
       curve: { gain: 0.5, warm: 0.4 },
       hero: { kind: 'sun', col: 0xffa84a, core: 0xfff0d0, edge: 0xd06a10, az: 0.5, elev: 7.0, r: 6.0,
@@ -186,6 +190,7 @@
     },
     theme: { fog: 0x1c202a, ambient: 0x8a90a2, hemiSky: 0xa4acc0, hemiGround: 0x363a48, dir: 0xffc080, dirI: 0.72 },
     affinity: {},
+    roster: { skeleton: 20, shielder: 26, zombie: 10 },
     backdrop: {
       curve: { gain: 0.44, warm: 0.34 },
       hero: { kind: 'sun', col: 0xffb868, core: 0xfff0d0, edge: 0xc86a18, az: 0.5, elev: 9.0, r: 5.4,
@@ -223,6 +228,7 @@
     },
     theme: { fog: 0x0d1a0c, ambient: 0x4e6a3a, hemiSky: 0x6d8a4c, hemiGround: 0x141a10, dir: 0xb8e06a, dirI: 0.42 },
     affinity: { slime: 1.5, spitter: 1.8, zombie: 1.3, bomber: 0.6, magmacrab: 0.2 },
+    roster: { bogman: 30, zombie: 20, spitter: 18, bomber: 12, frogshaman: 16 },
     backdrop: {
       like: 'swamp',
       recipe: {
@@ -256,6 +262,7 @@
     theme: { fog: 0x141a26, ambient: 0x6a7288, hemiSky: 0x9fb0d0, hemiGround: 0x2a2e38, dir: 0xdceaff, dirI: 0.66 },
     grade: { sat: 1.06, contrast: 1.03 },
     affinity: { bat: 1.4, harpy: 2.2, golem: 1.4, spider: 0.6 },
+    roster: { mountaingoat: 30, golem: 14, skeleton: 16, bat: 14, eagle: 16 },
     backdrop: {
       like: 'mountain',
       recipe: {
@@ -292,6 +299,7 @@
     theme: { fog: 0x08161f, ambient: 0x3a6a86, hemiSky: 0x4c8cb0, hemiGround: 0x102028, dir: 0x8fd8ff, dirI: 0.44 },
     grade: { sat: 1.04, gamma: 1.04 },
     affinity: { zombie: 1.2, wraith: 1.5, icewisp: 1.6, bomber: 0.5, magmacrab: 0.2 },
+    roster: { drownedknight: 30, wraith: 22, shielder: 18, zombie: 10 },
     backdrop: {
       like: 'flooded',
       curve: { gain: 0.32, warm: 0.3 },
@@ -333,6 +341,7 @@
     theme: { fog: 0x1a0a06, ambient: 0x7a3a28, hemiSky: 0x9a4a2c, hemiGround: 0x241008, dir: 0xff7a3c, dirI: 0.58 },
     grade: { sat: 1.2, contrast: 1.1 },
     affinity: { bomber: 1.6, golem: 1.4, magmacrab: 2.4, icewisp: 0.2, cultist: 1.3 },
+    roster: { ashhound: 34, bomber: 22, golem: 14, necromancer: 12 },
     backdrop: {
       like: 'volcanic',
       recipe: {
@@ -364,6 +373,7 @@
     },
     theme: { fog: 0x141c06, ambient: 0x6e7a3a, hemiSky: 0x8a9a4a, hemiGround: 0x20260f, dir: 0xd8f070, dirI: 0.52 },
     affinity: { slime: 2.0 },
+    roster: { slime: 30, shielder: 12, zombie: 12 },
     backdrop: {
       like: 'throne',
       hero: { col: 0xb8e64c, core: 0xf4ffd0, edge: 0x6a8a1c },

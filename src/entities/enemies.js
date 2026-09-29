@@ -76,6 +76,13 @@ window.DS = window.DS || {};
   /* v7: a place brings its own spawn affinity (DS.Maps.define). */
   function registerAffinity(key, weights) { BIOME_AFFINITY[key] = weights; }
 
+  /* v7: ...and its own ROSTER, the four to seven kinds that live there, with
+     weights. On the first pass through the ladder a floor draws from its roster
+     and nothing else; the formula below (depth gates, ramps, affinity) is kept
+     for the endless floors, where every kind is loose. */
+  const ROSTERS = {};
+  function registerRoster(key, roster) { ROSTERS[key] = roster; }
+
   function biomeKeyFor(depth) {
     const rung = DS.Difficulty && DS.Difficulty.biomeForDepth
       ? DS.Difficulty.biomeForDepth(depth) : null;
@@ -86,7 +93,20 @@ window.DS = window.DS || {};
      not still mostly slimes. Anything with a minDepth joins automatically.
      `biome` defaults to the ladder's rung for the depth, so every caller -
      ambushes, summons, keybearers - gets the local wildlife for free. */
+  function rosterTable(depth) {
+    const rung = DS.Difficulty && DS.Difficulty.biomeForDepth ? DS.Difficulty.biomeForDepth(depth) : null;
+    const roster = rung && !rung.endless ? ROSTERS[rung.key] : null;
+    if (!roster) return null;
+    const table = [];
+    for (const key in roster) {
+      if (Object.prototype.hasOwnProperty.call(roster, key) && TYPES[key]) table.push({ weight: roster[key], value: key });
+    }
+    return table.length ? table : null;
+  }
+
   function spawnTable(depth, biome) {
+    const fixed = biome == null ? rosterTable(depth) : null;
+    if (fixed) return fixed;
     const table = [
       // The starting four stay the spine of the table at every depth; everything
       // else ramps in over them (see the minDepth gate below).
@@ -201,6 +221,7 @@ window.DS = window.DS || {};
       * DS.Modifiers.mult(g, 'enemySpeed');
     e.windScale = mult.wind * DS.Modifiers.mult(g, 'enemyWind');
 
+    e.homeX = e.x;
     e.state = 'PATROL';
     e.stateTimer = 0;
     e.attackState = 'none';
@@ -227,6 +248,13 @@ window.DS = window.DS || {};
     settleSpawn(g, e);
 
     g.enemies.push(e);
+    /* A pack (rats, hounds, wolves) arrives together: the ones after the first
+       stand a few pixels to either side and are always the plain rank. */
+    if (cfg.pack > 1 && !g.packing) {
+      g.packing = true;
+      for (let i = 1; i < cfg.pack; i++) create(g, x + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 10, y, kind, 'normal');
+      g.packing = false;
+    }
     return e;
   }
 
@@ -862,6 +890,9 @@ window.DS = window.DS || {};
     windRatio: windRatio,
     spawnTable: spawnTable,
     registerAffinity: registerAffinity,
+    registerRoster: registerRoster,
+    ROSTERS: ROSTERS,
+    TELL_SFX: TELL_SFX,
     spreadSpawns: spreadSpawns,
     BIOME_AFFINITY: BIOME_AFFINITY,
     // Shared pieces the deep bestiary builds on.

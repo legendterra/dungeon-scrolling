@@ -1010,6 +1010,16 @@ window.DS = window.DS || {};
     wyrm: 'frostwyrm', lich: 'lich', magma: 'magmacolossus'
   };
 
+  /* v7: models from other files. A builder returns { root, torso, head, armL,
+     armR, legL, legR, ... } like the ones above, and may carry `animate(model,
+     e, time, ctx)`, which pose() calls last. `boss` names the DS.Bosses key a
+     model stands for. */
+  function register(key, builder, height, boss) {
+    BUILDERS[key] = builder;
+    if (height) HEIGHT[key] = height;
+    if (boss) BOSS_MODELS[boss] = key;
+  }
+
   // kindForEntity maps any game entity onto a builder key.
   function keyFor(e) {
     if (e.isBoss) return BOSS_MODELS[e.bossKey] || 'slimeking';
@@ -1188,6 +1198,12 @@ window.DS = window.DS || {};
 
     if (p.shield) {
       p.shield.rotation.y = e.shieldUp ? 0 : 0.7;
+    }
+
+    /* v7: a model that ships its own animation (the bestiary of the three acts,
+       voxel-bestiary*.js) gets the same numbers this function just worked out. */
+    if (p.animate) {
+      p.animate(p, e, time, { walk: walk, swing: swing, wind: wind, strike: strike, bob: bob, cyc: cyc });
     }
   }
 
@@ -1494,6 +1510,11 @@ window.DS = window.DS || {};
     build: build,
     keyFor: keyFor,
     has: function (kind) { return !!BUILDERS[kind]; },
+    register: register,
+    part: part,
+    box: box,
+    chibi: chibiSkeleton,
+    runeRing: runeRing,
     pose: pose,
     buildWeapon: buildWeapon,
     buildProjectile: buildProjectile,

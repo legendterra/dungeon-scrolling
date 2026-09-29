@@ -215,6 +215,13 @@ window.DS = window.DS || {};
     }
 
     if (p.iframes > 0) p.iframes--;
+    /* v7: what the deeper monsters do to a body without hurting it. `slowT` is a
+       weight on the legs (a gorgon's stare, mud, a drowned hand), `pullT` a chain
+       or a whirl dragging you toward `pullX`. */
+    if (p.slowT > 0) {
+      p.slowT--;
+      if (p.frame % 9 === 0) DS.FX.dust(Ent.centerX(p), p.y + p.h - 2, 1);
+    }
     if (p.attackCooldown > 0) p.attackCooldown--;
     if (p.swingTimer > 0) p.swingTimer--;
     DS.Combos.tick(p);
@@ -411,7 +418,8 @@ window.DS = window.DS || {};
     const dir = In.axisX();
 
     // Winding up a heavy blow roots you to a slow shuffle.
-    const speed = p.stats.moveSpeed * (p.charging ? 0.45 : 1) * (p.inWater ? 0.72 : 1);
+    const speed = p.stats.moveSpeed * (p.charging ? 0.45 : 1) * (p.inWater ? 0.72 : 1) *
+                  (p.slowT > 0 ? (p.slowMul || 0.5) : 1);
     const accel = p.onGround ? 0.55 : 0.32;
     const friction = p.onGround ? 0.62 : 0.14;
 
@@ -423,6 +431,10 @@ window.DS = window.DS || {};
       }
     } else {
       p.vx = M.approach(p.vx, 0, friction);
+    }
+    if (p.pullT > 0) {
+      p.pullT--;
+      p.vx = M.approach(p.vx, (M.sign(p.pullX - Ent.centerX(p)) || 0) * (p.pullSpeed || 2.2), 0.7);
     }
 
     p.dropThrough = In.isDown('down');

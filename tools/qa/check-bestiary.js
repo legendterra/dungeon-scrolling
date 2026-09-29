@@ -22,6 +22,9 @@
  * Magma Colossus (30) in their own arenas; each must use its moves, take
  * damage, enrage, die, and hand the floor its reward.
  *
+ * v7: `--only v7` runs just the bestiary of the three acts (the 35 monsters of
+ * enemies4-6.js), each two at a time beside the hero on the floor it lives on.
+ *
  * Exit code 1 when any check fails. Every console error on the page fails too.
  */
 
@@ -109,7 +112,7 @@ const DRIVER = `(() => {
     return { e: e, kind: e.kind, attacks: 0, volleys: 0, dives: 0, inAttack: 0, longest: 0,
              nan: 0, hpStart: e.hp, hurtByHero: false, states: {}, lastState: null,
              limit: Math.round((e.cfg.wind || 0) * (e.windScale || 1)) + (e.cfg.strike || 0) +
-                    Math.round((e.cfg.recover || 0) * (e.windScale || 1)) + 12,
+                    Math.round((e.cfg.recover || 0) * (e.windScale || 1)) + (e.cfg.extra || 0) + 12,
              moved: 0, lastX: e.x, lastY: e.y, awake: 0, chase: 0, dMin: Infinity, dyAt: 0 };
   }
 
@@ -145,6 +148,11 @@ const DRIVER = `(() => {
   function finish(g, e, attack, f0) {
     let f = f0;
     for (let i = 0; i < 1800 && !e.dead; i++, f++) {
+      /* Something under the mud cannot be hit: stand over it, as a player would. */
+      if (e.hidden && i % 30 === 0) {
+        const p = g.player;
+        p.x = e.x + (e.facing > 0 ? -22 : 22); p.y = e.y + e.h - p.h; p.vx = 0;
+      }
       if (i % 20 === 0) Ent.damageEnemy(g, e, Math.max(2, Math.ceil(e.maxHp * 0.08)), { dir: 1 });
       stepOnce(attack, f);
     }
@@ -162,13 +170,13 @@ const DRIVER = `(() => {
 
   window.__BST = {
     /* A pack of one kind beside the hero on a normal floor at this depth. */
-    pack: function (depth, kind, n, seconds, attack) {
+    pack: function (depth, kind, n, seconds, attack, custom) {
       const g = load(depth, 'normal');
       clearRoom(g);
       tally.loot.length = 0; tally.shots = 0;
       const p = g.player, cx = Ent.centerX(p);
       const flying = !!(DS.Enemies.TYPES[kind] && DS.Enemies.TYPES[kind].flying);
-      const offs = [70, -86, 118, -130, 150].slice(0, n);
+      const offs = (custom || [70, -86, 118, -130, 150]).slice(0, n);
       const ws = offs.map((o) => watch(DS.Enemies.create(g, cx + o, p.y - (flying ? 34 : 6), kind, false)));
       const hpAt = ws.map((w) => w.e.hp);
       let heroHits = 0;
@@ -244,6 +252,17 @@ async function waitFor(session, expr, timeoutMs) {
   throw new Error('timed out waiting for: ' + expr);
 }
 
+/* The v7 monsters and how far from the hero to put a pair of them: the ones that
+   only wake when you are on top of them (mud, spores) start close. */
+const V7 = {
+  crab: 1, sporeshroom: 2, crystalbeetle: 3, jailer: 4, prisoner: 4, bogman: 6, mountaingoat: 7,
+  drownedknight: 8, ashhound: 9, gull: 1, eagle: 7, sewerrat: 4, frogshaman: 6,
+  eel: 11, glowworm: 14, drowner: 16, eggsac: 17, trollice: 19, mosquito: 12, lakespirit: 18, icewolf: 19,
+  hoplite: 21, centaur: 22, gorgonite: 23, fury: 24, shade: 25, automaton: 27, cyclops: 28, sunpriest: 29,
+  satyr: 22, stonesnake: 23, titanslave: 24, cerberuspup: 25, stormspirit: 26, griffin: 29
+};
+const CLOSE = { bogman: [26, -30], sporeshroom: [30, -40], prisoner: [44, -50], sewerrat: [50, -60] };
+
 const failures = [];
 function check(label, ok, detail) {
   console.log((ok ? 'ok   ' : 'FAIL ') + label + (detail ? '   ' + detail : ''));
@@ -285,6 +304,31 @@ async function main() {
        only frames that run are the ones this tool steps. */
     await session.eval('DS.__paused = true; if (DS.PostFX) DS.PostFX.setQuality("low")');
     await session.eval(DRIVER);
+
+    const only = value(args, '--only');
+    legacy: {
+    if (only === 'v7') {
+      const have = await session.eval('Object.keys(DS.Enemies.TYPES)');
+      const only7 = value(args, '--kinds');
+      for (const kind of Object.keys(V7).filter((k) => have.includes(k) && (!only7 || only7.split(',').includes(k)))) {
+        const d = V7[kind];
+        const offs = CLOSE[kind] ? JSON.stringify(CLOSE[kind]) : 'null';
+        const r = await session.eval(`__BST.pack(${d}, '${kind}', 2, ${seconds}, true, ${offs})`);
+        report.pack.push(r);
+        const tag = kind + ' d' + d;
+        const attacks = r.sim.reduce((a, s) => a + s.attacks, 0);
+        console.log('     ' + tag + ': attacks ' + attacks + ', hero hit ' + r.heroHits + 'x, shots ' + r.shots +
+                    ', loot ' + r.loot.length + ', pickups +' + r.pickups);
+        r.sim.forEach(detail);
+        r.sim.forEach((s, i) => judgeMonster(tag + ' #' + i, s));
+        // A rat dies in a swing or two; a monster that was worn down before it ever woke has no attack to judge.
+        check(tag + ': attacks', attacks > 0 || r.sim.every((s) => s.awake < 120), attacks + ' wind-ups');
+        check(tag + ': dies when worn down', r.died.every(Boolean), JSON.stringify(r.died));
+        // A pack brings more bodies than the two the tool watches, so at least one roll each.
+        check(tag + ': rolls loot on death', r.loot.length >= r.died.length, r.loot.length + ' rolls');
+      }
+      break legacy;
+    }
 
     /* --- harpies, depth 12..20, hero idle and hero swinging --- */
     for (let d = 12; d <= 20; d++) {
@@ -348,6 +392,7 @@ async function main() {
       check(tag + ': hands the floor its reward', !!r.reward, String(r.reward));
     }
 
+    }
     report.errors = await session.eval('window.__bErrors || []');
     check('no console errors', report.errors.length === 0, report.errors.slice(0, 5).join(' | '));
   } finally {

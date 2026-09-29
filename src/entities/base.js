@@ -280,6 +280,7 @@ window.DS = window.DS || {};
     p.knockback = o.knockback == null ? 1.2 : o.knockback;
     p.facing = o.vx < 0 ? -1 : 1;
     p.trailColor = o.trailColor || null;
+    p.onHit = o.onHit || null;      // v7: (g, projectile, player) after a hostile shot lands
     g.projectiles.push(p);
     return p;
   }
@@ -327,7 +328,7 @@ window.DS = window.DS || {};
           g.projectiles.splice(i, 1);
         }
       } else if (g.player && !g.player.dead && M.overlap(p, g.player)) {
-        g.player.hurt(g, p.damage, M.sign(p.vx) || 1);
+        if (g.player.hurt(g, p.damage, M.sign(p.vx) || 1) && p.onHit) p.onHit(g, p, g.player);
         impact(g, p);
         g.projectiles.splice(i, 1);
       }

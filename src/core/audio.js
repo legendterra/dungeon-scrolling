@@ -284,6 +284,54 @@ window.DS = window.DS || {};
     landHard:    function () { noise({ dur: 0.14, vol: 0.2, freq: 600, freqTo: 80 });
                                tone({ freq: 100, to: 50, dur: 0.12, type: 'sine', vol: 0.14 }); },
 
+    /* --- v7: the tells of the bestiary of the three acts ------------------------ */
+    clack:       function () { [0, 0.07].forEach(function (d) {
+                               noise({ dur: 0.03, vol: 0.13, freq: 2800, type: 'bandpass', q: 4, delay: d });
+                               tone({ freq: 1500, to: 900, dur: 0.03, type: 'square', vol: 0.05, delay: d });
+                             }); },
+    hiss:        function () { noise({ dur: 0.42, vol: 0.1, freq: 5200, freqTo: 3000, type: 'highpass' }); },
+    chain:       function () { [0, 0.05, 0.1, 0.16, 0.22].forEach(function (d, i) {
+                               noise({ dur: 0.035, vol: 0.09, freq: 3000 + i * 250, type: 'bandpass', q: 5, delay: d });
+                               tone({ freq: 1200 - i * 60, dur: 0.03, type: 'triangle', vol: 0.04, delay: d });
+                             }); },
+    gaze:        function () { tone({ freq: 140, to: 420, dur: 0.5, type: 'sine', vol: 0.14 });
+                               tone({ freq: 143, to: 424, dur: 0.5, type: 'triangle', vol: 0.09 });
+                               noise({ dur: 0.4, vol: 0.05, freq: 900, freqTo: 3400, type: 'bandpass', q: 3 }); },
+    bleat:       function () { tone({ freq: 380, to: 300, dur: 0.24, type: 'sawtooth', vol: 0.1 });
+                               tone({ freq: 60, dur: 0.24, type: 'square', vol: 0.05 }); },
+    neigh:       function () { tone({ freq: 500, to: 1100, dur: 0.16, type: 'sawtooth', vol: 0.1 });
+                               tone({ freq: 1100, to: 380, dur: 0.3, type: 'sawtooth', vol: 0.1, delay: 0.16 }); },
+    howl:        function () { tone({ freq: 360, to: 620, dur: 0.22, type: 'sine', vol: 0.13 });
+                               tone({ freq: 620, to: 260, dur: 0.4, type: 'sine', vol: 0.13, delay: 0.22 }); },
+    bubble:      function () { [0, 0.09, 0.19].forEach(function (d, i) {
+                               tone({ freq: 260 + i * 70, to: 520 + i * 90, dur: 0.07, type: 'sine', vol: 0.1, delay: d });
+                             }); },
+    spore:       function () { noise({ dur: 0.34, vol: 0.09, freq: 700, freqTo: 1800, type: 'bandpass', q: 1.2 });
+                               tone({ freq: 180, to: 120, dur: 0.3, type: 'sine', vol: 0.06 }); },
+    steam:       function () { noise({ dur: 0.7, vol: 0.13, freq: 5600, freqTo: 1800, type: 'highpass' }); },
+    thunder:     function () { noise({ dur: 0.9, vol: 0.28, freq: 900, freqTo: 40 });
+                               noise({ dur: 0.12, vol: 0.22, freq: 5200, type: 'highpass' });
+                               tone({ freq: 70, to: 30, dur: 0.8, type: 'sine', vol: 0.26, delay: 0.05 }); },
+    boulder:     function () { tone({ freq: 220, to: 70, dur: 0.22, type: 'sawtooth', vol: 0.12 });
+                               noise({ dur: 0.2, vol: 0.12, freq: 700, freqTo: 150 }); },
+    roarMinotaur:function () { tone({ freq: 110, to: 45, dur: 1.2, type: 'sawtooth', vol: 0.26 });
+                               tone({ freq: 220, to: 90, dur: 0.9, type: 'square', vol: 0.08 });
+                               noise({ dur: 1.0, vol: 0.18, freq: 800, freqTo: 100 }); },
+    roarMedusa:  function () { tone({ freq: 900, to: 300, dur: 1.0, type: 'sawtooth', vol: 0.12 });
+                               noise({ dur: 1.0, vol: 0.14, freq: 4800, freqTo: 2400, type: 'highpass' });
+                               tone({ freq: 140, to: 420, dur: 1.0, type: 'sine', vol: 0.14 }); },
+    roarTalos:   function () { tone({ freq: 95, to: 42, dur: 1.4, type: 'square', vol: 0.2 });
+                               [0.1, 0.4, 0.7, 1.0].forEach(function (d) {
+                                 noise({ dur: 0.08, vol: 0.16, freq: 2400, type: 'bandpass', q: 4, delay: d });
+                               });
+                               noise({ dur: 1.2, vol: 0.14, freq: 700, freqTo: 90 }); },
+    roarHades:   function () { tone({ freq: 70, to: 30, dur: 1.6, type: 'sawtooth', vol: 0.24 });
+                               tone({ freq: 74, to: 28, dur: 1.6, type: 'sine', vol: 0.2 });
+                               noise({ dur: 1.4, vol: 0.1, freq: 500, freqTo: 80, type: 'bandpass', q: 2 }); },
+    roarZeus:    function () { tone({ freq: 120, to: 60, dur: 1.3, type: 'sawtooth', vol: 0.24 });
+                               noise({ dur: 0.9, vol: 0.24, freq: 900, freqTo: 40 });
+                               noise({ dur: 0.1, vol: 0.2, freq: 5400, type: 'highpass', delay: 0.05 }); },
+
     /* --- ambience --------------------------------------------------------------- */
     torch:       function () { [0, 0.05, 0.11].forEach(function (d) {
                                noise({ dur: 0.02 + Math.random() * 0.03, vol: 0.05 + Math.random() * 0.04,
@@ -315,7 +363,9 @@ window.DS = window.DS || {};
   const MIN_GAP = {
     hit: 40, crit: 40, arrowHit: 40, hitBlade: 40, hitBlunt: 40, hitPierce: 40,
     coin: 30, shard: 30, uiHover: 35, uiTab: 35, torch: 250, telegraph: 120,
-    rattle: 120, squish: 90, growl: 200, land: 60, landHard: 60, enemyDie: 60
+    rattle: 120, squish: 90, growl: 200, land: 60, landHard: 60, enemyDie: 60,
+    clack: 100, hiss: 200, chain: 200, bubble: 150, howl: 300, bleat: 200, neigh: 250, spore: 200,
+    steam: 250, boulder: 150
   };
   /* Names that are detuned a little on every play so a repeated sound does not
      sound like a sample loop. Tonal cues (UI, jingles) stay exact. */
@@ -324,7 +374,8 @@ window.DS = window.DS || {};
     swing: 0.06, swingSword: 0.06, swingSpin: 0.04, swingHeavy: 0.05, swingDagger: 0.08,
     swingAxe: 0.05, swingSpear: 0.06, swingStaff: 0.05, bowLoose: 0.06, shoot: 0.06,
     enemyDie: 0.08, hurt: 0.04, jump: 0.05, land: 0.08, landHard: 0.05, dash: 0.05,
-    squish: 0.12, rattle: 0.1, growl: 0.1, torch: 0.1, screech: 0.08
+    squish: 0.12, rattle: 0.1, growl: 0.1, torch: 0.1, screech: 0.08,
+    clack: 0.08, bubble: 0.1, howl: 0.06, bleat: 0.08, neigh: 0.05
   };
   const lastPlayed = {};
 

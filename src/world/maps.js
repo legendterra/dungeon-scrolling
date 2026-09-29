@@ -18,6 +18,7 @@
      grade     { sat, contrast, gamma }            -> DS.PostFX.registerGrade
      backdrop  { curve, hero, recipe }             -> DS.Backdrop.registerTheme
      affinity  { kind: weight }                    -> DS.Enemies.registerAffinity
+     roster    { kind: weight }                    -> DS.Enemies.registerRoster (who lives here)
      tiles     { wall, top, plat }                 -> the level's HD tile look
 
    A module that is not loaded (the level checker runs in node, with no renderer)
@@ -74,6 +75,7 @@ window.DS = window.DS || {};
     if (def.grade && DS.PostFX && DS.PostFX.registerGrade) DS.PostFX.registerGrade(def.key, def.grade);
     if (def.backdrop && DS.Backdrop && DS.Backdrop.registerTheme) DS.Backdrop.registerTheme(def.key, def.backdrop);
     if (def.affinity && DS.Enemies && DS.Enemies.registerAffinity) DS.Enemies.registerAffinity(def.key, def.affinity);
+    if (def.roster && DS.Enemies && DS.Enemies.registerRoster) DS.Enemies.registerRoster(def.key, def.roster);
     return def;
   }
 
