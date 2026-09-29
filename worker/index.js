@@ -6,6 +6,7 @@
  * reaches here even if an asset ever has a matching path:
  *
  *   GET  /api/top    -> the ten best runs, best-first
+ *   GET  /api/board  -> one page of the ladder, and where a given name stands
  *   POST /api/score  -> record a finished run, answer with its rank
  *
  * Everything that arrives is untrusted: the client is a game anybody can edit.
@@ -17,6 +18,8 @@
 
 const MAX_NAME = 12;
 const TOP_N = 10;
+const PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 25;
 /* The dungeon no longer has a bottom: three acts of ten, then an endless
  * descent. The cap is a sanity bound on a number a client can type, not the
  * depth of the dungeon - a four-digit depth is a stale build or a forged post. */
@@ -63,13 +66,9 @@ function readInt(v, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-async function top(env, limit) {
-  const res = await env.DB.prepare(
-    'SELECT name, depth, kills, coins, frames, cleared, created_at ' +
-    'FROM scores ORDER BY depth DESC, kills DESC, created_at ASC LIMIT ?'
-  ).bind(limit).all();
-  return (res.results || []).map((row, i) => ({
-    rank: i + 1,
+function shape(row, rank) {
+  return {
+    rank: rank,
     name: row.name,
     depth: row.depth,
     kills: row.kills,
@@ -77,12 +76,61 @@ async function top(env, limit) {
     frames: row.frames,
     cleared: !!row.cleared,
     at: row.created_at
-  }));
+  };
 }
 
-/* Rows kept in the table. The ladder only ever shows ten, but the SQL is the
- * same either way; the cap is what keeps a free-plan database from growing
- * forever. Trimmed after each insert, cheaply and only when it is worth it. */
+/* The ladder's order, in one place: deeper first, then more kills, then the
+ * older run wins, and the row id breaks any tie left so a rank never wobbles. */
+const LADDER = 'ORDER BY depth DESC, kills DESC, created_at ASC, id ASC';
+
+async function top(env, limit) {
+  return page(env, 0, limit);
+}
+
+async function page(env, index, size) {
+  const res = await env.DB.prepare(
+    'SELECT name, depth, kills, coins, frames, cleared, created_at ' +
+    'FROM scores ' + LADDER + ' LIMIT ? OFFSET ?'
+  ).bind(size, index * size).all();
+  return (res.results || []).map((row, i) => shape(row, index * size + i + 1));
+}
+
+/* Where a name stands: its best run, and how many runs are better than it.
+ * Names are not identities -- anyone may type any name -- so this is "the best
+ * run under this name", which is what a player means by "where am I". */
+async function standing(env, name) {
+  const best = await env.DB.prepare(
+    'SELECT id, name, depth, kills, coins, frames, cleared, created_at ' +
+    'FROM scores WHERE name = ?1 COLLATE NOCASE ' + LADDER + ' LIMIT 1'
+  ).bind(name).first();
+  if (!best) return null;
+  const ahead = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM scores ' +
+    'WHERE depth > ?1 OR (depth = ?1 AND kills > ?2) ' +
+    '   OR (depth = ?1 AND kills = ?2 AND created_at < ?3) ' +
+    '   OR (depth = ?1 AND kills = ?2 AND created_at = ?3 AND id < ?4)'
+  ).bind(best.depth, best.kills, best.created_at, best.id).first();
+  return shape(best, (ahead && ahead.n ? ahead.n : 0) + 1);
+}
+
+/* GET /api/board?page=0&size=10&name=ADA */
+async function board(url, env) {
+  const size = readInt(url.searchParams.get('size') || PAGE_SIZE, 5, MAX_PAGE_SIZE);
+  const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM scores').first();
+  const total = count && count.n ? count.n : 0;
+  const pages = Math.max(1, Math.ceil(total / size));
+  const index = Math.min(pages - 1, readInt(url.searchParams.get('page') || 0, 0, 100000));
+  const name = readName(url.searchParams.get('name'));
+  return {
+    ok: true, page: index, pages: pages, size: size, total: total,
+    rows: await page(env, index, size),
+    me: name ? await standing(env, name) : null
+  };
+}
+
+/* Rows kept in the table: fifty pages of ten. The cap is what keeps a free-plan
+ * database from growing forever. Trimmed after each insert, cheaply and only
+ * when it is worth it. */
 const KEEP_ROWS = 500;
 
 async function trim(env) {
@@ -90,7 +138,7 @@ async function trim(env) {
   if (!count || count.n <= KEEP_ROWS) return;
   await env.DB.prepare(
     'DELETE FROM scores WHERE id NOT IN (' +
-    'SELECT id FROM scores ORDER BY depth DESC, kills DESC, created_at ASC LIMIT ?)'
+    'SELECT id FROM scores ' + LADDER + ' LIMIT ?)'
   ).bind(KEEP_ROWS).run();
 }
 
@@ -149,6 +197,9 @@ export default {
     try {
       if (url.pathname === '/api/top') {
         return json({ ok: true, rows: await top(env, TOP_N) });
+      }
+      if (url.pathname === '/api/board') {
+        return json(await board(url, env));
       }
       if (url.pathname === '/api/score') {
         if (req.method !== 'POST') return fail('use POST', 405);

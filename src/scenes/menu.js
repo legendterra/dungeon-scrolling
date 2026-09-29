@@ -225,7 +225,7 @@ window.DS = window.DS || {};
 
   // --- main menu ------------------------------------------------------------
 
-  const ITEMS = ['START RUN', 'HOW TO PLAY', 'RECORDS', 'OPTIONS'];
+  const ITEMS = ['START RUN', 'LEADERBOARD', 'HOW TO PLAY', 'RECORDS', 'OPTIONS'];
 
   // The item column sits to the left of the camp, so neither covers the other.
   const MENU_X = 16, MENU_Y = 74, MENU_W = 130, MENU_H = 16;
@@ -270,6 +270,11 @@ window.DS = window.DS || {};
         DS.Input.setTextSink(null);
         state.page = 'menu';
         DS.Audio.play('menuMove');
+      },
+      boardPage: function (delta) { boardGo(state, state.board.page + delta); },
+      boardFindMe: function () {
+        const d = state.board && state.board.data;
+        if (d && d.me) boardGo(state, Math.floor((d.me.rank - 1) / d.size));
       }
     };
 
@@ -283,6 +288,7 @@ window.DS = window.DS || {};
         // letter keys straight back to the game.
         if (state.page !== 'name') In.setTextSink(null);
         if (state.page === 'options') { state.options.update(); return; }
+        if (state.page === 'board') { updateBoard(state); return; }
         if (state.page === 'name') { updateName(state); return; }
 
         if (state.page === 'loadout') { updateLoadout(state); return; }
@@ -359,11 +365,50 @@ window.DS = window.DS || {};
     };
   }
 
+  /* The leaderboard: one page at a time, fetched when asked for. A stale answer
+     (a page requested, then another before the first came back) is dropped. */
+  function boardGo(state, index) {
+    const d = state.board.data;
+    if (d && (index < 0 || index >= d.pages)) { DS.Audio.play('error'); return; }
+    state.board.want = ++state.board.token;
+    const mine = state.board.want;
+    DS.Audio.play('menuMove');
+    DS.Board.page(Math.max(0, index)).then(function (data) {
+      if (state.board.token !== mine) return;
+      state.board.data = data;
+      state.board.page = data.page;
+    });
+  }
+
+  function updateBoard(state) {
+    const In = DS.Input;
+    if (In.justPressed('back')) {
+      In.consume('back');
+      state.page = 'menu';
+      DS.Audio.play('menuMove');
+      return;
+    }
+    if (In.justPressed('left')) boardGo(state, state.board.page - 1);
+    if (In.justPressed('right')) boardGo(state, state.board.page + 1);
+    if (In.justPressed('confirm')) {
+      In.consume('confirm');
+      const d = state.board.data;
+      if (d && d.me) boardGo(state, Math.floor((d.me.rank - 1) / d.size));
+    }
+  }
+
   function choose(state) {
     DS.Audio.play('menuPick');
-    if (state.cursor === 0) state.page = DS.Board.hasName() ? 'loadout' : 'name';
-    else if (state.cursor === 1) state.page = 'help';
-    else if (state.cursor === 2) { state.stats = DS.Storage.load(); state.page = 'records'; }
+    const which = ITEMS[state.cursor];
+    if (which === 'START RUN') state.page = DS.Board.hasName() ? 'loadout' : 'name';
+    else if (which === 'LEADERBOARD') {
+      if (!htmlOn()) { state.stats = DS.Storage.load(); state.page = 'records'; return; }
+      state.board = { page: 0, data: null, token: 0, want: 0 };
+      state.page = 'board';
+      boardGo(state, 0);
+    }
+    else if (which === 'HOW TO PLAY') state.page = 'help';
+    else if (which === 'RECORDS') { state.stats = DS.Storage.load(); state.page = 'records'; }
     else {
       state.options = DS.Options.create({ fromMenu: true, onClose: function () { state.page = 'menu'; state.options = null; } });
       state.page = 'options';

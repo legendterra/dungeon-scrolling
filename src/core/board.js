@@ -166,8 +166,33 @@ window.DS = window.DS || {};
     });
   }
 
+  /* One page of the ladder, and where this player stands on it. Online it is the
+     Worker's /api/board; offline it is sliced from whatever rows we hold, and
+     says so. The answer always has the same shape:
+       { rows, page, pages, total, size, me: row | null, offline } */
+  function page(index, size) {
+    size = Math.max(5, Math.min(25, size || 10));
+    const query = '/api/board?page=' + Math.max(0, index | 0) + '&size=' + size +
+                  (name ? '&name=' + encodeURIComponent(name) : '');
+    return request(query).then(function (res) {
+      if (!res || !Array.isArray(res.rows)) throw new Error('bad board');
+      online = true;
+      return { rows: res.rows, page: res.page | 0, pages: Math.max(1, res.pages | 0), total: res.total | 0,
+               size: res.size || size, me: res.me || null, offline: false };
+    }, function () {
+      online = false;
+      const all = rows();
+      const pages = Math.max(1, Math.ceil(all.length / size));
+      const at = Math.min(Math.max(0, index | 0), pages - 1);
+      const mine = name ? all.find(function (r) { return r.name.toLowerCase() === name.toLowerCase(); }) : null;
+      return { rows: all.slice(at * size, at * size + size), page: at, pages: pages, total: all.length,
+               size: size, me: mine || null, offline: true };
+    });
+  }
+
   DS.Board = {
     MAX_NAME: MAX_NAME,
+    page: page,
     clean: clean,
     get name() { return name; },
     hasName: function () { return !!name; },

@@ -91,6 +91,7 @@ window.DS = window.DS || {};
 
   const ITEMS = [
     { label: 'START RUN', desc: 'Choose your steel and descend' },
+    { label: 'LEADERBOARD', desc: 'The deepest runs, and where you stand' },
     { label: 'HOW TO PLAY', desc: 'Controls, elements and the rules of the dungeon' },
     { label: 'RECORDS', desc: 'Your deepest runs and finest steel' },
     { label: 'OPTIONS', desc: 'Graphics, audio, controls and more' }
@@ -390,6 +391,67 @@ window.DS = window.DS || {};
     ]);
   }
 
+  // --- leaderboard ----------------------------------------------------------
+
+  function boardRow(r, mine, you) {
+    return h('li', 'hb-row' + (mine ? ' is-mine' : '') + (you ? ' is-you' : '') + (r.cleared ? ' is-cleared' : ''), null, [
+      h('span', 'hb-rank ui-num', { text: you ? 'YOU \u00b7 #' + r.rank : '#' + r.rank }),
+      h('span', 'hb-name', { text: r.name }),
+      h('span', 'hb-depth ui-num', { text: DS.Acts ? DS.Acts.shortLabel(r.depth) : String(r.depth) }),
+      h('span', 'hb-kills ui-num', { text: String(r.kills) }),
+      h('span', 'hb-time ui-num', { text: formatTime(r.frames) })
+    ]);
+  }
+
+  function leaderboard(state, act) {
+    const s = K().screen('board');
+    const b = state.board;
+    const d = b.data;
+    const me = DS.Board && DS.Board.name ? DS.Board.name.toLowerCase() : '';
+    const sig = 'board|' + (d ? [d.page, d.pages, d.total, d.rows.length, d.offline, d.me ? d.me.rank : 0].join('.') : 'loading') +
+      '|' + Math.round(DS.HUI.frame.h);
+    K().rebuild(s, sig, function (root) {
+      root.appendChild(h('div', 'hm-scrim-full'));
+      root.appendChild(K().masthead({ eyebrow: 'LADDER', title: 'Leaderboard', accent: 'var(--gold)',
+        sub: d && d.offline ? 'Offline: showing the runs kept on this device.' : 'The deepest runs, wherever they were played.' }));
+
+      const head = h('div', 'hb-head', null, [
+        h('span', 'hb-rank', { text: 'RANK' }), h('span', 'hb-name', { text: 'NAME' }),
+        h('span', 'hb-depth', { text: 'DEPTH' }), h('span', 'hb-kills', { text: 'KILLS' }), h('span', 'hb-time', { text: 'TIME' })
+      ]);
+      const list = h('ol', 'hb-list');
+      if (!d) list.appendChild(h('li', 'hb-empty', { text: 'Loading the ladder\u2026' }));
+      else if (!d.rows.length) list.appendChild(h('li', 'hb-empty', { text: 'No runs recorded yet. Be the first.' }));
+      else d.rows.forEach(function (r) { list.appendChild(boardRow(r, me && r.name.toLowerCase() === me, false)); });
+
+      let you;
+      if (d && d.me) you = boardRow(d.me, true, true);
+      else you = h('li', 'hb-row is-you is-none', null, [
+        h('span', 'hb-note', { text: DS.Board && DS.Board.name ? 'No run under ' + DS.Board.name + ' on the ladder yet.' : 'Play a run to appear here.' })
+      ]);
+
+      const prev = button('\u25c0  PREV', 'hm-foot-btn', function () { act.boardPage(-1); });
+      const next = button('NEXT  \u25b6', 'hm-foot-btn', function () { act.boardPage(1); });
+      const find = button('FIND ME', 'hm-foot-btn', function () { act.boardFindMe(); });
+      if (!d || d.page <= 0) prev.classList.add('is-locked');
+      if (!d || d.page >= d.pages - 1) next.classList.add('is-locked');
+      if (!d || !d.me) find.classList.add('is-locked');
+      const pager = h('div', 'hb-pager', null, [
+        prev,
+        h('span', 'hb-page ui-num', { text: d ? 'PAGE ' + (d.page + 1) + ' / ' + d.pages : 'PAGE \u2014' }),
+        next, find,
+        h('span', 'hk-mast-fill'),
+        h('span', 'hb-total', { text: d ? d.total + ' RUN' + (d.total === 1 ? '' : 'S') + ' ON THE LADDER' : '' })
+      ]);
+
+      root.appendChild(h('main', 'hk-body hb-body', null, [
+        h('section', 'ui-panel hb-panel', null, [head, list, h('ol', 'hb-you', null, [you]), pager])
+      ]));
+      const back = button('BACK', 'hm-foot-btn', function () { act.back(); });
+      root.appendChild(K().foot([['\u2190 \u2192', 'Page'], ['ENTER', 'Find me'], ['ESC', 'Back']], h('div', 'hk-foot-left', null, [back])));
+    });
+  }
+
   // --- title-screen dispatch ------------------------------------------------
 
   function menu(state, act) {
@@ -397,6 +459,7 @@ window.DS = window.DS || {};
     else if (state.page === 'loadout') loadout(state, act);
     else if (state.page === 'help') howTo(state, act);
     else if (state.page === 'records') records(state, act);
+    else if (state.page === 'board' && state.board) leaderboard(state, act);
     else if (state.page === 'options' && state.options) state.options.draw();
     else mainMenu(state, act);
   }
