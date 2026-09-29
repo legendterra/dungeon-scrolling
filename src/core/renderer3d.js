@@ -2963,6 +2963,85 @@ window.DS = window.DS || {};
     projNow.length = 0;
   }
 
+  /* --- body-weight animation (DS.Anim) -----------------------------------------
+     One state per body, stepped once per GAME frame (draw runs faster than the
+     sim, and a spring stepped per draw would ring at the wrong rate). */
+  let heroAnim = null;
+  let heroAnimFrame = -1;
+  let heroPrevHp = 0;
+  let animFrames = -1;            // the game frame the enemy rigs are being posed for
+
+  function stepHeroAnim(g, p) {
+    const A = DS.Anim;
+    if (!heroAnim) heroAnim = A.create();
+    if (g.frames === heroAnimFrame) return heroAnim.out;
+    if (g.frames < heroAnimFrame) A.reset(heroAnim);
+    heroAnimFrame = g.frames;
+    const inp = A.input;
+    inp.grounded = !!p.onGround || !!p.onRope || !!p.inWater;
+    inp.vy = p.vy || 0;
+    inp.dashing = (p.dashFrames || 0) > 0;
+    inp.hurt = p.hp < heroPrevHp && !p.dead;
+    inp.dead = !!p.dead;
+    inp.wind = 0;
+    inp.strike = false;
+    heroPrevHp = p.hp;
+    const o = A.step(heroAnim, inp);
+    if (o.justLanded && DS.FX3D && DS.FX3D.ready && o.landPower > 0.3) {
+      const F = DS.FX3D;
+      const X = (p.x + p.w * 0.5) * P2U, Y = (-p.y - p.h) * P2U;
+      for (let i = 0; i < 4; i++) {
+        const dir = i < 2 ? -1 : 1;
+        F.puffAt(X + dir * 0.15, Y + 0.05, ACTOR_Z, dir * F.rnd(0.01, 0.03), 0.006, 0,
+                 0.14, 0.4, 0x8a8078, 0.18 * o.landPower + 0.05, 22);
+      }
+    }
+    return o;
+  }
+
+  function stepEnemyAnim(e, model) {
+    const A = DS.Anim;
+    if (!model.anim) model.anim = A.create();
+    if (model.animFrame === animFrames) return model.anim.out;
+    model.animFrame = animFrames;
+    const inp = A.input;
+    inp.grounded = e.flying ? true : !!e.onGround;
+    inp.vy = e.vy || 0;
+    inp.dashing = false;
+    inp.hurt = e.hurtFlash > 0;
+    inp.dead = false;
+    inp.wind = e.attackState === 'wind'
+      ? 1 - (e.attackTimer || 0) / Math.max(1, e.cfg && e.cfg.wind || 20) : 0;
+    inp.strike = e.attackState === 'strike';
+    return A.step(model.anim, inp);
+  }
+
+  /* Burst a model into voxel chunks tinted like its own meshes. Chunks tumble
+     on the pooled FX layer, so nothing here owns geometry afterward. */
+  const shatterPos = new THREE.Vector3();
+  function shatterModel(model, count, sizeMul) {
+    const F = DS.FX3D;
+    if (!F || !F.ready || !model || !model.root) return;
+    const meshes = [];
+    model.root.traverse(function (o) {
+      if (o.isMesh && o.material && o.material.color && o.visible) meshes.push(o);
+    });
+    if (!meshes.length) return;
+    model.root.updateMatrixWorld(true);
+    const step = Math.max(1, meshes.length / count);
+    for (let i = 0, k = 0; i < meshes.length && k < count; i += step, k++) {
+      const mesh = meshes[Math.floor(i)];
+      shatterPos.setFromMatrixPosition(mesh.matrixWorld);
+      const a = F.rnd(0, Math.PI * 2);
+      const sp = F.rnd(0.02, 0.06);
+      F.chunkAt(shatterPos.x, shatterPos.y, shatterPos.z + 0.05,
+        Math.cos(a) * sp, F.rnd(0.03, 0.09), Math.sin(a) * sp * 0.4,
+        F.rnd(0.1, 0.2) * sizeMul, mesh.material.color.getHex(), F.rnd(34, 58), shatterPos.y - 0.6);
+    }
+    F.puffAt(model.root.position.x, model.root.position.y + 0.5, ACTOR_Z, 0, 0.006, 0,
+             0.3 * sizeMul, 0.6, 0xb8b0a8, 0.14, 26);
+  }
+
   function poseHero(g, p, time) {
     if (!p) return;
     ensureHero(g);
@@ -3005,7 +3084,8 @@ window.DS = window.DS || {};
     // The mirror itself. Nothing else writes root.scale on the hero, so a
     // straight assignment per frame is safe (the enemy path has to multiply,
     // because it still sets its own scalar for rank size).
-    m.root.scale.x = face < 0 ? -1 : 1;
+    const ha = stepHeroAnim(g, p);
+    m.root.scale.set((face < 0 ? -1 : 1) * ha.sxz, ha.sy, ha.sxz);
     resetAttackChannels(m);
 
     const airborne = !p.onGround && !p.onRope;
@@ -3094,6 +3174,22 @@ window.DS = window.DS || {};
       m.torso.rotation.y *= 0.8;
     }
 
+    /* Weight layer (DS.Anim): dash lean, hit recoil and the coil before a
+       strike pitch the torso; the legs draw up at the jump apex and bend after
+       a landing. Skipped while a swing owns the body so the authored attack
+       poses stay exact. */
+    m.torso.rotation.x += ha.pitch * (1 - attackW);
+    if (airborne && !p.onRope && ha.tuck > 0.01) {
+      m.legL.rotation.x = M.lerp(m.legL.rotation.x, 0.75, ha.tuck * 0.7);
+      m.legR.rotation.x = M.lerp(m.legR.rotation.x, 0.55, ha.tuck * 0.7);
+      m.armL.rotation.x = M.lerp(m.armL.rotation.x, -1.2, ha.tuck * 0.5);
+      m.armR.rotation.x = M.lerp(m.armR.rotation.x, -1.2, ha.tuck * 0.5 * (1 - attackW));
+    }
+    if (ha.knees > 0.01 && p.onGround) {
+      m.legL.rotation.x += ha.knees * 0.35;
+      m.legR.rotation.x += ha.knees * 0.35;
+    }
+
     /* A 3D body pivots toward where it walks -- no sprite-style mirror snap.
        The smoothed yaw lives on the model; a spin finisher rides on top of it
        and never feeds back into the smoothing. A swing snaps faster. */
@@ -3131,10 +3227,11 @@ window.DS = window.DS || {};
     m.head.rotation.z = p.hurtFlash > 0 ? Math.sin(time * 40) * 0.15 : 0;
     m.root.position.y += bob + (p.onRope ? 0.05 : 0);
 
-    // Death: topple over.
+    // Death: topple over, and burst into chunks the moment it starts.
     if (p.dead) {
-      m.root.rotation.z = M.lerp(m.root.rotation.z, Math.PI / 2 * (p.facing < 0 ? -1 : 1), 0.12);
-    } else m.root.rotation.z = 0;
+      m.root.rotation.z = Math.PI / 2 * (p.facing < 0 ? -1 : 1) * ha.death;
+      if (ha.death > 0 && !m.shattered) { m.shattered = true; shatterModel(m, 12, 1); }
+    } else { m.root.rotation.z = 0; m.shattered = false; }
   }
 
   function poseEnemy(e, model, time, map) {
@@ -3161,15 +3258,23 @@ window.DS = window.DS || {};
     }
     // Delegate limb animation to the shared poser, then layer state on top.
     DS.Voxel.pose(model, e, time);
-    if (e.hurtFlash > 0) {
-      model.root.rotation.z = Math.sin(time * 44) * 0.09;
-    } else model.root.rotation.z = 0;
+    const ea = stepEnemyAnim(e, model);
+    /* Weight layer (DS.Anim): the recoil pitches the whole body back with a
+       little shake on top; a wind-up coils it. Fliers keep their hover, so
+       only ground walkers squash on landing. */
+    model.root.rotation.z = e.hurtFlash > 0 ? Math.sin(time * 44) * 0.09 : 0;
+    model.root.rotation.x = ea.pitch * (e.flying ? 0.5 : 1);
 
     // Tier crown: elites get a faint ember, minibosses a red glow child.
     // (The 2D overlay still draws the HP bar; here only presence matters.)
     if (e.tier === 'colossal') model.root.scale.setScalar(1.0 * (e.sizeScale || 3) * 0.95);
     else model.root.scale.setScalar(actorScale(e));
 
+    if (!e.flying) {
+      model.root.scale.x *= ea.sxz;
+      model.root.scale.y *= ea.sy;
+      model.root.scale.z *= ea.sxz;
+    }
     /* Mirror after the scale is set, because setScalar would undo it. */
     if (e.facing < 0) model.root.scale.x *= -1;
 
@@ -4228,6 +4333,10 @@ window.DS = window.DS || {};
   const liveEnemySet = new Set();
   function retireEnemyModel(model, e) {
     if (!liveEnemySet.has(e)) {
+      // Killed (not merely cleared with the level): the body bursts into chunks.
+      if (e.dead && model.root.visible !== false) {
+        shatterModel(model, e.isBoss ? 30 : (e.tier ? 16 : 10), e.isBoss ? 1.8 : Math.min(1.6, (e.sizeScale || 1)));
+      }
       disposeModel(model);
       enemyModels.delete(e);
     }
@@ -4422,6 +4531,7 @@ window.DS = window.DS || {};
       /* Spawn models for any new enemy; retire models whose entity is gone.
          Membership is a Set built in the same pass, not an indexOf per model:
          that was O(models x enemies) every frame of every fight. */
+      animFrames = g.frames;
       liveEnemySet.clear();
       for (let i = 0; i < g.enemies.length; i++) {
         const e = g.enemies[i];
@@ -4820,6 +4930,8 @@ window.DS = window.DS || {};
     visibleExtent: visibleExtent,
     loadLevel: loadLevel,
     render: render,
+    /* QA handle: the hero's root object (tools/qa/shoot-phase8.js). */
+    heroRoot: function () { return heroModel ? heroModel.root : null; },
     spawnElemPuddle: spawnElemPuddle,
     spawnGroundBurst: spawnGroundBurst,
     spawnSmokePuff: spawnSmokePuff,
