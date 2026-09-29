@@ -1907,10 +1907,11 @@ window.DS = window.DS || {};
     ].join('\n');
   }
 
-  function rimMaterial(opts, rimCol, sun) {
+  function rimMaterial(opts, rimCol, sun, fill) {
     const m = new THREE.MeshLambertMaterial(opts);
     m.emissive.copy(rimCol);
-    const key = 'bdrim:' + sun.dx.toFixed(2) + ',' + sun.dy.toFixed(2) + ',' + sun.z.toFixed(2);
+    fill = fill || 0;
+    const key = 'bdrim:' + sun.dx.toFixed(2) + ',' + sun.dy.toFixed(2) + ',' + sun.z.toFixed(2) + ',' + fill.toFixed(2);
     const chunk = rimChunk(sun);
     m.onBeforeCompile = function (sh) {
       sh.vertexShader = sh.vertexShader
@@ -1920,6 +1921,13 @@ window.DS = window.DS || {};
         .replace('#include <common>', '#include <common>\nvarying float vBdRim;')
         .replace('vec3 totalEmissiveRadiance = emissive;',
                  'vec3 totalEmissiveRadiance = emissive * vBdRim;');
+      /* v7 `fill`: the band's own colour, added unlit. A place lit from behind
+         (a storm, a pit) has the FRONT of everything in shadow, which is right
+         for one ridge and a wall of black for a whole hall of them. */
+      if (fill > 0) {
+        sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>',
+          '#include <emissivemap_fragment>\n  totalEmissiveRadiance += diffuseColor.rgb * ' + fill.toFixed(3) + ';');
+      }
     };
     m.customProgramCacheKey = function () { return key; };
     return m;
@@ -2961,7 +2969,8 @@ window.DS = window.DS || {};
       const mat = L.glow
         ? new THREE.MeshBasicMaterial(Object.assign(
             { transparent: true, opacity: L.alpha != null ? L.alpha : 0.85, depthWrite: false }, matOpts))
-        : rimMaterial(matOpts, new THREE.Color(hon.col).multiplyScalar(rimK), sun);
+        : rimMaterial(matOpts, new THREE.Color(hon.col).multiplyScalar(rimK), sun,
+                      (L.fill != null ? L.fill : rec.fill || 0) * (0.5 + 0.5 * (1 - far)));
 
       /* One scale for the whole band about its base: authored in reference
          units, enlarged by exactly the factor that its distance grew by. */

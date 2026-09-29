@@ -184,18 +184,18 @@
       top: { tex: 'tile_pavelarge', color: '#9aa0aa' },
       plat: { tex: 'tile_metal', color: '#7a7268' }
     },
-    theme: { fog: 0x12151c, ambient: 0x6a7080, hemiSky: 0x8a92a6, hemiGround: 0x262a34, dir: 0xffc080, dirI: 0.6 },
+    theme: { fog: 0x1c202a, ambient: 0x8a90a2, hemiSky: 0xa4acc0, hemiGround: 0x363a48, dir: 0xffc080, dirI: 0.72 },
     affinity: {},
     backdrop: {
       curve: { gain: 0.44, warm: 0.34 },
       hero: { kind: 'sun', col: 0xffb868, core: 0xfff0d0, edge: 0xc86a18, az: 0.5, elev: 9.0, r: 5.4,
               halos: [1.5, 2.6], rays: 12, fan: 12, glow: 0.4, gain: 1.0 },
       recipe: {
-        tex: 'granite', skyGlow: 0.85, haze: 0.66, ground: 0x0e1014,
+        tex: 'granite', fill: 0.3, skyGlow: 0.85, haze: 0.66, ground: 0x0e1014,
         motes: { col: 0xffb060, size: 0.24, alpha: 0.4, rise: 0.4 },
         layers: [
-          { kind: 'statue',    sp: 19, d: 4.5, col: 0x444a56, h0: 9, h1: 11 },
-          { kind: 'wall',      d: 8, col: 0x3c424e, cell: 6, jitter: 0.5,
+          { kind: 'statue',    sp: 19, d: 4.5, col: 0x646c7c, h0: 9, h1: 11 },
+          { kind: 'wall',      d: 8, col: 0x6a7284, courses: true, cell: 5, piers: 26, string: 5, jitter: 0.5,
             openings: { every: 26, first: 13, w: 3.2, h: 16, y0: 9, shape: 'window' } },
           { kind: 'biggate',   solo: true, d: 12, col: 0x363c46, scale: 1 },
           { kind: 'columns',   sp: 4.0, d: 19, col: 0x20242a, h0: 3, h1: 4 },

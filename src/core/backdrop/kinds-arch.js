@@ -73,12 +73,60 @@ window.DS = window.DS || {};
     return y < op.y0 + op.h;
   }
 
+  /* `courses` lays the wall as masonry instead of a grid: running-bond courses
+     of blocks twice as long as they are high, a dark plinth, a lit string course
+     every few rows, a seam of shadow round every block, a cornice where the wall
+     ends, and `piers` (a pilaster every so many units, from world x = 0) that
+     stand proud of the face. Same span, same openings, same texture scale. */
+  function courseWall(o, L, S, ops, thick, jit, top) {
+    const bw = L.cell || 4, bh = bw * (L.bond || 0.5);
+    const rows = Math.ceil(top / bh);
+    const cols = Math.ceil((S.lx1 - S.lx0) / bw) + 1;
+    const string = L.string || 6;
+    for (let j = 0; j < rows; j++) {
+      const cy = (j + 0.5) * bh;
+      const shift = (j % 2) * bw * 0.5;
+      for (let i = 0; i < cols; i++) {
+        const cx = S.lx0 + (i + 0.5) * bw - shift;
+        let open = false;
+        for (let k = 0; k < ops.length; k++) if (inOpening(ops[k], cx, cy)) { open = true; break; }
+        if (open) continue;
+        const h = hash01(i * 7.31 + j * 3.77 + 0.5);
+        let tone = h < jit * 0.25 ? 1 : (h > 1 - jit * 0.25 ? 2 : 0);
+        if (j < 2) tone = 1;                                  // the plinth
+        else if (j % string === string - 1) tone = 2;         // a string course
+        box(o.boxes, cx, cy, -0.25, bw * 1.02, bh * 1.02, thick * 0.8, 0, 0, 1);    // the seam: shadow behind
+        box(o.boxes, cx, cy, 0, bw * 0.965, bh * 0.94, thick, 0, 0, tone);
+      }
+    }
+    if (L.height != null) {
+      const span = S.lx1 - S.lx0;
+      box(o.boxes, S.lx0 + span * 0.5, top + bh * 0.4, 0.3, span + bw * 2, bh * 0.8, thick + 0.8, 0, 0, 2);   // the cornice
+    }
+    if (L.piers) {
+      const every = L.piers, pw = L.pierW || bw * 0.9;
+      let i = Math.floor((S.lx0 - S.originX - pw) / every);
+      for (; ; i++) {
+        const px = S.originX + i * every;
+        if (px - pw > S.lx1) break;
+        if (px + pw < S.lx0) continue;
+        box(o.boxes, px, top * 0.5, 0.75, pw, top, thick * 0.7, 0, 0, 0);
+        box(o.boxes, px, bh * 1.2, 0.95, pw * 1.35, bh * 2.4, thick * 0.8, 0, 0, 1);       // its base
+        box(o.boxes, px, top - bh * 0.6, 0.95, pw * 1.35, bh * 1.2, thick * 0.8, 0, 0, 2); // its capital
+      }
+    }
+  }
+
   K.wall = function (o, x, rng, L) {
     const S = L.span;
     const cell = L.cell || 5;
     const thick = L.thick || 2.4;
     const jit = L.jitter != null ? L.jitter : 0.45;
     const ops = openingList(L, S);
+    if (L.courses) {
+      courseWall(o, L, S, ops, thick, jit, L.height != null ? L.height : Math.max(cell * 3, S.top + cell));
+      return wallBars(o, ops);
+    }
     const cols = Math.ceil((S.lx1 - S.lx0) / cell);
     // `height` makes a wall that ENDS (a labyrinth's, with sky above it); without
     // it the wall runs to the top of the frame and shuts the sky out.
@@ -96,7 +144,12 @@ window.DS = window.DS || {};
         box(o.boxes, cx, cy, 0, cell * 1.015, cell * 1.015, thick, 0, 0, tone);
       }
     }
-    // Bars: iron, thin, and dark against the light behind them.
+    wallBars(o, ops);
+  };
+  K.wall.whole = true;
+
+  /* Bars: iron, thin, and dark against the light behind them. */
+  function wallBars(o, ops) {
     for (let k = 0; k < ops.length; k++) {
       const op = ops[k];
       if (!op.bars) continue;
@@ -113,8 +166,7 @@ window.DS = window.DS || {};
       }
       box(o.boxes, op.x, op.y0 + op.h * 0.5, 0, op.w, 0.2, 0.3, 0, 0, 4);
     }
-  };
-  K.wall.whole = true;
+  }
 
   /* --- a block of cells -----------------------------------------------------------
      Tiers of cells with a walkway across each: bars, a door frame, the odd lamp.

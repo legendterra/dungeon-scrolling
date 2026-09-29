@@ -71,7 +71,7 @@ window.DS = window.DS || {};
   /* A mangrove: a trunk on a tangle of arching roots, a flat dark canopy. */
   K.mangrove = function (o, x, rng, L) {
     const h = rng.float(L.h0 || 3.5, L.h1 || 6);
-    box(o.boxes, x, h * 0.6, 0, h * 0.16, h * 1.2, h * 0.16, rng.float(-0.05, 0.05), 0, 1);
+    box(o.boxes, x, h * 0.6, 0, h * 0.13, h * 1.2, h * 0.13, rng.float(-0.05, 0.05), 0, 1);
     for (let i = 0; i < 4; i++) {
       const side = i % 2 ? 1 : -1;
       const reach = rng.float(1.4, 3.2) * (1 + i * 0.12);
@@ -80,8 +80,10 @@ window.DS = window.DS || {};
       box(o.boxes, (x0 + x1) * 0.5, (y0 + y1) * 0.5, rng.float(-0.6, 0.6), seg, 0.22, 0.22,
           Math.atan2(y1 - y0, x1 - x0), 0, 1);
     }
-    box(o.boxes, x, h * 1.25, 0, h * rng.float(1.0, 1.6), h * 0.24, h * 0.9, 0, 0, 0);
-    box(o.boxes, x + rng.float(-1, 1), h * 1.42, 0, h * rng.float(0.5, 0.9), h * 0.18, h * 0.6, 0, 0, 2);
+    const cw = h * rng.float(0.7, 1.1);
+    box(o.boxes, x, h * 1.22, 0, cw, h * 0.2, h * 0.6, 0, 0, 0);
+    box(o.boxes, x + rng.float(-0.4, 0.4), h * 1.38, 0, cw * 0.62, h * 0.16, h * 0.42, 0, 0, 2);
+    box(o.boxes, x + rng.float(-0.6, 0.6), h * 1.05, 0, cw * 0.5, h * 0.14, h * 0.4, 0, 0, 1);   // a lower tier of leaves
   };
 
   /* Lily pads the size of tables on the water, a pink flower on some. */

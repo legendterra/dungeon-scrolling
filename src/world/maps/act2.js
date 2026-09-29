@@ -71,8 +71,8 @@
       recipe: {
         layers: [
           { kind: 'lilies',    sp: 5.5, d: 4.5, col: 0x142a10 },
-          { kind: 'mangrove',  sp: 7.5, d: 7.5, col: 0x162a10, h0: 3.0, h1: 5.0 },
-          { kind: 'mangrove',  sp: 6.0, d: 12,  col: 0x14260e, h0: 3.4, h1: 5.6 },
+          { kind: 'mangrove',  sp: 7.5, d: 7.5, col: 0x2a4a1e, h0: 2.2, h1: 3.6 },
+          { kind: 'mangrove',  sp: 6.0, d: 12,  col: 0x264418, h0: 2.6, h1: 4.0 },
           { kind: 'reeds',     sp: 1.8, d: 12,  col: 0x10200a },
           { kind: 'islets', foam: true, sp: 7.0, d: 19, col: 0x14220f, h0: 2.2, h1: 3.2, cap: 0x3a5a24 },
           { kind: 'mangrove',  solo: true, d: 30, col: 0x0e1c08, h0: 5.5, h1: 6.5, scale: 1.6 },

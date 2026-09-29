@@ -33,19 +33,19 @@
       hero: { kind: 'sun', col: 0xffe8b0, core: 0xfffff0, edge: 0xe0a040, az: 0.5, elev: 11.0, r: 6.2,
               halos: [1.5, 2.6], rays: 14, fan: 14, glow: 0.42, gain: 1.0 },
       recipe: {
-        tex: 'sand', skyGlow: 0.95, haze: 0.8, ground: 0x2a2216,
+        tex: 'sand', fill: 0.2, skyGlow: 0.95, haze: 0.8, ground: 0x2a2216,
         motes: { col: 0xffe8b0, size: 0.22, alpha: 0.3, rise: 0.1 },
         layers: [
-          { kind: 'colonnade', sp: 20, d: 4.5, col: 0x9a6a44, style: 'minoan', h0: 6, h1: 7, cols: 4 },
-          { kind: 'wall',  d: 7.5, col: 0x9a805a, cell: 4, height: 12, jitter: 0.5,
-            openings: { every: 26, first: 8, w: 6, h: 8, y0: 0, shape: 'window' } },
-          { kind: 'wall',  d: 12, col: 0x8a7050, cell: 5, height: 19, jitter: 0.5,
+          { kind: 'colonnade', sp: 20, d: 4.5, col: 0xb06a3c, style: 'minoan', h0: 6, h1: 7, cols: 4 },
+          { kind: 'wall',  d: 7.5, col: 0xc8ac78, courses: true, cell: 4, height: 11, piers: 24, jitter: 0.5,
+            openings: { every: 26, first: 8, w: 6, h: 7, y0: 0, shape: 'window' } },
+          { kind: 'wall',  d: 12, col: 0xb89e6c, courses: true, cell: 5, height: 15, piers: 30, jitter: 0.5,
             openings: { every: 34, first: 20, w: 7, h: 9, y0: 0, shape: 'window' } },
-          { kind: 'wall',  d: 19, col: 0x7a6446, cell: 6, height: 26, jitter: 0.5,
+          { kind: 'wall',  d: 19, col: 0xa89060, courses: true, cell: 6, height: 18, piers: 40, jitter: 0.5,
             openings: { every: 44, first: 10, w: 9, h: 11, y0: 0, shape: 'window' } },
-          { kind: 'bullhead', solo: true, d: 30, col: 0x6a5840, scale: 1.4 },
-          { kind: 'wall',  d: 46, col: 0x6a5840, cell: 8, height: 34, jitter: 0.5,
-            openings: { every: 60, first: 30, w: 12, h: 14, y0: 0, shape: 'window' } },
+          { kind: 'bullhead', solo: true, d: 30, col: 0x8a7550, scale: 1.4 },
+          { kind: 'wall',  d: 46, col: 0x988458, courses: true, cell: 8, height: 17, piers: 64, jitter: 0.5,
+            openings: { every: 60, first: 30, w: 12, h: 12, y0: 0, shape: 'window' } },
           { kind: 'mountains', sp: 9, d: 68, col: 0x8a7c66, h0: 2.3, h1: 2.9 }
         ]
       }
@@ -145,27 +145,27 @@
       top: { tex: 'tile_metal', color: '#8a6a4a' },
       plat: { tex: 'tile_metal', color: '#7a5a3a' }
     },
-    theme: { fog: 0x1c0806, ambient: 0x6a3028, hemiSky: 0x8a3a2c, hemiGround: 0x1c0a08, dir: 0xff5a30, dirI: 0.5 },
+    theme: { fog: 0x2a0e0a, ambient: 0x8a4636, hemiSky: 0xa84a38, hemiGround: 0x3a1a14, dir: 0xff6a3a, dirI: 0.72 },
     grade: { sat: 1.14, contrast: 1.1 },
     affinity: { cultist: 1.6, magmacrab: 1.6, wraith: 1.2 },
     backdrop: {
-      curve: { gain: 0.3, warm: 0.4 },
+      curve: { gain: 0.55, warm: 0.4 },
       hero: { kind: 'dome', col: 0xff4a20, core: 0xffc090, edge: 0x901008, az: 0.5, elev: 6.0, r: 4.4,
               halos: [1.5, 2.6], rays: 10, fan: 12, glow: 0.5, gain: 1.0 },
       recipe: {
-        tex: 'basalt', ceiling: { y: 17, col: 0x0a0402 },
+        tex: 'basalt', fill: 0.55, ceiling: { y: 17, col: 0x0a0402 },
         skyGlow: 0.5, haze: 0.66, ground: 0x0c0403,
         ember: { sp: 2.6, size: 0.11, alpha: 0.5, col: 0xff8a3c },
         motes: { col: 0xff6a20, size: 0.2, alpha: 0.4, rise: 0.5 },
         water: { d0: 8, col: 0x4a0c04, lava: true },
         layers: [
-          { kind: 'rubble',   sp: 2.4, d: 4.5, col: 0x2a1410, s0: 0.3, s1: 1.0 },
-          { kind: 'bigchain', sp: 26, d: 7.5, col: 0x2e1a14, hang: true, l0: 16, l1: 40 },
-          { kind: 'spires',   sp: 4.4, d: 12, col: 0x24100c, h0: 2.8, h1: 4.6 },
-          { kind: 'bigchain', sp: 30, d: 19, col: 0x241410, hang: true, l0: 20, l1: 44 },
-          { kind: 'titan',    solo: true, d: 30, col: 0x1c0e0a, scale: 0.55 },
-          { kind: 'biggate',  sp: 90, d: 46, col: 0x24140e },
-          { kind: 'spires',   sp: 5.0, d: 68, col: 0x1a0c08, h0: 2.4, h1: 3.6 }
+          { kind: 'rubble',   sp: 2.4, d: 4.5, col: 0x54301f, s0: 0.3, s1: 1.0 },
+          { kind: 'bigchain', sp: 26, d: 7.5, col: 0x5c382a, hang: true, l0: 16, l1: 40 },
+          { kind: 'spires',   sp: 4.4, d: 12, col: 0x4e281a, h0: 2.8, h1: 4.6 },
+          { kind: 'bigchain', sp: 30, d: 19, col: 0x4a2a1e, hang: true, l0: 20, l1: 44 },
+          { kind: 'titan',    solo: true, d: 30, col: 0x3c2016, scale: 0.55 },
+          { kind: 'biggate',  sp: 90, d: 46, col: 0x4a2a1c },
+          { kind: 'spires',   sp: 5.0, d: 68, col: 0x3a1c12, h0: 2.4, h1: 3.6 }
         ]
       }
     }
@@ -378,25 +378,25 @@
       top: { tex: 'tile_pavelarge', color: '#d0d6ea' },
       plat: { tex: 'tile_metal', color: '#c0a860' }
     },
-    theme: { fog: 0x0e1224, ambient: 0x6a7290, hemiSky: 0x8a94b6, hemiGround: 0x1c2036, dir: 0xffe8a0, dirI: 0.6 },
+    theme: { fog: 0x262c48, ambient: 0x8a92b4, hemiSky: 0xaab4d4, hemiGround: 0x3a4062, dir: 0xffe8a0, dirI: 0.78 },
     grade: { sat: 1.1, contrast: 1.1 },
     affinity: {},
     backdrop: {
-      curve: { gain: 0.44, warm: 0.3 },
+      curve: { gain: 0.78, warm: 0.3 },
       hero: { kind: 'eclipse', col: 0xffe090, core: 0x14162c, edge: 0xffc860, az: 0.5, elev: 12.0, r: 6.0,
               halos: [1.5, 2.6], ring: true, fan: 16, glow: 0.42, gain: 1.0 },
       recipe: {
-        tex: 'marble', skyGlow: 0.8, haze: 0.8, ground: 0x1a1e34,
+        tex: 'marble', skyGlow: 0.8, haze: 0.8, ground: 0x1a1e34, fill: 0.7,
         stars: { sp: 1.6, size: 0.13, alpha: 0.5 },
         motes: { col: 0xd8e4ff, size: 0.22, alpha: 0.4, rise: -0.4 },
         layers: [
-          { kind: 'colonnade',  sp: 28, d: 4.5, col: 0x6a728c, cols: 3, h0: 5, h1: 6.5 },
-          { kind: 'statue',     solo: true, d: 12, col: 0x8a94b4, h0: 22, h1: 26 },
-          { kind: 'stormcloud', sp: 12, d: 19,  col: 0x424c6e, y0: 3, y1: 6, bolt: 0.5 },
-          { kind: 'stormcloud', sp: 13, d: 30,  col: 0x3a4464, y0: 5, y1: 9, bolt: 0.5 },
-          { kind: 'thrones',    sp: 40, d: 30,  col: 0x566082, h0: 12, h1: 16 },
-          { kind: 'stormcloud', sp: 14, d: 46,  col: 0x323a5a, y0: 4, y1: 8, bolt: 0.6 },
-          { kind: 'stormcloud', sp: 15, d: 68,  col: 0x2a3250, y0: 3, y1: 6, bolt: 0.6 }
+          { kind: 'colonnade',  sp: 28, d: 4.5, col: 0xa0a4ba, cols: 3, h0: 5, h1: 6.5 },
+          { kind: 'statue',     solo: true, d: 12, col: 0xc8ccde, h0: 22, h1: 26 },
+          { kind: 'stormcloud', sp: 12, d: 19,  col: 0xa4a8ba, y0: 3, y1: 6, bolt: 0.5 },
+          { kind: 'stormcloud', sp: 13, d: 30,  col: 0x9a9eb2, y0: 5, y1: 9, bolt: 0.5 },
+          { kind: 'thrones',    sp: 40, d: 30,  col: 0xa0a4b8, h0: 12, h1: 16 },
+          { kind: 'stormcloud', sp: 14, d: 46,  col: 0x9096ac, y0: 4, y1: 8, bolt: 0.6 },
+          { kind: 'stormcloud', sp: 15, d: 68,  col: 0x868ca6, y0: 3, y1: 6, bolt: 0.6 }
         ]
       }
     }
