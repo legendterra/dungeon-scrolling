@@ -61,7 +61,7 @@ window.DS = window.DS || {};
 
   let renderer = null, scene = null, camera = null;
   let composer = null, target = null;
-  let renderPass = null, saoPass = null, raysPass = null, bloomPass = null;
+  let renderPass = null, saoPass = null, clampPass = null, raysPass = null, bloomPass = null;
   let gradePass = null, smaaPass = null;
   let supported = null;          // null = not probed yet
   let quality = DEFAULT_QUALITY;
@@ -124,7 +124,9 @@ window.DS = window.DS || {};
   /* God rays: march from each pixel toward the light's screen position and add
      what bright sky it crosses, decaying with distance. Luminance-masked, so a
      lit wall does not smear -- only the body and the sky around it do. Before
-     the grade, so the rays take the theme's colour response. */
+     the grade, so the rays take the theme's colour response. Screen-blended
+     (see the last lines of the shader), so they can light a sky but never
+     blow it out. */
   const RAY_SAMPLES = 24;
   const RaysShader = {
     uniforms: {
@@ -159,13 +161,60 @@ window.DS = window.DS || {};
       '    uv -= delta;',
       '    vec3 s = texture2D(tDiffuse, clamp(uv, 0.0, 1.0)).rgb;',
       '    float l = dot(s, vec3(0.2126, 0.7152, 0.0722));',
+      '    s /= max(1.0, max(s.r, max(s.g, s.b)));',
       '    acc += s * smoothstep(threshold, threshold + 0.3, l) * w;',
       '    w *= decay;',
       '  }',
       '  vec2 off = (vUv - lightUv) * vec2(aspect, 1.0);',
       '  float fall = 1.0 / (1.0 + dot(off, off) * 3.0);',
-      '  base.rgb += acc * (1.0 / float(N)) * tint * strength * fall;',
+      '  vec3 add = acc * (1.0 / float(N)) * tint * strength * fall;',
+      /* Screen, not add: the rays lift what is dark toward the light and leave
+         what is already bright where it is. Added, they pushed the sky around
+         the body (already near 1) past white over a third of the frame. Each
+         sample is also normalised to its brightest channel above, so the
+         stacked disc cannot feed the march more than a plain white would. */
+      '  base.rgb += min(add, vec3(1.0)) * max(vec3(0.0), vec3(1.0) - base.rgb);',
       '  gl_FragColor = base;',
+      '}'
+    ].join('\n')
+  };
+
+  /* Per-pixel highlight clamp, BEFORE the rays and the bloom.
+
+     The scene target is half-float, so additive layers stack past 1: the sky's
+     body is a disc, two halos, a bloom sprite, a glow wall, a fan and a ray
+     ring, all on the same few hundred pixels. Unclamped, a sun summed to 4-6
+     there, every channel clipped to white, and the bloom (which passes a pixel
+     through whole once it clears the threshold) spread that white across a
+     third of the frame. One source could own the picture.
+
+     This pass rolls every pixel's BRIGHTEST CHANNEL off toward `ceiling` with a
+     soft knee, scaling all three channels by the same factor -- so the hue
+     survives (a stacked orange sun stays orange instead of clipping to white),
+     anything under `knee` is untouched (the lit world, the HUD-facing midtones),
+     and a torch flame or an additive spell still sits above the bloom
+     threshold, so it still blooms -- just not without bound. */
+  const ClampShader = {
+    uniforms: {
+      tDiffuse: { value: null },
+      knee: { value: 0.9 },
+      ceiling: { value: 2.0 }
+    },
+    vertexShader: FULLSCREEN_VS,
+    fragmentShader: [
+      'uniform sampler2D tDiffuse;',
+      'uniform float knee;',
+      'uniform float ceiling;',
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vec4 c = texture2D(tDiffuse, vUv);',
+      '  float m = max(c.r, max(c.g, c.b));',
+      '  if (m > knee) {',
+      '    float room = ceiling - knee;',
+      '    float t = knee + room * (1.0 - exp(-(m - knee) / room));',
+      '    c.rgb *= t / m;',
+      '  }',
+      '  gl_FragColor = c;',
       '}'
     ].join('\n')
   };
@@ -295,6 +344,10 @@ window.DS = window.DS || {};
     saoPass.setSize = function (sw, sh) { saoSetSize(Math.max(1, sw >> 1), Math.max(1, sh >> 1)); };
     Object.assign(saoPass.params, SAO_PARAMS);
 
+    clampPass = new THREE.ShaderPass(ClampShader);
+    clampPass.material.depthTest = false;
+    clampPass.material.depthWrite = false;
+
     raysPass = new THREE.ShaderPass(RaysShader);
     raysPass.material.depthTest = false;
     raysPass.material.depthWrite = false;
@@ -302,6 +355,7 @@ window.DS = window.DS || {};
     bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(w, h),
       BLOOM.strength, BLOOM.radius, BLOOM.threshold);
     bloomPass.highPassUniforms.smoothWidth.value = BLOOM.smooth;
+    softKneeBloom(bloomPass);
 
     gradePass = new THREE.ShaderPass(GradeShader);
     gradePass.material.depthTest = false;
@@ -311,6 +365,7 @@ window.DS = window.DS || {};
 
     composer.addPass(renderPass);
     composer.addPass(saoPass);
+    composer.addPass(clampPass);
     composer.addPass(raysPass);
     composer.addPass(bloomPass);
     composer.addPass(gradePass);
@@ -337,8 +392,42 @@ window.DS = window.DS || {};
   };
 
   /* Threshold on the tone-mapped, encoded image: the lit world tops out under
-     it, flames, additive magic and the sky's body sit at or above it. */
-  const BLOOM = { strength: 0.55, radius: 0.4, threshold: 0.95, smooth: 0.1 };
+     it, flames, additive magic and the sky's body sit at or above it. `smooth`
+     is the soft knee of the high pass (see softKneeBloom). Strength is higher
+     than the stock pass needed because only the EXCESS over the threshold is
+     bloomed now, not the whole pixel. */
+  const BLOOM = { strength: 0.9, radius: 0.4, threshold: 0.95, smooth: 0.22 };
+
+  /* The stock high pass lets a pixel through WHOLE once its luminance clears
+     the threshold. A torch is a few bright pixels, so that is fine; a sky at
+     1.0 around a sun is a third of the frame, and the whole of it went into the
+     blur -- that is the white disc. This replaces the high pass with the
+     soft-knee form: a pixel contributes only what it has ABOVE the threshold
+     (with a quadratic knee so there is no hard edge), so a sky just over the
+     line blooms a little and a flame well over it blooms a lot. The highlight
+     clamp before it (ClampShader) bounds how much "a lot" can be. */
+  function softKneeBloom(pass) {
+    const m = pass.materialHighPassFilter;
+    if (!m) return;
+    m.fragmentShader = [
+      'uniform sampler2D tDiffuse;',
+      'uniform vec3 defaultColor;',
+      'uniform float defaultOpacity;',
+      'uniform float luminosityThreshold;',
+      'uniform float smoothWidth;',
+      'varying vec2 vUv;',
+      'void main() {',
+      '  vec4 texel = texture2D(tDiffuse, vUv);',
+      '  float l = dot(texel.rgb, vec3(0.299, 0.587, 0.114));',
+      '  float k = max(smoothWidth, 1e-4);',
+      '  float soft = clamp(l - luminosityThreshold + k, 0.0, 2.0 * k);',
+      '  soft = soft * soft / (4.0 * k);',
+      '  float w = max(soft, l - luminosityThreshold) / max(l, 1e-4);',
+      '  gl_FragColor = vec4(texel.rgb * w, 1.0);',
+      '}'
+    ].join('\n');
+    m.needsUpdate = true;
+  }
 
   /* --- quality ------------------------------------------------------------------ */
 
@@ -477,7 +566,7 @@ window.DS = window.DS || {};
     get downgrades() { return perf.downgrades; },
     /* Live handles for tuning from a console or a QA pass. */
     get passes() {
-      return { composer: composer, sao: saoPass, rays: raysPass, bloom: bloomPass,
+      return { composer: composer, sao: saoPass, clamp: clampPass, rays: raysPass, bloom: bloomPass,
                grade: gradePass, smaa: smaaPass };
     },
     get grade() { return grade; },

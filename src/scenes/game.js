@@ -912,12 +912,27 @@ window.DS = window.DS || {};
   function updateCamera(g) {
     const p = g.player;
     const R = DS.R;
-    // Look ahead of the player so you can see what you are running into.
-    const targetX = Ent.centerX(p) + p.facing * 22;
-    const targetY = Ent.centerY(p) - 8;
-
-    R.cam.x = M.lerp(R.cam.x, targetX, 0.09);
-    R.cam.y = M.lerp(R.cam.y, targetY, 0.07);
+    const CF = DS.CamFollow;
+    if (!CF) {
+      // Look ahead of the player so you can see what you are running into.
+      R.cam.x = M.lerp(R.cam.x, Ent.centerX(p) + p.facing * 22, 0.09);
+      R.cam.y = M.lerp(R.cam.y, Ent.centerY(p) - 8, 0.07);
+      R.clampCam(0, g.map.pixelW, 0, g.map.pixelH);
+      return;
+    }
+    /* Grounded-Y follow (src/core/camfollow.js): a jump inside the band does
+       not move the frame; landing somewhere new re-centres it smoothly. The
+       state is re-seated whenever the floor (g.map) changes. */
+    if (!g.camFollow) g.camFollow = CF.create();
+    if (g.camFollow.key !== g.map) CF.reset(g.camFollow, Ent.centerX(p), Ent.centerY(p), g.map);
+    const inp = CF.input;
+    inp.px = Ent.centerX(p);
+    inp.py = Ent.centerY(p);
+    inp.facing = p.facing;
+    inp.vy = p.vy || 0;
+    inp.grounded = !!p.onGround || !!p.dead;
+    inp.tracking = !!p.onRope || !!p.inWater;
+    CF.step(R.cam, g.camFollow, inp);
     R.clampCam(0, g.map.pixelW, 0, g.map.pixelH);
   }
 

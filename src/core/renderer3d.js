@@ -39,7 +39,29 @@ window.DS = window.DS || {};
   let torchLights = [];
   let flamePool = [];
   let elemLightPool = [];
-  let flameSprites = [];
+  /* The fire layer. Every flame on a floor is one instance of ONE shader
+     batch, every floor pool one instance of another (src/core/flame.js); the
+     batches are built once at boot and refilled per level. The tile materials
+     read a per-level torch light map through torchMapUniforms, so every torch
+     lights its area whether or not the point-light pool is on it. `emitters`
+     is the pool's view of every flame (src/core/torchlight.js). */
+  let flameBatch = null;
+  let poolBatch = null;
+  let torchMapUniforms = null;
+  let torchMapTex = null;
+  let lightPool = null;
+  let emitters = [];
+  let emittersDirty = true;
+  let noFlamePool = false;           // QA only: see DS.R3D.noFlamePool
+  const FLAME_CAP = 96;              // flames + pools a floor can carry
+  const TORCH_MAP_TEXEL = 8;         // level px per light-map texel (half a tile)
+  const TORCH_MAP_RADIUS = 66;       // level px one torch reaches on the stone
+  const TORCH_MAP_LIFT = 13;         // the flame's height over its floor, px
+  const TORCH_MAP_GAIN = 2.3;        // irradiance at full map value (times the mood's lamp)
+  const TORCH_MAP_RGB = [1.0, 0.50, 0.18];
+  const FLAME_REACH2 = 20 * 20;      // units^2 from the camera centre a pool light may serve
+  const EMBER_EVERY = 17;            // frames between embers per visible torch
+  const SMOKE_EVERY = 43;            // frames between smoke wisps per visible torch
 
   let dungeonGroup = null;
   let shadowGroup = null;
@@ -50,6 +72,14 @@ window.DS = window.DS || {};
   let themeAnchorY = null;
   let horizonY = 0;
   let horizonSettled = false;   // false until the first frame of a level has placed it
+  /* The locked horizon's slow drift on tall floors (see render). */
+  let horizonGoal = 0;          // median ground around the hero, re-read every 16 frames
+  let horizonVel = 0;           // units per second, smoothed
+  let horizonAway = 0;          // seconds the goal has sat outside the dead zone
+  const HORIZON_DEAD = 7;       // units: inside this, the horizon never moves
+  const HORIZON_WAIT = 2.5;     // seconds outside it before any drift starts
+  const HORIZON_SPEED = 0.9;    // units per second, at most
+  const HORIZON_DT = 1 / 60;
 
   /* The horizon -- its sky, its light body, its landmarks, its texture and all
      of their motion -- lives in src/core/backdrop3d.js (DS.Backdrop). What stays
@@ -154,15 +184,16 @@ window.DS = window.DS || {};
 
   /* Dynamic framing on top of the preset: the rig eases IN when a fight is
      close (a boss on the floor, or anything hostile within ENGAGE_PX of the
-     hero) and eases OUT when the hero is moving vertically fast or climbing, so
-     the landing is in frame before the fall ends. A critically damped spring,
-     so it settles without overshoot and never snaps. Only the action preset
+     hero). It used to ease OUT on vertical speed and on ropes too, which meant
+     every jump pumped the lens out and back in -- the whole frame, backdrop and
+     all, breathing with the hero's feet. Vertical motion is now the follow's
+     job (src/core/camfollow.js: a dead band around the grounded height), so the
+     lens only answers the fight. A critically damped spring, slow enough to
+     read as a decision rather than a reaction. Only the action preset
      breathes; the F6 presets are for looking at a room and hold still. */
   const ZOOM_IN = 0.88;
-  const ZOOM_OUT = 1.15;
   const ENGAGE_PX = 120;
-  const FAST_VY = 3.2;          // px/frame of vertical speed that counts as "fast"
-  const ZOOM_OMEGA = 3.2;       // spring stiffness (rad/s): about a second to settle
+  const ZOOM_OMEGA = 1.7;       // spring stiffness (rad/s): about two seconds to settle
 
   /* Screen shake and hit punch, now in the WORLD. DS.R.shake/punch used to move
      only the 2D quad layer, so a hit shook the HUD numbers over a scene that
@@ -701,6 +732,16 @@ window.DS = window.DS || {};
       scene.add(l);
       elemLightPool.push(l);
     }
+    if (DS.TorchLight) lightPool = DS.TorchLight.createPool(FLAME_LIGHTS);
+    /* The fire batches live in the scene itself, not in propsGroup: a level
+       teardown disposes propsGroup, and these outlive every level. */
+    if (DS.Flame) {
+      flameBatch = DS.Flame.createFlameBatch(FLAME_CAP);
+      poolBatch = DS.Flame.createPoolBatch(FLAME_CAP);
+      scene.add(poolBatch.mesh);
+      scene.add(flameBatch.mesh);
+      torchMapUniforms = DS.Flame.createLightMapUniforms();
+    }
 
     dungeonGroup = new THREE.Group();
     scene.add(dungeonGroup);
@@ -796,7 +837,8 @@ window.DS = window.DS || {};
      floor it stands on, so a key coming from the front (the old 15/30/25)
      threw every shadow off the back edge of the paver into the void. From
      here a hero's shadow lies on the walkway beside his feet, where it reads. */
-  const keyDir = new THREE.Vector3(0.36, 1, 0.3).normalize();
+  const KEY_DEFAULT = new THREE.Vector3(0.36, 1, 0.3).normalize();
+  const keyDir = KEY_DEFAULT.clone();
   const shadowAxisR = new THREE.Vector3();
   const shadowAxisU = new THREE.Vector3();
   const shadowFocus = new THREE.Vector3();
@@ -812,8 +854,81 @@ window.DS = window.DS || {};
     s.bias = -0.0005;
     s.normalBias = 0.035;
     s.mapSize.set(1024, 1024);
-    shadowAxisR.crossVectors(new THREE.Vector3(0, 1, 0), keyDir).normalize();
+    setKeyAxes();
+  }
+
+  /* The shadow map's own axes, from the key's direction. Re-derived whenever
+     the key is re-aimed (once per level, see aimKeyAtBody) and the frustum is
+     re-fitted, so the texel snap below always works in the light's real axes. */
+  const WORLD_UP = new THREE.Vector3(0, 1, 0);
+  function setKeyAxes() {
+    shadowAxisR.crossVectors(WORLD_UP, keyDir).normalize();
     shadowAxisU.crossVectors(keyDir, shadowAxisR).normalize();
+    shadowExtent.r = 0;
+  }
+
+  /* --- the key comes FROM the backdrop's light ---------------------------------
+
+     The key used to be a fixed direction (overhead, a little right, a little
+     from the camera) whatever was burning in the sky, so a dawn sun low on the
+     left and a moon on the right cast the same shadow. It is now aimed from the
+     backdrop's own body -- sun, moon, furnace mouth, a room's opening or portal
+     -- via DS.Backdrop.heroInfo(), relative to the play area the camera frames.
+
+     The composition is BACKLIT (the body hangs behind the stage), so the key
+     arrives from behind and shadows fall toward the camera, down-screen. Two
+     clamps keep that readable in a side-on game whose walkway is a strip less
+     than two units deep:
+       - ELEVATION is held to KEY_ELEV_MIN..KEY_ELEV_MAX (about 34-60 degrees):
+         a real low sun would throw every shadow three bodies long and straight
+         off the paver's front edge, where nothing receives it;
+       - the SIDEWAYS share of the direction is at least KEY_SIDE_MIN, so a
+         body dead centre behind the stage still rakes across the walkway (it
+         keeps the side it is on; centred counts as the right).
+     The body rides the camera (see DS.Backdrop's follow), so its direction
+     from the play area is fixed for the floor: the key is aimed ONCE, a few
+     frames into the level when the rig has settled, and never wobbles the
+     shadow map. Colour and strength follow the body too: the theme's key hue
+     leans toward it (warm dawn, cool moon, red lava), and its own intensity
+     scales the key within KEY_SUN_GAIN_MIN..MAX. With the key behind, front
+     faces would get nothing from it, so the camera-side fill picks up the
+     share the key used to give them (see render). */
+  const KEY_ELEV_MIN = 0.60;
+  const KEY_ELEV_MAX = 1.05;
+  const KEY_SIDE_MIN = 0.55;
+  const KEY_HUE_LEAN = 0.6;
+  const KEY_SUN_GAIN_MIN = 0.75;
+  const KEY_SUN_GAIN_MAX = 1.3;
+  const KEY_AIM_FRAME = 3;          // frames into a level before the key is aimed
+  const FRONT_FILL = 0.32;          // fill added per unit of key, when fully behind
+  const keyAim = { frame: 0, done: false, gain: 1, behind: 0 };
+  const keyBodyCol = new THREE.Color();
+
+  function aimKeyAtBody(info, ax, ay) {
+    const dx = info.worldPos.x - ax;
+    const dy = info.worldPos.y - ay;
+    const dz = info.worldPos.z - ACTOR_Z;
+    const horiz = Math.sqrt(dx * dx + dz * dz);
+    if (!(horiz > 1e-3) || !Number.isFinite(dy)) return false;
+    let hx = dx / horiz, hz = dz / horiz;
+    if (Math.abs(hx) < KEY_SIDE_MIN) {
+      hx = (hx < 0 ? -1 : 1) * KEY_SIDE_MIN;
+      hz = (hz > 0 ? 1 : -1) * Math.sqrt(1 - hx * hx);
+    }
+    const elev = M.clamp(Math.atan2(dy, horiz), KEY_ELEV_MIN, KEY_ELEV_MAX);
+    const ce = Math.cos(elev);
+    keyDir.set(hx * ce, Math.sin(elev), hz * ce).normalize();
+    setKeyAxes();
+    const t = activeTheme || THEMES.forest;
+    dirLight.color.setHex(t.dir);
+    if (info.color) {
+      keyBodyCol.copy(info.color);
+      dirLight.color.lerp(keyBodyCol, KEY_HUE_LEAN);
+    }
+    keyAim.gain = M.clamp(Number.isFinite(info.intensity) ? info.intensity : 1,
+                          KEY_SUN_GAIN_MIN, KEY_SUN_GAIN_MAX);
+    keyAim.behind = M.clamp(-keyDir.z / 0.5, 0, 1);
+    return true;
   }
 
   function updateKeyShadow(cx, cy) {
@@ -1100,6 +1215,11 @@ window.DS = window.DS || {};
     hemiLight.intensity = HEMI_I;
     dirLight.color.setHex(t.dir);
     dirLight.intensity = t.dirI * KEY_GAIN;
+    /* Re-aimed from this floor's body a few frames in (see aimKeyAtBody);
+       until then, and on a floor with no body, the old overhead key. */
+    keyDir.copy(KEY_DEFAULT);
+    setKeyAxes();
+    keyAim.frame = 0; keyAim.done = false; keyAim.gain = 1; keyAim.behind = 0;
 
     /* The key from BEHIND. It used to be a fixed dim key at (-12, 18, -26) tinted
        with the hemisphere colour, which kept a monster from matching the wall it
@@ -1258,28 +1378,30 @@ window.DS = window.DS || {};
     cupLip.position.y = 0.08 + segH * 3 + 0.23;
     group.add(cupLip);
 
-    const fMat = new THREE.SpriteMaterial({
-      map: flameTex,
-      blending: THREE.AdditiveBlending,
-      transparent: true
-    });
-    const flame = new THREE.Sprite(fMat);
-    flame.position.set(0, 0.08 + segH * 3 + 0.44, 0);
-    flame.scale.set(0.9, 1.2, 1.1);
-    group.add(flame);
+    /* The fire is not a sprite any more: it is one instance of the level's
+       shader-flame batch (src/core/flame.js), its wick in the cup, plus a soft
+       pool of light on the paver under it. Both flicker with the torch's own
+       phase, as does its light (see DS.TorchLight.flicker). */
+    const wick = 0.08 + segH * 3 + 0.20;
+    const phase = Math.random();
+    const flameIdx = flameBatch
+      ? flameBatch.add(x, y + wick, 0.2, 0.72, 1.32, phase, 0.9 + Math.random() * 0.25) : -1;
+    const poolIdx = poolBatch ? poolBatch.add(x, y + 0.012, 0.2, 3.4, 1.7, 0xff8a34, 0.42) : -1;
 
     /* No light of its own. It registers as an EMITTER: `smooth` is its live
-       intensity, and the shared pool lights whichever emitters are nearest the
-       player (see FLAME_LIGHTS). */
+       intensity, and the shared pool lights the most relevant emitters (see
+       FLAME_LIGHTS and assignFlameLights). */
     group.position.set(x, y, 0.2);
     propsGroup.add(group);
     return {
-      sprite: flame,
-      seed: Math.random() * 20,
+      phase: phase,
+      flameIdx: flameIdx,
+      poolIdx: poolIdx,
+      emberOff: Math.floor(phase * 997),
       baseIntensity: TORCH_I,
-      flickerOffset: Math.random() * 20,
+      flick: 1,
       smooth: TORCH_I,
-      lift: 0.08 + segH * 3 + 0.5,     // where the fire actually is, in the group
+      lift: wick + 0.3,                // where the fire actually is, in the group
       group: group
     };
   }
@@ -1302,19 +1424,20 @@ window.DS = window.DS || {};
     part(group, 0.6, 0.06, 0.6, 0, 1.39, 0, ironLight);     // lip
     part(group, 0.42, 0.07, 0.42, 0, 1.4, 0, coalMat);      // coals
 
-    const flame = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: flameTex, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.95
-    }));
-    flame.position.set(0, 1.66, 0);
-    flame.scale.set(0.85, 1.2, 1);
-    flame.visible = false;
-    group.add(flame);
-
     // b.y marks the top of an 18px-tall brazier, so its floor line is y + 18.
     const bottom = (b.y || 0) + 18;
-    const floor = groundAnchor(map, b.x, bottom);    group.position.set(b.x * P2U, -floor * P2U, 0.2);
+    const floor = groundAnchor(map, b.x, bottom);
+    group.position.set(b.x * P2U, -floor * P2U, 0.2);
     propsGroup.add(group);
-    return { group, flame, coalMat, ref: b, smooth: 0, lift: 1.75 };
+    /* The same shader flame as a torch, hidden (size 0) until the brazier is
+       lit; syncPuzzles grows it with the brazier's own ramp. */
+    const phase = Math.random();
+    const flameIdx = flameBatch
+      ? flameBatch.add(b.x * P2U, -floor * P2U + 1.40, 0.2, 0, 0, phase, 1.05) : -1;
+    const poolIdx = poolBatch
+      ? poolBatch.add(b.x * P2U, -floor * P2U + 0.012, 0.2, 3.8, 1.8, 0xff8a34, 0.5) : -1;
+    if (poolIdx >= 0) poolBatch.setLevel(poolIdx, 0);
+    return { group, flameIdx, poolIdx, phase, coalMat, ref: b, smooth: 0, lift: 1.75 };
   }
 
   // --- puzzle hardware in 3D: gate bars, lever, crates -----------------------
@@ -1782,8 +1905,13 @@ window.DS = window.DS || {};
 
     torchLights = [];   // the pool they point at outlives the level, by design
 
-    flameSprites.forEach(fs => scene.remove(fs.sprite));
-    flameSprites = [];
+    /* The fire batches are refilled from nothing; the pool forgets its
+       owners (they were this floor's emitters); the light map is rebuilt. */
+    if (flameBatch) flameBatch.mesh.count = 0;
+    if (poolBatch) poolBatch.mesh.count = 0;
+    if (lightPool && DS.TorchLight) DS.TorchLight.clearPool(lightPool);
+    emitters = [];
+    emittersDirty = true;
 
     hazardMeshes.forEach(hm => {
       if (hm.group && hm.group.parent) hm.group.parent.remove(hm.group);
@@ -1817,6 +1945,14 @@ window.DS = window.DS || {};
     const wallFrontMat = new THREE.MeshLambertMaterial({ map: wallTex });
     const wallTopMat = new THREE.MeshLambertMaterial({ map: floorTex });
     const platMat = new THREE.MeshLambertMaterial({ map: platTex });
+    /* Every torch lights the stone around it through these three materials
+       (the light map is built once the torches are placed; see
+       buildTorchMap). */
+    if (torchMapUniforms) {
+      DS.Flame.lightMapPatch(wallFrontMat, torchMapUniforms);
+      DS.Flame.lightMapPatch(wallTopMat, torchMapUniforms);
+      DS.Flame.lightMapPatch(platMat, torchMapUniforms);
+    }
 
     const wallMats = [
       wallFrontMat, wallFrontMat,
@@ -1935,8 +2071,9 @@ window.DS = window.DS || {};
           // of the old guesses (floorBelow here, groundBelow there) disagreed.
           const floorPx = snapToFloor(map, d.x + 8, d.y);
           const torchObj = createTorchMesh(lx, -floorPx * P2U);
+          torchObj.px = d.x + 8;
+          torchObj.floorPx = floorPx;
           torchLights.push(torchObj);
-          flameSprites.push(torchObj);
         } else if (DS.Voxel && (d.kind === 'merchant' || d.kind === 'table')) {
           // NPCs and furniture: blocky models, so the safe room reads 3D too.
           // decor y marks the sprite top (floor minus sprite height); plant
@@ -1993,6 +2130,8 @@ window.DS = window.DS || {};
         crateMeshes.push(createCrateMesh(g.crates[i]));
       }
     }
+
+    buildTorchMap(map);
 
     if (g && g.shrine && DS.Voxel) {
       shrineMesh = DS.Voxel.build('shrine', {});
@@ -3930,8 +4069,13 @@ window.DS = window.DS || {};
       const bm = brazierMeshes[i];
       const lit = !!(bm.ref && bm.ref.lit);
       bm.smooth += ((lit ? 1 : 0) - bm.smooth) * 0.12;
-      bm.flame.visible = bm.smooth > 0.05;
-      bm.flame.scale.set(0.85 + bm.smooth * 0.25, 1.05 + bm.smooth * 0.5, 1);
+      if (flameBatch) {
+        const on = bm.smooth > 0.05 ? bm.smooth : 0;
+        flameBatch.setSize(bm.flameIdx, on ? 0.56 + on * 0.18 : 0, on ? 0.7 + on * 0.62 : 0);
+      }
+      if (poolBatch) {
+        poolBatch.setLevel(bm.poolIdx, bm.smooth * (DS.TorchLight ? DS.TorchLight.flicker(frameSec, bm.phase) : 1));
+      }
       /* A brazier has no light of its own (the flame pool lights it; see
          assignFlameLights), so there is no `light` to write -- this line used
          to throw on every floor that had one. */
@@ -3973,69 +4117,111 @@ window.DS = window.DS || {};
     return m;
   }
 
-  /* Scratch for the nearest-flame selection: fixed size, no allocation per
-     frame, because this runs on every frame of every level. */
-  const flameBestD2 = [];
-  const flameBestX = [];
-  const flameBestY = [];
-  const flameBestI = [];
-  const flameBestC = [];        // null = the torch colour, else the emitter's own
   const TORCH_COL = 0xff9e38;
-  const doorEmitters = [];      // 0 or 1 entries: the exit portal, as an emitter
+  let frameSec = 0;             // the flicker clock: game frames / 60
 
-  /* Point the fixed pool at the nearest flames. Pure SELECTION: nothing is
-     created, added or removed, so the light count the shaders were compiled
+  /* Every emitter on the floor, as the pool sees it: torches, braziers and the
+     exit portal. Rebuilt once per level (lazily, on the first frame), then
+     only its numbers are written. */
+  function rebuildEmitters() {
+    emitters = [];
+    const TL = DS.TorchLight;
+    for (let i = 0; i < torchLights.length; i++) {
+      emitters.push(TL.resetEmitter({ x: 0, y: 0, lit: 0, kind: 0, src: torchLights[i] }));
+    }
+    for (let i = 0; i < brazierMeshes.length; i++) {
+      emitters.push(TL.resetEmitter({ x: 0, y: 0, lit: 0, kind: 1, src: brazierMeshes[i] }));
+    }
+    if (doorPortalObj) emitters.push(TL.resetEmitter({ x: 0, y: 0, lit: 0, kind: 2, src: doorPortalObj }));
+    emittersDirty = false;
+  }
+
+  /* Point the fixed pool at the most relevant flames. Pure SELECTION: nothing
+     is created, added or removed, so the light count the shaders were compiled
      for is the same on a floor with one torch and a floor with twenty, and a
      fire skill landing mid-fight cannot push the scene over the driver's
-     uniform budget (which is what turned the screen black). */
+     uniform budget (which is what turned the screen black).
+
+     Relevance is distance from the camera centre, with hysteresis, and every
+     hand-over fades (DS.TorchLight.assignPool): a light never jumps from one
+     torch to the next in a single frame. A torch outside the pool is not
+     dark -- the light map and its floor pool still light its area. */
   function assignFlameLights(camX, camY) {
     const n = flamePool.length;
-    if (!n) return;
-    for (let k = 0; k < n; k++) flameBestD2[k] = Infinity;
-
-    /* Three emitter lists, one rule: the closest lit ones win. A brazier's
-       brightness is its own smooth ramp times the torch intensity; the exit
-       portal brings its own colour and pulse. */
-    doorEmitters.length = 0;
-    if (doorPortalObj) doorEmitters.push(doorPortalObj);
-    for (let pass = 0; pass < 3; pass++) {
-      const list = pass === 0 ? torchLights : (pass === 1 ? brazierMeshes : doorEmitters);
-      for (let i = 0; i < list.length; i++) {
-        const e = list[i];
-        const gp = e.group && e.group.position;
-        if (!gp) continue;
-        const lit = pass === 0 ? e.smooth
-          : (pass === 1 ? e.smooth * TORCH_I : e.light.intensity);
-        if (lit <= 0.02) continue;
-        const dx = gp.x - camX;
-        const dy = gp.y + (e.lift || 1.6) - camY;
-        const d2 = dx * dx + dy * dy;
-        let worst = 0;
-        for (let k = 1; k < n; k++) if (flameBestD2[k] > flameBestD2[worst]) worst = k;
-        if (d2 < flameBestD2[worst]) {
-          flameBestD2[worst] = d2;
-          flameBestX[worst] = gp.x;
-          flameBestY[worst] = gp.y + (e.lift || 1.6);
-          flameBestI[worst] = lit;
-          flameBestC[worst] = pass === 2 ? e.light.color : null;
-        }
-      }
+    if (!n || !lightPool || !DS.TorchLight) return;
+    if (emittersDirty) rebuildEmitters();
+    for (let i = 0; i < emitters.length; i++) {
+      const e = emitters[i], src = e.src;
+      const gp = src.group.position;
+      e.x = gp.x;
+      e.y = gp.y + (src.lift || 1.6);
+      e.lit = e.kind === 0 ? src.smooth
+        : (e.kind === 1 ? src.smooth * TORCH_I * DS.TorchLight.flicker(frameSec, src.phase)
+          : src.light.intensity);
     }
-
+    DS.TorchLight.assignPool(lightPool, emitters, emitters.length, camX, camY, 1 / 60,
+                             noFlamePool ? -1 : FLAME_REACH2);
     for (let k = 0; k < n; k++) {
       const l = flamePool[k];
-      if (flameBestD2[k] === Infinity) {
+      const o = lightPool.owner[k];
+      if (o < 0) {
         l.intensity = 0;
         l.position.set(0, -999, 0.3);
         continue;
       }
+      const e = emitters[o];
+      if (e.kind === 2) l.color.copy(e.src.light.color);
+      else l.color.setHex(TORCH_COL);
+      l.position.set(e.x, e.y, 0.3);
       /* Same gate as the element pool: an intensity that is not a finite
          number is worse than no light at all. */
-      const lit = flameBestI[k];
-      if (flameBestC[k]) l.color.copy(flameBestC[k]);
-      else l.color.setHex(TORCH_COL);
-      l.position.set(flameBestX[k], flameBestY[k], 0.3);
+      const lit = e.lit * lightPool.weight[k];
       l.intensity = Number.isFinite(lit) && lit > 0 ? lit : 0;
+    }
+  }
+
+  /* The per-level torch light map: every wall torch's falloff, baked into a
+     small texture the tile materials add as irradiance (see flame.js). */
+  function buildTorchMap(map) {
+    if (!torchMapUniforms || !DS.TorchLight) return;
+    if (torchMapTex) { torchMapTex.dispose(); torchMapTex = null; }
+    const cols = Math.max(1, Math.ceil(map.pixelW / TORCH_MAP_TEXEL));
+    const rows = Math.max(1, Math.ceil(map.pixelH / TORCH_MAP_TEXEL));
+    const sources = [];
+    for (let i = 0; i < torchLights.length; i++) {
+      const t = torchLights[i];
+      if (t.px == null) continue;
+      sources.push({ x: t.px, y: t.floorPx - TORCH_MAP_LIFT, phase: t.phase,
+                     r: TORCH_MAP_RGB[0], g: TORCH_MAP_RGB[1], b: TORCH_MAP_RGB[2] });
+    }
+    const lm = DS.TorchLight.buildLightMap({ cols: cols, rows: rows, texel: TORCH_MAP_TEXEL,
+                                            radius: TORCH_MAP_RADIUS, sources: sources });
+    torchMapTex = DS.Flame.lightMapTexture(lm);
+    torchMapUniforms.uTorchMap.value = torchMapTex;
+    /* World (x, y) -> map uv: x px = X / P2U, y px = -Y / P2U, row 0 at the top. */
+    torchMapUniforms.uTorchXf.value.set(0, 0, 1 / (P2U * cols * TORCH_MAP_TEXEL),
+                                        -1 / (P2U * rows * TORCH_MAP_TEXEL));
+  }
+
+  /* Embers and a smoke wisp off a flame the camera can see, through the pooled
+     FX layer (no allocation: the pools recycle). */
+  function torchEmbers(x, y, frame, off) {
+    const FX = DS.FX3D;
+    if (!FX || !FX.ready || !FX.add || !FX.live()) return;
+    if ((frame + off) % EMBER_EVERY === 0) {
+      const s = FX.add.spec();
+      s.x = x + FX.rnd(-0.07, 0.07); s.y = y + 0.30; s.z = 0.2 + FX.rnd(-0.05, 0.05);
+      s.vx = FX.rnd(-0.004, 0.004); s.vy = FX.rnd(0.012, 0.024); s.vz = 0;
+      s.grav = -0.00025; s.drag = 0.985;
+      s.life = FX.rnd(38, 66); s.size = FX.rnd(0.035, 0.055); s.size1 = 0.012;
+      s.cell = DS.FX3DAtlas ? DS.FX3DAtlas.CELL.ember : 0;
+      FX.col(s, 0xffa040, 1.7);
+      s.a = 1; s.a1 = 0;
+      FX.add.emit(s);
+    }
+    if ((frame + off * 3) % SMOKE_EVERY === 0) {
+      FX.puffAt(x + FX.rnd(-0.04, 0.04), y + 0.85, 0.1, FX.rnd(-0.002, 0.002), 0.009, 0,
+                0.16, 0.5, 0x2c2624, 0.09, 80);
     }
   }
 
@@ -4072,8 +4258,7 @@ window.DS = window.DS || {};
     const p = g.player;
     let target = 1;
     if (p && camRig.preset === DEFAULT_PRESET && !p.dead) {
-      if (p.onRope || Math.abs(p.vy || 0) > FAST_VY) target = ZOOM_OUT;
-      else if (fightIsClose(g, p)) target = ZOOM_IN;
+      if (fightIsClose(g, p)) target = ZOOM_IN;
     }
     camRig.zoomTarget = target;
     /* Critically damped: x'' = w^2 (target - x) - 2 w x'. */
@@ -4180,7 +4365,7 @@ window.DS = window.DS || {};
     return null;
   }
 
-  function updateHeroLight() {
+  function updateHeroLight(ax, ay) {
     const src = heroInfoSource();
     let info = null;
     if (src) {
@@ -4190,6 +4375,7 @@ window.DS = window.DS || {};
       if (DS.PostFX) DS.PostFX.setRays(null);
       return;
     }
+    if (!keyAim.done && ++keyAim.frame >= KEY_AIM_FRAME) keyAim.done = aimKeyAtBody(info, ax, ay) || keyAim.frame > 30;
     const gain = M.clamp(Number.isFinite(info.intensity) ? info.intensity : 1, 0, 2);
     if (backLight) {
       backLight.position.copy(info.worldPos);
@@ -4304,7 +4490,10 @@ window.DS = window.DS || {};
     const keyBoost = blobShadows ? 1 : KEY_SHADOW_BOOST;
     if (ambientLight) ambientLight.intensity = AMBIENT_I * fill;
     if (hemiLight) hemiLight.intensity = HEMI_I * sky * (blobShadows ? 1 : SKY_SHADOW_TRIM);
-    if (dirLight) dirLight.intensity = t.dirI * KEY_GAIN * (1 - 0.50 * mood) * keyBoost;
+    if (dirLight) dirLight.intensity = t.dirI * KEY_GAIN * (1 - 0.50 * mood) * keyBoost * keyAim.gain;
+    /* A key from behind gives the front faces nothing, so the camera-side fill
+       takes over the share it used to give them (see aimKeyAtBody). */
+    if (fillLight && dirLight) fillLight.intensity = 0.18 + FRONT_FILL * dirLight.intensity * keyAim.behind;
     if (backLight) {
       /* The light from the BACKGROUND. Its direction and colour were set once per
          level (see setupTheme: it follows the theme's celestial body), so the only
@@ -4315,7 +4504,7 @@ window.DS = window.DS || {};
     }
     /* Aim the rim at the eye from the backdrop's body (when it can say where
        that is), and fit the key's shadow to what the camera sees. */
-    updateHeroLight();
+    updateHeroLight(camX, camY + camRig.lift);
     updateKeyShadow(camX, camY + camRig.lift);
 
     /* The sky rides the eye line (see the sky rig in buildBackdrop) -- in the
@@ -4323,9 +4512,9 @@ window.DS = window.DS || {};
 
        This line used to write the camera's world height straight into a child of
        themeGroup, which was correct only while the group sat at y = 0. The group
-       is now translated onto the local ground every frame (see the horizon
-       block below), and a child pinned in world units then rides the eye line
-       PLUS the horizon shift -- up to 30 units of it. What that looks like: the
+       is translated to the level's locked horizon (and, on a tall climb, drifts
+       slowly from it; see the horizon block below), and a child pinned in world
+       units then rides the eye line PLUS the horizon shift -- up to 30 units. What that looks like: the
        moon at depth 7 measured 3% of a frame half-height ABOVE the top edge,
        from the one place on the floor where it is supposed to be overhead. The
        group only ever translates in y and turns about y, so the conversion is a
@@ -4337,39 +4526,48 @@ window.DS = window.DS || {};
        its edge. Turning the theme group with the rig keeps the horizon framed:
        the bands are rigid, the eye orbits them. */
     if (themeGroup) themeGroup.rotation.y = camRig.yaw * 0.85;
-    /* And the horizon sits on the ground the player is WALKING ON.
+    /* The horizon STAYS PUT.
 
-       It used to sit on one line for the whole level -- the MEDIAN ground row
-       (see horizonRow) -- and this game's levels are not flat: measured across
-       depths 1..10, the ground wanders 6 to 20 TILES around that median, i.e. up
-       to 32 world units. Two ways that breaks, both of them visible:
+       It used to be re-seated onto the ground around the player every eighth
+       frame and eased there at 0.22 a step. On a floor that rolls, that line
+       moves whenever the window of columns under the player does, in eighth-
+       frame steps -- and with the old follow lifting the camera on every jump,
+       the whole backdrop stepped up and down under the hero: the "blinking"
+       the player reported. A background is something at a distance; it does
+       not follow your feet.
 
-         - climb a rise and the camera ends up ABOVE the theme's own roof slab
-           (measured: 14.2 units over the anchor under a 10-unit ceiling), so the
-           horizon is hidden behind its own ceiling;
-         - drop into a dip and the horizon's ground plane sits ABOVE the player's
-           head, so the whole backdrop is behind a floor.
+       So the line is LOCKED once per level, on the first frame, to the median
+       ground in a window around where the hero starts (localHorizonY: a pit
+       cannot drag a median down). Horizontal parallax needs nothing from here:
+       the bands stand at their own depths and the camera's pan parallaxes them.
 
-       The sky rig already refuses to do this: it is pinned to the eye line every
-       frame. The ground line now follows the same principle, taking its height
-       from a MEDIAN over a window around the player rather than its own tile, so
-       a pit under the player's feet does not drag the horizon down with it, and
-       smoothing the result so a one-tile step does not pop the whole horizon.
-
-       `themeAnchorY` is the line the theme was BUILT around, so the shift is a
-       plain translation of the built group -- no rebuild, no re-upload. */
+       The one concession is a long climb (the Climb floors, 7/22/26): when the
+       ground around the hero has been more than HORIZON_DEAD units from the
+       locked line for HORIZON_WAIT seconds, the line DRIFTS toward it -- a
+       smoothed velocity capped at HORIZON_SPEED units a second, stopping as
+       soon as it is back inside the dead zone. The ground median does not move
+       when the hero jumps, so this can never answer a jump; it reads as the
+       far horizon catching up, not as a cut. Until then the horizon may sit
+       partly out of frame -- which is what a real one does when you climb. */
     if (themeGroup && themeAnchorY !== null && g && g.map && g.player) {
-      if ((g.frames & 7) === 0) {
-        const target = localHorizonY(g.map, DS.Ent.centerX(g.player));
-        if (target != null) {
-          /* The first frame of a level PLACES it -- a level whose start is 27
-             units above the median would otherwise spend sixteen seconds sliding
-             the horizon into view -- and every frame after it eases, so a
-             one-tile step does not pop the whole backdrop. */
-          horizonY = horizonSettled ? horizonY + (target - horizonY) * 0.22 : target;
-          horizonSettled = true;
-        }
+      const hx = DS.Ent.centerX(g.player);
+      if (!horizonSettled) {
+        const start = localHorizonY(g.map, hx);
+        horizonY = start != null ? start : themeAnchorY;
+        horizonGoal = horizonY;
+        horizonVel = 0;
+        horizonAway = 0;
+        horizonSettled = true;
+      } else if ((g.frames & 15) === 0) {
+        const goal = localHorizonY(g.map, hx);
+        if (goal != null) horizonGoal = goal;
       }
+      const off = horizonGoal - horizonY;
+      horizonAway = Math.abs(off) > HORIZON_DEAD ? horizonAway + HORIZON_DT : 0;
+      const wantVel = horizonAway > HORIZON_WAIT
+        ? M.clamp(off * 0.35, -HORIZON_SPEED, HORIZON_SPEED) : 0;
+      horizonVel += (wantVel - horizonVel) * HORIZON_DT * 1.2;
+      horizonY += horizonVel * HORIZON_DT;
       themeGroup.position.y = horizonY - themeAnchorY;
     }
 
@@ -4384,22 +4582,26 @@ window.DS = window.DS || {};
     /* Every flame's own intensity, smoothed. Nothing is written to a light
        here: the emitters only tell the pool how bright they are, and the pool
        hands that brightness to the four nearest of them (see FLAME_LIGHTS). */
+    /* One flicker per torch, from the function the flame shader, its floor
+       pool and the light map all share (DS.TorchLight.flicker), so the fire
+       and the light it throws move together. */
+    frameSec = g.frames / 60;
+    const TL = DS.TorchLight;
     for (let i = 0; i < torchLights.length; i++) {
       const tl = torchLights[i];
-      const fo = tl.flickerOffset;
-      const rawTarget = (tl.baseIntensity * lamp)
-        + Math.sin(time * 0.71 + fo)         * 0.03
-        + Math.sin(time * 1.37 + fo * 0.61) * 0.02
-        + Math.sin(time * 2.83 + fo * 1.19) * 0.01;
-      tl.smooth = tl.smooth + (rawTarget - tl.smooth) * 0.14;
+      tl.flick = TL ? TL.flicker(frameSec, tl.phase) : 1;
+      tl.smooth = tl.baseIntensity * lamp * tl.flick;
+      if (poolBatch) poolBatch.setLevel(tl.poolIdx, tl.flick * (0.8 + 0.2 * lamp));
+      const gp = tl.group.position;
+      const fy = gp.y + tl.lift;
+      if (Math.abs(gp.x - camX) < 13 && Math.abs(fy - camY) < 9) torchEmbers(gp.x, fy - 0.3, g.frames, tl.emberOff);
+    }
+    if (flameBatch) flameBatch.update(frameSec);
+    if (torchMapUniforms) {
+      torchMapUniforms.uTorchTime.value = frameSec;
+      torchMapUniforms.uTorchGain.value = TORCH_MAP_GAIN * lamp;
     }
     assignFlameLights(camX, camY);
-
-    for (let i = 0; i < flameSprites.length; i++) {
-      const fs = flameSprites[i];
-      const s = 1 + Math.sin(time * 4.0 + fs.seed) * 0.15;
-      fs.sprite.scale.set(1.1 * s, 1.4 * (2 - s), 1.1);
-    }
 
     if (doorPortalObj) {
       doorPortalObj.portal.rotation.z += 0.02;
@@ -4657,6 +4859,22 @@ window.DS = window.DS || {};
     /* The horizon's own build report: the resolved body, every rung's final
        colour, its texel repeat. Read by tools/qa/audit-backdrop.js, which is the
        only reason a build result is kept rather than dropped after the add. */
-    get backdrop() { return backdropRef ? backdropRef.report : null; }
+    get backdrop() { return backdropRef ? backdropRef.report : null; },
+    /* Light introspection for tools/qa/shoot-phase6.js: the key's aimed
+       direction, the locked horizon, every torch and which pool slot (if any)
+       is lighting it. `noFlamePool` darkens the pool so a shot can show what a
+       torch looks like on its baked light alone. */
+    get lightRig() {
+      return { keyDir: keyDir, keyAimed: keyAim.done, keyBehind: keyAim.behind,
+               keyColor: dirLight ? dirLight.color.getHexString() : null,
+               horizonY: horizonY, horizonShift: themeGroup ? themeGroup.position.y : 0,
+               torches: torchLights.map(function (t) {
+                 return { x: t.group.position.x, y: t.group.position.y, lift: t.lift,
+                          slot: -1, lit: t.smooth };
+               }),
+               pool: lightPool ? { owner: Array.from(lightPool.owner), weight: Array.from(lightPool.weight) } : null,
+               emitters: emitters.map(function (e) { return { kind: e.kind, x: e.x, y: e.y, slot: e.slot }; }) };
+    },
+    set noFlamePool(v) { noFlamePool = !!v; }
   };
 })(window.DS);

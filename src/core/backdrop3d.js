@@ -385,41 +385,178 @@ window.DS = window.DS || {};
   /* Base or shadow, on a coin toss: breaks up a repeated shape. */
   function coinTone(rng) { return rng.chance(0.5) ? 0 : 1; }
 
-  /* One voxel mountain: slices stacked from a wide foot to a narrow crown, each
-     drifting a little off the last so the peak leans instead of standing like a
-     ziggurat. Alternate slices take the shadow tone -- strata, which is what
-     makes a slab of rock read as a MOUNTAIN at a glance -- and the top slices
-     take the cap (snow) with a thin skirt of it over the step below. */
-  function massif(o, x, h, w, rng, L) {
-    const steps = 7;
-    const snowFrom = L.snow ? steps - (rng.chance(0.5) ? 2 : 3) : steps + 1;
-    /* Each flank is cut back on its own, by an uneven amount, and each slice
-       is its own height: the peak leans and the outline is ragged, where equal
-       cuts on both sides make a ziggurat. */
-    let lo = x - w * 0.5, hi = x + w * 0.5, y = 0;
-    const shrink = (w - h * 0.22) / steps;
-    for (let i = 0; i < steps; i++) {
-      const sh = i === steps - 1 ? Math.max(h - y, h / steps * 0.5) : h / steps * rng.float(0.7, 1.3);
-      const sw = hi - lo;
-      const cx = (lo + hi) * 0.5;
-      const tone = i >= snowFrom ? 3 : (i % 2 ? 1 : 0);
-      box(o.boxes, cx, y + sh * 0.5, rng.float(-0.2, 0.2), sw, sh * 1.02, sw * 0.42, 0, 0, tone);
-      /* A shoulder: a spur of rock off one flank, so the outline is broken. */
-      if (i > 0 && i < steps - 2 && rng.chance(0.4)) {
-        const side = rng.chance(0.5) ? 1 : -1;
-        box(o.boxes, cx + side * sw * rng.float(0.4, 0.55), y + sh * 0.3, rng.float(-0.3, 0.1),
-            sw * rng.float(0.18, 0.3), sh * rng.float(0.8, 1.5), sw * 0.3, 0, 0, i >= snowFrom - 1 ? 3 : 1);
+  /* --- ridgelines --------------------------------------------------------------
+
+     A far range used to be a stack of horizontal slices, each a little narrower
+     than the one under it. However the slices were jittered, the eye read the
+     STACK: every range on the horizon was a stepped pyramid. A real skyline is
+     a line first -- peaks, saddles between them, a cliff where a flank broke
+     off -- and the voxel look comes from how that line is sampled.
+
+     So a range is built in two steps. ridgeProfile() writes a height for every
+     column across the range: a handful of peaks of different heights, widths
+     and lean (each flank has its own fall-off, so no peak is symmetric), summed
+     by max so the saddles fall where the flanks meet, then roughened by a
+     per-column jitter and the odd notch or cliff drop. ridgeColumns() then
+     stands one box per column on the ground line, the column widths themselves
+     jittered so the steps are uneven, and dresses each column from its own
+     slope: the face turned from the light takes the shadow tone, strata run
+     across the front at a gentle tilt (only where the rock is tall enough to
+     hold them), snow lies thick where the ridge is flat and thin or not at all
+     where it is steep, and at a cliff edge the upper column sometimes throws
+     an overhang out over the drop. Still boxes, still one instanced batch. */
+
+  /* How many columns a range is cut into, before width jitter. Enough that a
+     peak reads as a slope, few enough that a band of forty ranges stays a few
+     thousand instances. */
+  const RIDGE_COLS = 22;
+
+  /* peaks: [{ x, h, wl, wr, p }] -- a centre, a height, a reach down each flank
+     and a flank exponent (above 1 is concave: a steep crown over wide skirts). */
+  function ridgeHeight(peaks, px) {
+    let h = 0;
+    for (let i = 0; i < peaks.length; i++) {
+      const P = peaks[i];
+      const dx = px - P.x;
+      const reach = dx < 0 ? P.wl : P.wr;
+      const t = 1 - Math.abs(dx) / reach;
+      if (t > 0) h = Math.max(h, P.h * Math.pow(t, P.p));
+    }
+    return h;
+  }
+
+  /* The columns of one range, left to right: { cx, w, h }. `W` is the range's
+     full width, `peaks` its crowns, `rough` the per-column jitter as a fraction
+     of H, `crag` the chance a column is notched or broken into a cliff. */
+  function ridgeProfile(x, H, W, peaks, rng, rough, crag) {
+    const cols = [];
+    const base = W / RIDGE_COLS;
+    let lx = x - W * 0.5;
+    const end = x + W * 0.5;
+    let drop = 0;                      // a cliff carries on for a column or two
+    while (lx < end - base * 0.3) {
+      const w = Math.min(base * rng.float(0.55, 1.5), end - lx);
+      const cx = lx + w * 0.5;
+      const smooth = ridgeHeight(peaks, cx);
+      let h = smooth + rng.float(-rough, rough) * H;
+      if (drop > 0) { h -= H * 0.07 * drop; drop--; }
+      else if (rng.chance(crag)) {
+        if (rng.chance(0.5)) h -= H * rng.float(0.04, 0.08);           // a notch
+        else drop = rng.int(1, 2);                                     // a cliff
       }
-      if (i === snowFrom - 1) {
-        box(o.boxes, cx + rng.float(-0.1, 0.1) * sw, y + sh, 0.04,
-            sw * rng.float(0.45, 0.7), sh * 0.2, sw * 0.44, 0, 0, 3);
+      /* `s` is the slope of the UNROUGHENED line: which way this column faces
+         is a property of the mountain, not of one column's jitter. */
+      const s = ridgeHeight(peaks, cx + w * 0.5) - ridgeHeight(peaks, cx - w * 0.5);
+      if (h > H * 0.05) cols.push({ cx: cx, w: w, h: h, s: s });
+      lx += w;
+    }
+    return cols;
+  }
+
+  /* Dress a profile. opts:
+       snow      lay snow by slope above the snow line
+       strata    run tilted bands of the other tone across the front faces
+       lightDir  -1 or 1: which way the lit faces look (the other side shades)
+       depth     the range's thickness, as a fraction of H
+       over      the chance an overhang is thrown out over a cliff
+       z0        pin every column to one depth (for glow laid on the faces) */
+  function ridgeColumns(o, cols, H, rng, L, opts) {
+    const n = cols.length;
+    if (!n) return;
+    const lightDir = opts.lightDir || -1;
+    const tilt = rng.float(-0.08, 0.08);
+    const snowLine = H * rng.float(0.56, 0.7);
+    const bandH = H * rng.float(0.035, 0.05);
+    const fixedZ = opts.z0 != null;
+    const z0 = fixedZ ? opts.z0 : rng.float(-0.15, 0.15);
+    for (let i = 0; i < n; i++) {
+      const c = cols[i];
+      const hl = i > 0 ? cols[i - 1].h : 0;
+      const hr = i < n - 1 ? cols[i + 1].h : 0;
+      /* Slope in the direction of the light: positive when this column faces
+         it (the ground rises away from the light toward the crown). */
+      const slope = (c.s != null ? c.s : hr - hl) * -lightDir;
+      const shaded = slope < -H * 0.02;
+      const d = H * (opts.depth || 0.45) * (0.7 + 0.3 * c.h / H);
+      const z = fixedZ ? z0 : z0 + rng.float(-0.02, 0.02);
+      box(o.boxes, c.cx, c.h * 0.5, z, c.w * 1.02, c.h, d, 0, 0, shaded ? 1 : 0);
+
+      /* Strata: thin slabs on the front face at shared, tilted heights, so the
+         bands carry across columns and read as bedding, not as steps. */
+      if (opts.strata) {
+        let k = 0;
+        for (let y = H * 0.2; y < c.h - H * 0.08 && k < 2; y += H * 0.19, k++) {
+          const yy = y + (c.cx - cols[0].cx) * tilt;
+          if (yy <= bandH || yy > c.h - H * 0.06 || rng.chance(0.15)) continue;
+          box(o.boxes, c.cx, yy, z + d * 0.5 + 0.02, c.w * 1.03, bandH, 0.05, 0, 0, shaded ? 0 : 1);
+        }
       }
-      y += sh;
-      const cut = shrink * rng.float(0.6, 1.4);
-      const bias = rng.float(0.15, 0.85);
-      lo += cut * bias;
-      hi -= cut * (1 - bias);
-      if (hi - lo < h * 0.1) break;
+
+      /* Snow by slope: a flat crest holds a deep cap that spills down both
+         faces, a steep flank holds a thin lip, a crag holds none. */
+      if (opts.snow && c.h > snowLine) {
+        const steep = Math.min(1, Math.max(Math.abs(c.h - hl), Math.abs(c.h - hr)) / (H * 0.22));
+        if (steep < 0.9 || rng.chance(0.3)) {
+          const t = H * (0.03 + 0.1 * (1 - steep)) * (0.6 + 0.4 * (c.h - snowLine) / (H - snowLine + 1e-3));
+          box(o.boxes, c.cx, c.h - t * 0.5 + H * 0.01, z, c.w * 1.05, t, d * 1.03, 0, 0, 3);
+        }
+      } else if (rng.chance(0.08)) {
+        /* A tooth of rock on the crest: breaks a line that jitter alone keeps
+           too tidy. */
+        box(o.boxes, c.cx + rng.float(-0.2, 0.2) * c.w, c.h + H * 0.025, z,
+            c.w * rng.float(0.35, 0.6), H * rng.float(0.03, 0.06), d * 0.5, 0, 0, shaded ? 1 : 0);
+      }
+
+      /* An overhang: where the next column falls away hard, the top of this
+         one juts out over the drop. */
+      const fall = Math.max(c.h - hl, c.h - hr);
+      if (fall > H * 0.16 && rng.chance(opts.over || 0)) {
+        const side = (c.h - hr) >= (c.h - hl) ? 1 : -1;
+        const oh = H * rng.float(0.04, 0.07);
+        box(o.boxes, c.cx + side * c.w * 0.55, c.h - oh * 0.5, z, c.w * rng.float(0.35, 0.6), oh, d * 0.7,
+            0, 0, opts.snow && c.h > snowLine ? 3 : 1);
+      }
+    }
+  }
+
+  /* Where a dressed column's front face is (for glow or bedding laid on it). */
+  function ridgeFront(c, H, depth, z0) {
+    return z0 + H * depth * (0.7 + 0.3 * c.h / H) * 0.5;
+  }
+
+  /* One butte: a level top on a hard cap that overhangs its own cliffs, a
+     broken step down each side and a talus at the foot, the bedding straight
+     across the whole face. */
+  function mesaBlock(o, x, h, w, rng) {
+    const cols = [];
+    const base = w / 12;
+    let lx = x - w * 0.5;
+    const end = x + w * 0.5;
+    let top0 = Infinity, top1 = -Infinity;
+    while (lx < end - base * 0.3) {
+      const cw = Math.min(base * rng.float(0.6, 1.4), end - lx);
+      const cx = lx + cw * 0.5;
+      const u = Math.abs(cx - x) / (w * 0.5);
+      let ch;
+      if (u < 0.7) {
+        ch = h * (rng.chance(0.12) ? rng.float(0.86, 0.93) : rng.float(0.97, 1.0));
+        top0 = Math.min(top0, lx); top1 = Math.max(top1, lx + cw);
+      } else if (u < 0.86) ch = h * rng.float(0.5, 0.78);
+      else ch = h * rng.float(0.14, 0.32);
+      cols.push({ cx: cx, w: cw, h: ch });
+      lx += cw;
+    }
+    const z0 = rng.float(-0.1, 0.1);
+    ridgeColumns(o, cols, h, rng, {}, { strata: false, lightDir: -1, depth: 0.5, over: 0.5, z0: z0 });
+    if (!(top1 > top0)) return;
+    const pw = top1 - top0, px = (top0 + top1) * 0.5;
+    const front = z0 + h * 0.5 * 0.5 + 0.03;
+    /* The cap: wider than the rock under it, lit along its lip. */
+    const lip = pw * rng.float(0.04, 0.08);
+    box(o.boxes, px + rng.float(-0.5, 0.5) * lip, h * 0.985, z0, pw + lip * 2, h * 0.07, h * 0.52, 0, 0, 2);
+    /* Bedding: straight, full width, a little uneven in thickness. */
+    for (let y = h * 0.2; y < h * 0.84; y += h * rng.float(0.15, 0.2)) {
+      box(o.boxes, px, y, front, pw * rng.float(0.94, 1.0), h * rng.float(0.03, 0.05), 0.05, 0, 0, 1);
     }
   }
 
@@ -728,38 +865,34 @@ window.DS = window.DS || {};
        butte, a fall of water, a wood -- and each still stands on its own ground
        line so the far rungs can scale it without lifting it off the floor. */
 
-    /* A range: two or three peaks of one massif, the tallest in the middle.
-       Ranked across the far rungs this is the "three mountains in a row" shot:
-       each rank taller on screen than the one in front, so every rank shows. */
+    /* A range: one ridgeline with a main crown, two to four lesser peaks and
+       the saddles between them (see ridgeProfile). Ranked across the far rungs
+       this is the "three ranges in a row" shot: each rank taller on screen than
+       the one in front, so every rank shows. */
     mountains: function (o, x, rng, L) {
       const H = rng.float(L.h0 || 2.2, L.h1 || 3.6);
-      const peaks = rng.chance(0.6) ? 3 : 2;
-      const spanW = H * rng.float(1.8, 2.6);
-      for (let p = 0; p < peaks; p++) {
-        const ph = p === 0 ? H : H * rng.float(0.5, 0.82);
-        const px = p === 0 ? x : x + (p === 1 ? -1 : 1) * spanW * rng.float(0.3, 0.52);
-        massif(o, px, ph, ph * rng.float(1.3, 1.9), rng, L);
+      const W = H * rng.float(2.9, 3.9);
+      const peaks = [{ x: x + rng.float(-0.12, 0.12) * W, h: H,
+                       wl: W * rng.float(0.3, 0.5), wr: W * rng.float(0.3, 0.5), p: rng.float(1.0, 1.4) }];
+      const extra = rng.int(2, 4);
+      for (let k = 0; k < extra; k++) {
+        peaks.push({ x: x + rng.float(-0.42, 0.42) * W, h: H * rng.float(0.42, 0.84),
+                     wl: W * rng.float(0.14, 0.3), wr: W * rng.float(0.14, 0.3), p: rng.float(0.9, 1.5) });
       }
+      const cols = ridgeProfile(x, H, W, peaks, rng, 0.022, 0.05);
+      ridgeColumns(o, cols, H, rng, L, { snow: !!L.snow, strata: true, lightDir: -1, depth: 0.45, over: 0.35 });
     },
-    /* A mesa: a flat-topped butte in banded rock, a lit lip along its top and a
-       talus slope at its foot, often with a smaller one beside it. */
+    /* A mesa: a flat-topped butte in banded rock. The cap is one hard layer, so
+       it holds a level top (eroded here and there) and overhangs the softer
+       rock under it; the flanks fall as cliffs to a talus; the bedding runs
+       straight across the whole face. Often a smaller butte beside it. */
     mesa: function (o, x, rng, L) {
       const h = rng.float(L.h0 || 1.6, L.h1 || 2.8);
-      const w = h * rng.float(1.3, 2.2);
-      const bands = 4;
-      for (let i = 0; i < bands; i++) {
-        const sw = w * (1 - i * 0.05);
-        box(o.boxes, x + rng.float(-0.04, 0.04) * w, h * (i + 0.5) / bands, 0,
-            sw, h / bands * 1.02, sw * 0.5, 0, 0, i % 2 ? 1 : 0);
-      }
-      box(o.boxes, x, h + h * 0.03, 0, w * 0.86, h * 0.06, w * 0.46, 0, 0, 2);
-      box(o.boxes, x - w * 0.5, h * 0.16, 0.2, w * 0.36, h * 0.32, w * 0.34, 0.25, 0, 1);
-      box(o.boxes, x + w * 0.5, h * 0.12, 0.2, w * 0.3, h * 0.24, w * 0.3, -0.25, 0, 1);
+      const w = h * rng.float(1.5, 2.4);
+      mesaBlock(o, x, h, w, rng);
       if (rng.chance(0.5)) {
-        const h2 = h * rng.float(0.45, 0.7), w2 = h2 * rng.float(0.8, 1.4);
-        const x2 = x + (rng.chance(0.5) ? 1 : -1) * (w * 0.5 + w2 * 0.7);
-        box(o.boxes, x2, h2 * 0.5, -0.3, w2, h2, w2 * 0.6, 0, 0, 1);
-        box(o.boxes, x2, h2 + h2 * 0.04, -0.3, w2 * 0.9, h2 * 0.08, w2 * 0.62, 0, 0, 2);
+        const h2 = h * rng.float(0.45, 0.7), w2 = h2 * rng.float(0.9, 1.5);
+        mesaBlock(o, x + (rng.chance(0.5) ? 1 : -1) * (w * 0.5 + w2 * 0.6), h2, w2, rng);
       }
     },
     /* A waterfall: a notched cliff with a sheet of water in the notch (a glow
@@ -877,35 +1010,49 @@ window.DS = window.DS || {};
         o.shards.push([px, sh * 0.42, rng.float(-0.3, 0.3), sx, sh, rng.float(0, 3.14), i % 2 ? 2 : 0]);
       }
     },
-    /* A volcano: a stepped cone with a broken crater, lava glowing in the crater
-       and running down the front of the steps in stair-stepped rivulets. */
+    /* A volcano: one concave cone (a steep crown over wide skirts) with a lean,
+       often a parasitic cone on a flank, the crown broken into a crater with
+       lava in it, and lava running down the front of the columns in
+       stair-stepped rivulets -- a mountain that is on fire, not a pyramid. */
     volcano: function (o, x, rng, L) {
       const h = rng.float(L.h0 || 2.4, L.h1 || 3.6);
-      const w = h * rng.float(2.6, 3.4);
-      const steps = 6;
-      /* A concave flank -- wide skirts, a steep cone -- and a lean, which is
-         what separates a volcano from a stepped pyramid. */
-      const lean = rng.float(-0.12, 0.12) * w;
-      const widthAt = function (i) { return w * (0.2 + 0.8 * Math.pow(1 - i / steps, 1.7)); };
-      let topW = w;
-      for (let i = 0; i < steps; i++) {
-        const sw = widthAt(i) * rng.float(0.92, 1.06);
-        topW = sw;
-        box(o.boxes, x + lean * (i / steps) + rng.float(-0.03, 0.03) * w, h * (i + 0.5) / steps, 0,
-            sw, h / steps * 1.02, Math.min(sw, w * 0.6) * 0.5, 0, 0, i % 2 ? 1 : 0);
+      const w = h * rng.float(2.8, 3.6);
+      const cx = x + rng.float(-0.08, 0.08) * w;
+      const peaks = [{ x: cx, h: h * 1.12, wl: w * rng.float(0.42, 0.55), wr: w * rng.float(0.42, 0.55),
+                       p: rng.float(1.5, 1.9) }];
+      if (rng.chance(0.6)) {
+        const side = rng.chance(0.5) ? 1 : -1;
+        peaks.push({ x: cx + side * w * rng.float(0.2, 0.3), h: h * rng.float(0.32, 0.48),
+                     wl: w * 0.13, wr: w * 0.13, p: 1.2 });
       }
-      x += lean;
-      box(o.boxes, x - topW * 0.36, h * 1.04, 0, topW * 0.3, h * 0.1, topW * 0.4, 0, 0, 1);
-      box(o.boxes, x + topW * 0.36, h * 1.03, 0, topW * 0.3, h * 0.08, topW * 0.4, 0, 0, 1);
-      box(o.glow, x, h * 1.0, 0, topW * 0.5, h * 0.07, topW * 0.36, 0, 0, 0);
-      const rivers = rng.int(1, 3);
+      const craterW = w * rng.float(0.035, 0.05);
+      const cols = ridgeProfile(x, h, w, peaks, rng, 0.02, 0.04).map(function (c) {
+        const dx = Math.abs(c.cx - cx);
+        const hh = dx < craterW ? h * rng.float(0.76, 0.82) : Math.min(c.h, h * rng.float(0.94, 1.0));
+        return { cx: c.cx, w: c.w, h: hh };
+      });
+      if (!cols.length) return;
+      const z0 = rng.float(-0.1, 0.1), depth = 0.42;
+      ridgeColumns(o, cols, h, rng, L, { strata: true, lightDir: -1, depth: depth, over: 0.15, z0: z0 });
+      box(o.glow, cx, h * 0.84, z0, craterW * 2.2, h * 0.07, h * 0.3, 0, 0, 0);
+      /* Rivulets: from the crater's lip outward, one column at a time, each
+         strip hung down the face of its column far enough to meet the next. */
+      let start = 0;
+      for (let i = 0; i < cols.length; i++) if (Math.abs(cols[i].cx - cx) < Math.abs(cols[start].cx - cx)) start = i;
+      const rivers = rng.int(1, 2);
+      let dir0 = 1;
       for (let r = 0; r < rivers; r++) {
-        const side = rng.float(-0.32, 0.32);
-        const run = rng.int(2, steps - 1);
-        for (let i = steps - 1; i >= steps - run; i--) {
-          const sw = widthAt(i);
-          box(o.glow, x - lean * (1 - i / steps) + side * sw, h * (i + 0.5) / steps, Math.min(sw, w * 0.6) * 0.25 + 0.03,
-              h * 0.06, h / steps, 0.05, 0, 0, i === steps - 1 ? 0 : 1);
+        dir0 = r === 0 ? (rng.chance(0.5) ? 1 : -1) : -dir0;
+        const dir = dir0;
+        const run = rng.int(3, 7);
+        let prev = cols[start].h;
+        for (let j = 1; j <= run; j++) {
+          const c = cols[start + dir * j];
+          if (!c) break;
+          const seg = Math.max(h * 0.09, prev - c.h + h * 0.05);
+          box(o.glow, c.cx + rng.float(-0.15, 0.15) * c.w, c.h - seg * 0.5 + h * 0.01,
+              ridgeFront(c, h, depth, z0) + 0.03, c.w * rng.float(0.2, 0.34), seg, 0.05, 0, 0, j < 3 ? 0 : 1);
+          prev = c.h;
         }
       }
     },
@@ -1781,7 +1928,14 @@ window.DS = window.DS || {};
     cv.width = 32; cv.height = 32;
     const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, 32, 32);
-    const core = cssOf(hero.core != null ? hero.core : hero.col);
+    /* The core is held UNDER full white (see capHot) and only its inner third
+       keeps it: a hot pip, then a shoulder half-way to the body colour. A disc
+       that is white edge to edge is what the halos and the bloom stacked into a
+       white hole in the sky; a disc that falls off keeps its colour at the rim
+       and gives the post clamp (DS.PostFX) a gradient to roll off. */
+    const hotHex = capHot(hero.core != null ? hero.core : hero.col);
+    const core = cssOf(hotHex);
+    const shoulder = mixHex(hotHex, hero.col, 0.5);
     const body = cssOf(hero.col);
     const rim = cssOf(hero.edge != null ? hero.edge : hero.col);
     /* An eclipse inverts: a dark core with a hot rim, because that is the one
@@ -1794,7 +1948,7 @@ window.DS = window.DS || {};
         if (d > 1) continue;
         ctx.fillStyle = invert
           ? (d > 0.86 ? rim : core)
-          : (d > 0.88 ? rim : d > 0.66 ? body : core);
+          : (d > 0.88 ? rim : d > 0.66 ? body : d > 0.34 ? shoulder : core);
         ctx.fillRect(x, y, 2, 2);
       }
     }
@@ -1802,6 +1956,18 @@ window.DS = window.DS || {};
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.LinearFilter;
     return tex;
+  }
+
+  /* Hold a body colour under full white: scaled so its brightest channel
+     is at most HOT_MAX, and pulled a little toward its own hue. Every halo,
+     the bloom sprite and the glow wall are ADDED over the disc, so a core that
+     starts at #ffffff has nowhere to go but clipped. */
+  const HOT_MAX = 0.9;
+  function capHot(hex) {
+    const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
+    const m = Math.max(r, g, b, 1) / 255;
+    const k = m > HOT_MAX ? HOT_MAX / m : 1;
+    return (Math.round(r * k) << 16) | (Math.round(g * k) << 8) | Math.round(b * k);
   }
 
   /* The glow wall's own texture: a soft horizontal falloff, wide and low, drawn

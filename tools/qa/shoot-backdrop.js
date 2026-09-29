@@ -69,7 +69,11 @@ const VIEW = '(() => { const v = DS.UI3.view; return { x: v.x, y: v.y, w: v.w, h
    renderer makes to draw every sprite overlay; replacing it leaves the world
    render, the post pass and the frame budget exactly as the game has them. */
 const HUD_OFF = '(() => { if (!window.__bqaHud) window.__bqaHud = DS.UI3.render;' +
-  ' DS.UI3.render = function () {}; if (DS.R3D.rig) DS.R3D.rig.show = 0; return true; })()';
+  ' DS.UI3.render = function () {}; if (DS.R3D.rig) DS.R3D.rig.show = 0;' +
+  /* ...and the quality ladder held where it is: a headless GPU is slow enough
+     that the auto-downgrade drops to 'low' part-way down the sheet, and then
+     half the frames are shot without the post chain they are meant to show. */
+  ' if (DS.PostFX) DS.PostFX.locked = true; return true; })()';
 
 /* A fresh floor at this depth, through the game's own entry point. */
 const GOTO = (depth) => `(() => { const g = DS.currentGame; g.depth = ${depth};` +
