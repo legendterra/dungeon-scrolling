@@ -287,10 +287,10 @@ function makeSession(ws) {
       await sleep(settleMs == null ? 700 : settleMs);
     },
     /** Evaluate an expression in the page and return its value. */
-    async eval(expression) {
+    async eval(expression, timeoutMs) {
       const res = await this.cmd('Runtime.evaluate', {
         expression, returnByValue: true, awaitPromise: true
-      }, 60000);
+      }, timeoutMs || 60000);
       if (res.exceptionDetails) {
         throw new Error('page threw: ' + (res.exceptionDetails.exception
           ? res.exceptionDetails.exception.description : res.exceptionDetails.text));

@@ -138,15 +138,23 @@ async function main() {
         p.vx = 0; p.vy = 0; p.onGround = true; p.onRope = false;
         return 'placed';
       })()`);
-      await cdp.sleep(350);
-      const before = await session.eval('DS.currentGame.player.y');
-      await session.cmd('Input.dispatchKeyEvent',
-        { type: 'keyDown', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 });
-      await cdp.sleep(1200);
-      const onRope = await session.eval('!!DS.currentGame.player.onRope');
-      await session.cmd('Input.dispatchKeyEvent',
-        { type: 'keyUp', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 });
-      const after = await session.eval('DS.currentGame.player.y');
+      /* Deterministic: the loop is paused and 90 sim frames are stepped by hand
+         with W held, so the result does not depend on how fast the browser (or
+         a software renderer) happens to run. */
+      const res = await session.eval(`(() => {
+        const g = DS.currentGame, p = g.player;
+        DS.__paused = true;
+        const before = p.y;
+        try {
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w' }));
+          for (let i = 0; i < 90; i++) { DS.Input.poll(); if (DS.Ptr) DS.Ptr.beginFrame(); DS.Game.update(g); DS.Input.endFrame(); }
+          return { before: before, after: p.y, onRope: !!p.onRope };
+        } finally {
+          window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w' }));
+          DS.__paused = false;
+        }
+      })()`, 60000);
+      const before = res.before, after = res.after, onRope = res.onRope;
       const rows = ((before - after) / 16);
       const climbed = rows >= 2;
       if (!climbed) failures++;

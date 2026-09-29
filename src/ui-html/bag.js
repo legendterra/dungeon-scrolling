@@ -67,7 +67,7 @@ window.DS = window.DS || {};
   function moveRef(g, from, to) {
     const result = DS.Inv.moveTo(g.inv, from, to);
     if (result.ok) {
-      if (result.moved) DS.Audio.play('menuPick');
+      if (result.moved) DS.Audio.play(to && to.kind !== 'bag' ? 'uiEquip' : 'menuPick');   // onto the hero, not just around the bag
       refresh(g);
     } else {
       DS.Audio.play('error');

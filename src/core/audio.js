@@ -293,8 +293,6 @@ window.DS = window.DS || {};
 
     /* --- interface (the HTML menus and HUD) -------------------------------------- */
     uiHover:     function () { tone({ freq: 1250, dur: 0.025, type: 'sine', vol: 0.045 }); },
-    uiClick:     function () { tone({ freq: 720, to: 980, dur: 0.06, type: 'triangle', vol: 0.11 });
-                               noise({ dur: 0.02, vol: 0.05, freq: 3000, type: 'highpass' }); },
     uiConfirm:   function () { tone({ freq: 600, dur: 0.07, type: 'triangle', vol: 0.12 });
                                tone({ freq: 900, dur: 0.11, type: 'triangle', vol: 0.12, delay: 0.06 }); },
     uiOpen:      function () { tone({ freq: 380, to: 760, dur: 0.14, type: 'sine', vol: 0.1 });
@@ -305,6 +303,12 @@ window.DS = window.DS || {};
                                tone({ freq: 340, to: 500, dur: 0.09, type: 'triangle', vol: 0.11 }); },
     uiDeny:      function () { tone({ freq: 200, to: 140, dur: 0.12, type: 'square', vol: 0.11 }); }
   };
+
+  /* The menus were written against menuMove / menuPick / error; they now speak
+     with the interface voices without every call site being touched. */
+  SFX.menuMove = SFX.uiTab;
+  SFX.menuPick = SFX.uiConfirm;
+  SFX.error = SFX.uiDeny;
 
   /* Sounds that would smear into noise if every hit in a crowd fired one: the
      minimum gap between two plays of the same name, in milliseconds. */

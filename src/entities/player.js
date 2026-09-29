@@ -138,6 +138,7 @@ window.DS = window.DS || {};
                   { speed: 1.8, life: 12, grav: 0 });
       DS.Audio.play('block');
       if (amount <= 0.01) {
+        p.hurtFlash = 5;
         p.iframes = Math.max(p.iframes, 18);
         p.vx = dir * 1.4;
         return true;
@@ -146,6 +147,7 @@ window.DS = window.DS || {};
     amount = Math.max(1, Math.round(amount));
 
     p.hp -= amount;
+    p.hurtFlash = 8;
     p.iframes = p.stats.iframes;
     p.vx = dir * 2.6;
     p.vy = -2.2;
@@ -217,6 +219,7 @@ window.DS = window.DS || {};
     if (p.swingTimer > 0) p.swingTimer--;
     DS.Combos.tick(p);
     if (p.dashCooldown > 0) p.dashCooldown--;
+    if (p.hurtFlash > 0) p.hurtFlash--;
     if (p.coinPop > 0) p.coinPop--;
 
     // Shield regeneration, once the fight has left you alone for a while.

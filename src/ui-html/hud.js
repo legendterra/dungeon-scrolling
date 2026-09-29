@@ -621,7 +621,7 @@ window.DS = window.DS || {};
     const mid = (top + bot) / 2;
     /* Not clamped to the map: a floor that runs along the bottom edge should
        still sit in the middle of the panel, with empty space under it. */
-    const oy = mid - vh / 2;
+    const oy = Math.max(pty - vh + 2, Math.min(pty - 1, mid - vh / 2));   // ...but the hero's row always stays inside
     const k = Math.min(W / vw, H / vh);
     const offX = (W - vw * k) / 2, offY = (H - vh * k) / 2;
 

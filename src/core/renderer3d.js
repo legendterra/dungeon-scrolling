@@ -79,7 +79,7 @@ window.DS = window.DS || {};
   const HORIZON_DEAD = 7;       // units: inside this, the horizon never moves
   const HORIZON_WAIT = 2.5;     // seconds outside it before any drift starts
   const HORIZON_SPEED = 0.9;    // units per second, at most
-  const HORIZON_DT = 1 / 60;
+  const HORIZON_DT = 1 / 60;     // seconds per SIM frame; see simDt for what render() actually uses
 
   /* The horizon -- its sky, its light body, its landmarks, its texture and all
      of their motion -- lives in src/core/backdrop3d.js (DS.Backdrop). What stays
@@ -87,7 +87,6 @@ window.DS = window.DS || {};
      to the eye line every frame, and the group the whole thing tears down with. */
   let backdropRef = null;    // { group, skyRig, hero, report }
 
-  let flameTex = null;
   let portalTex = null;
   let runeTex = null;
   let glowTex = null;      // soft round falloff for drop light pools
@@ -430,22 +429,6 @@ window.DS = window.DS || {};
     return createTexture(cv);
   }
 
-  function makeFlameTexture() {
-    const cv = document.createElement('canvas');
-    cv.width = 32; cv.height = 32;
-    const ctx = cv.getContext('2d');
-
-    const grd = ctx.createRadialGradient(16, 18, 1, 16, 16, 14);
-    grd.addColorStop(0, '#ffffff');
-    grd.addColorStop(0.3, '#ffe066');
-    grd.addColorStop(0.65, '#ff7711');
-    grd.addColorStop(1, 'rgba(255, 60, 0, 0)');
-
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, 32, 32);
-
-    return new THREE.CanvasTexture(cv);
-  }
 
   /* A soft round falloff for the light pool under a drop. A flat disc reads as
      a stain on the floor; a gradient reads as light. Painted white so each
@@ -756,7 +739,6 @@ window.DS = window.DS || {};
     shadowGroup = new THREE.Group();
     scene.add(shadowGroup);
 
-    flameTex = makeFlameTexture();
     portalTex = makePortalTexture();
     runeTex = makeRuneTexture();
     glowTex = makeGlowTexture();
@@ -2975,7 +2957,6 @@ window.DS = window.DS || {};
      sim, and a spring stepped per draw would ring at the wrong rate). */
   let heroAnim = null;
   let heroAnimFrame = -1;
-  let heroPrevHp = 0;
   let animFrames = -1;            // the game frame the enemy rigs are being posed for
 
   function stepHeroAnim(g, p) {
@@ -2988,12 +2969,11 @@ window.DS = window.DS || {};
     inp.grounded = !!p.onGround || !!p.onRope || !!p.inWater;
     inp.vy = p.vy || 0;
     inp.dashing = (p.dashFrames || 0) > 0;
-    inp.hurt = p.hp < heroPrevHp && !p.dead;
+    inp.hurt = p.hurtFlash > 0 && !p.dead;
     inp.dead = !!p.dead;
     inp.wind = 0;
-    inp.strike = false;
-    heroPrevHp = p.hp;
     const o = A.step(heroAnim, inp);
+    if (o.justLanded && o.landPower > 0.55) DS.Audio.play('landHard');
     if (o.justLanded && DS.FX3D && DS.FX3D.ready && o.landPower > 0.3) {
       const F = DS.FX3D;
       const X = (p.x + p.w * 0.5) * P2U, Y = (-p.y - p.h) * P2U;
@@ -3017,9 +2997,7 @@ window.DS = window.DS || {};
     inp.dashing = false;
     inp.hurt = e.hurtFlash > 0;
     inp.dead = false;
-    inp.wind = e.attackState === 'wind'
-      ? 1 - (e.attackTimer || 0) / Math.max(1, e.cfg && e.cfg.wind || 20) : 0;
-    inp.strike = e.attackState === 'strike';
+    inp.wind = e.attackState === 'wind' && DS.Enemies && DS.Enemies.windRatio ? DS.Enemies.windRatio(e) : 0;
     return A.step(model.anim, inp);
   }
 
@@ -3043,7 +3021,7 @@ window.DS = window.DS || {};
       const sp = F.rnd(0.02, 0.06);
       F.chunkAt(shatterPos.x, shatterPos.y, shatterPos.z + 0.05,
         Math.cos(a) * sp, F.rnd(0.03, 0.09), Math.sin(a) * sp * 0.4,
-        F.rnd(0.1, 0.2) * sizeMul, mesh.material.color.getHex(), F.rnd(34, 58), shatterPos.y - 0.6);
+        F.rnd(0.1, 0.2) * sizeMul, mesh.material.color.getHex(), F.rnd(34, 58), model.root.position.y);
     }
     F.puffAt(model.root.position.x, model.root.position.y + 0.5, ACTOR_Z, 0, 0.006, 0,
              0.3 * sizeMul, 0.6, 0xb8b0a8, 0.14, 26);
@@ -3270,6 +3248,7 @@ window.DS = window.DS || {};
        little shake on top; a wind-up coils it. Fliers keep their hover, so
        only ground walkers squash on landing. */
     model.root.rotation.z = e.hurtFlash > 0 ? Math.sin(time * 44) * 0.09 : 0;
+    if (model.root.rotation.order !== 'YXZ') model.root.rotation.order = 'YXZ';   // yaw outermost: pitch is about the body's own X
     model.root.rotation.x = ea.pitch * (e.flying ? 0.5 : 1);
 
     // Tier crown: elites get a faint ember, minibosses a red glow child.
@@ -4235,6 +4214,14 @@ window.DS = window.DS || {};
 
   const TORCH_COL = 0xff9e38;
   let frameSec = 0;             // the flicker clock: game frames / 60
+  /* Seconds of SIM time since the previous render. render() runs once per
+     display refresh while the game steps at a fixed 60 Hz, so anything that
+     advances a timer or fade must use this, not a constant: on a 144 Hz screen
+     the constant ran 2.4x too fast, on a 30 Hz one half speed. 0 when a render
+     lands between two sim steps. */
+  let simDt = 1 / 60;
+  let simFrame = -1;
+  let simAdvanced = false;
 
   /* Every emitter on the floor, as the pool sees it: torches, braziers and the
      exit portal. Rebuilt once per level (lazily, on the first frame), then
@@ -4280,14 +4267,14 @@ window.DS = window.DS || {};
       const hx = (hp.x + hp.w * 0.5) * P2U, hy = (-hp.y - hp.h * 0.5) * P2U;
       let nearest = 1e9;
       for (let i = 0; i < emitters.length; i++) {
-        if (emitters[i].kind === 2) continue;
+        if (emitters[i].kind === 2 || !(emitters[i].lit > 0.05)) continue;
         const dx = emitters[i].x - hx, dy = emitters[i].y - hy;
         const d2 = dx * dx + dy * dy;
         if (d2 < nearest) nearest = d2;
       }
       DS.Audio.torchNear(Math.sqrt(nearest) / P2U);
     }
-    DS.TorchLight.assignPool(lightPool, emitters, emitters.length, camX, camY, 1 / 60,
+    DS.TorchLight.assignPool(lightPool, emitters, emitters.length, camX, camY, simDt,
                              noFlamePool ? -1 : FLAME_REACH2);
     for (let k = 0; k < n; k++) {
       const l = flamePool[k];
@@ -4358,7 +4345,7 @@ window.DS = window.DS || {};
     if (!liveEnemySet.has(e)) {
       // Killed (not merely cleared with the level): the body bursts into chunks.
       if (e.dead && model.root.visible !== false) {
-        shatterModel(model, e.isBoss ? 30 : (e.tier ? 16 : 10), e.isBoss ? 1.8 : Math.min(1.6, (e.sizeScale || 1)));
+        shatterModel(model, e.isBoss ? 30 : (e.tier && e.tier !== 'normal' ? 16 : 10), e.isBoss ? 1.8 : Math.min(1.6, (e.sizeScale || 1)));
       }
       disposeModel(model);
       enemyModels.delete(e);
@@ -4528,6 +4515,9 @@ window.DS = window.DS || {};
 
   function render(g) {
     if (!enabled || !renderer || !camera || !g) return;
+    simAdvanced = g.frames !== simFrame;
+    simDt = simFrame < 0 || g.frames < simFrame ? 1 / 60 : Math.min(6, g.frames - simFrame) / 60;
+    simFrame = g.frames;
 
     /* Lay the frame out before anything is drawn: wipe the whole window in the
        theme's own background colour (the letterbox bars are this colour, not
@@ -4696,11 +4686,11 @@ window.DS = window.DS || {};
         if (goal != null) horizonGoal = goal;
       }
       const off = horizonGoal - horizonY;
-      horizonAway = Math.abs(off) > HORIZON_DEAD ? horizonAway + HORIZON_DT : 0;
+      horizonAway = Math.abs(off) > HORIZON_DEAD ? horizonAway + simDt : 0;
       const wantVel = horizonAway > HORIZON_WAIT
         ? M.clamp(off * 0.35, -HORIZON_SPEED, HORIZON_SPEED) : 0;
-      horizonVel += (wantVel - horizonVel) * HORIZON_DT * 1.2;
-      horizonY += horizonVel * HORIZON_DT;
+      horizonVel += (wantVel - horizonVel) * simDt * 1.2;
+      horizonY += horizonVel * simDt;
       themeGroup.position.y = horizonY - themeAnchorY;
     }
 
@@ -4727,7 +4717,7 @@ window.DS = window.DS || {};
       if (poolBatch) poolBatch.setLevel(tl.poolIdx, tl.flick * (0.8 + 0.2 * lamp));
       const gp = tl.group.position;
       const fy = gp.y + tl.lift;
-      if (Math.abs(gp.x - camX) < 13 && Math.abs(fy - camY) < 9) torchEmbers(gp.x, fy - 0.3, g.frames, tl.emberOff);
+      if (simAdvanced && Math.abs(gp.x - camX) < 13 && Math.abs(fy - camY) < 9) torchEmbers(gp.x, fy - 0.3, g.frames, tl.emberOff);
     }
     if (flameBatch) flameBatch.update(frameSec);
     if (torchMapUniforms) {

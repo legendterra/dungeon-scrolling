@@ -658,7 +658,7 @@ window.DS = window.DS || {};
 
   function openBag(g) {
     g.modal = { kind: 'bag', cursor: 0, hover: -1 };
-    DS.Audio.play('menuPick');
+    DS.Audio.play('uiOpen');
   }
 
   function openEnchant(g) {
@@ -912,12 +912,12 @@ window.DS = window.DS || {};
   function openShop(g) {
     if (!g.shopStock) g.shopStock = DS.Shop.makeStock(g.rng, g.depth);
     g.modal = { kind: 'shop', cursor: 0, hover: -1 };
-    DS.Audio.play('menuPick');
+    DS.Audio.play('uiOpen');
   }
 
   function closeModal(g) {
     g.modal = null;
-    DS.Audio.play('menuMove');
+    DS.Audio.play('uiClose');
   }
 
   // Everything the player owns, as a flat addressable list.

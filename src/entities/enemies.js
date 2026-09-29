@@ -319,7 +319,7 @@ window.DS = window.DS || {};
                      skeleton: 'rattle', goldslime: 'squish' };
 
   function beginAttack(e) {
-    DS.Audio.play(TELL_SFX[e.kind] || 'telegraph', { vol: e.tier ? 1 : 0.7 });
+    DS.Audio.play(TELL_SFX[e.kind] || 'telegraph', { vol: e.tier && e.tier !== 'normal' ? 1 : 0.7 });
     e.attackState = 'wind';
     e.attackTimer = Math.round(e.cfg.wind * e.windScale);
     e.struck = false;
@@ -856,6 +856,7 @@ window.DS = window.DS || {};
     create: create,
     update: update,
     draw: draw,
+    windRatio: windRatio,
     spawnTable: spawnTable,
     spreadSpawns: spreadSpawns,
     BIOME_AFFINITY: BIOME_AFFINITY,

@@ -37,13 +37,13 @@ window.DS = window.DS || {};
 
   function create() {
     return {
-      grounded: true, prevVy: 0, prevHurt: 0, prevDead: false,
+      grounded: true, prevVy: 0, prevHurt: 0,
       s: 0, sv: 0,            // squash spring: s in [-0.3, 0.1], 0 = rest
       lean: 0,                // smoothed forward pitch
       apex: 0,                // 0..1, eased apex tuck
       flinchT: 0,             // frames left of the hit recoil
       deathT: 0,              // frames since death
-      landT: 0,               // frames since the last landing (knee bend)
+      landT: 99,              // frames since the last landing (knee bend); 99 = long ago
       out: {
         sy: 1, sxz: 1,        // scale of the body (volume preserved)
         pitch: 0,             // torso forward pitch, lean + flinch + coil
@@ -63,9 +63,8 @@ window.DS = window.DS || {};
        dashing   mid-dash
        hurt      the entity's hurt flash is up
        dead      the entity is dead
-       wind      0..1 attack wind-up progress (0 when not winding)
-       strike    a strike is landing this frame */
-  const input = { grounded: true, vy: 0, dashing: false, hurt: false, dead: false, wind: 0, strike: false };
+       wind      0..1 attack wind-up progress (0 when not winding) */
+  const input = { grounded: true, vy: 0, dashing: false, hurt: false, dead: false, wind: 0 };
 
   function step(st, inp) {
     const o = st.out;
@@ -118,7 +117,6 @@ window.DS = window.DS || {};
 
     // --- death ---------------------------------------------------------------------
     if (inp.dead) { if (st.deathT < CFG.DEATH_FRAMES) st.deathT++; } else st.deathT = 0;
-    st.prevDead = !!inp.dead;
     const dt = st.deathT / CFG.DEATH_FRAMES;
 
     // --- out -------------------------------------------------------------------------
@@ -133,7 +131,7 @@ window.DS = window.DS || {};
   }
 
   function reset(st) {
-    st.grounded = true; st.prevVy = 0; st.prevHurt = 0; st.prevDead = false;
+    st.grounded = true; st.prevVy = 0; st.prevHurt = 0;
     st.s = 0; st.sv = 0; st.lean = 0; st.apex = 0;
     st.flinchT = 0; st.deathT = 0; st.landT = 99;
     return st;

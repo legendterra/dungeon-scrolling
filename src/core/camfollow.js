@@ -11,8 +11,10 @@
      - The camera tracks an ANCHOR, not the hero. The anchor is the hero's
        height the last time he stood on something (or held a rope, or swam).
      - In the air the anchor does not move while the hero stays inside a BAND
-       around it: an ordinary jump (41 px apex at the base jump speed) fits in
-       the band, so the frame holds perfectly still for the whole jump.
+       around it: a single jump (41 px apex at the base jump speed) fits with
+       room to spare and the frame holds perfectly still. A double jump peaks
+       at ~70-76 px, just past the band, so the frame moves by at most ~15 px
+       for the top of it (tests/camera.test.js pins both).
      - Leaving the band pushes the anchor with him -- a double jump up a shaft,
        a drop off a ledge -- so he is never lost; a fast fall also leans the aim
        down so the landing is on screen before he reaches it.
@@ -34,14 +36,14 @@ window.DS = window.DS || {};
     LOOK_AHEAD: 22,     // px ahead of the hero in the facing direction
     X_RATE: 0.09,       // horizontal ease per frame
     AIM_ABOVE: 8,       // the aim sits this far above the anchor
-    BAND_UP: 44,        // how far above the anchor the hero may rise untracked
+    BAND_UP: 72,        // how far above the anchor the hero may rise untracked (a double jump peaks ~76)
     BAND_DOWN: 10,      // how far below it he may drop untracked
     Y_RATE: 0.07,       // vertical re-centre ease per frame
     Y_RATE_FALL: 0.15,  // ... while chasing a real fall
     FALL_VY: 3.0,       // px/frame of downward speed that counts as a fall
     FALL_LOOK: 6,       // extra look-down per px/frame above FALL_VY
     FALL_LOOK_MAX: 24,  // cap on that look-down
-    MAX_DEV: 42         // the hero's centre is never further than this from the aim
+    MAX_DEV: 56         // the hero's centre is never further than this from the aim (the frame's half-height is ~57)
   });
 
   function create() {

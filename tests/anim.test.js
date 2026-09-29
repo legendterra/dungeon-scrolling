@@ -11,7 +11,7 @@ const C = A.CFG;
 
 function frame(st, over) {
   const i = A.input;
-  i.grounded = true; i.vy = 0; i.dashing = false; i.hurt = false; i.dead = false; i.wind = 0; i.strike = false;
+  i.grounded = true; i.vy = 0; i.dashing = false; i.hurt = false; i.dead = false; i.wind = 0;
   Object.assign(i, over || {});
   return A.step(st, i);
 }
@@ -22,8 +22,9 @@ function settle(st, n, over) {
   return o;
 }
 
-test('a body at rest is undistorted', () => {
+test('a fresh body has no landing knees, and is undistorted at rest', () => {
   const st = A.create();
+  assert.equal(frame(st).knees, 0, 'no knee bend on the first frame');
   const o = settle(st, 60);
   assert.ok(Math.abs(o.sy - 1) < 1e-3);
   assert.ok(Math.abs(o.sxz - 1) < 1e-3);

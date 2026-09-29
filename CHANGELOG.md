@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v6.0.0] - 2026-09-29 - Acts, A 3D Stage, And A Body That Has Weight
+
+### Added
+- **Three acts and an endless descent**: `FINAL_DEPTH` is gone. Depths 1-30 make three acts of ten, six bosses (Slime King, Stone Warden, Arbiter, Frost Wyrm, Lich, Magma Colossus) at depths 5 and 10 of each act, a safe room before each boss, and an endless descent after depth 30 with scaling and a boss every five depths. Four new enemy types for acts II-III (ice wisp, magma crab, harpy, cultist), biome-weighted spawn tables and stratified spawn markers.
+- **Post-processing, shadows, cinematic 2.5D camera** (`src/core/postfx.js`, `renderer3d.js`): SAO, god rays, bloom clamped per source, colour grading per theme, SMAA (F8 cycles low / med / high); real shadow maps; a closer camera whose shake and punch move the 3D world. The backdrop is a light source: the sky body aims the key light, and every theme carries layered voxel set pieces.
+- **Camera that does not blink** (`src/core/camfollow.js`, `tests/camera.test.js`): grounded-Y follow with a dead band. A jump leaves the frame still; a double jump moves it at most ~15 px; landing somewhere new eases the frame there.
+- **Torches that light their surroundings** (`flame.js`, `torchlight.js`): shader flames, a fixed-size point-light pool (no shader recompiles), a baked light map for torches outside the pool, embers and smoke on the pooled FX layer.
+- **3D VFX layer and real combos** (`src/fx3d/`, `src/systems/combos.js`): pooled GPU particles, ribbon trails, slash crescents, per-weapon combo chains, an identity for each of the eight elements and 28 reactions, and **element infusion** (R / T) across the essences a run has found.
+- **HTML UI** (`src/ui-html/`, `styles/`): HUD, in-world prompts / drop labels / enemy bars / damage numbers, menus, bag with stat comparison, shop, shrine, enchant and run summary on one design system. `DS.HUI_ENABLED = false` restores the canvas UI.
+- **Body-weight animation** (`src/core/anim.js`, `tests/anim.test.js`): take-off crouch and stretch, landing squash with dust, apex tuck, dash lean, hit flinch, death topple, wind-up coil on enemies, and a voxel shatter when anything dies.
+- **Sound design** (`src/core/audio.js`, `tests/audio.test.js`): a swing and impact voice per weapon, eight element voices, six reaction voices, a roar per boss, enemy tells, torch crackle by distance, hard landings and the interface voices; per-name detune and throttling.
+- **Auto-equip for rarer armour** on pickup and purchase, with the old piece going to the bag.
+- **QA tooling**: `npm test` (113 tests), `tools/qa/shoot-{phase6,phase8,ui,elements}.js`, `probe-load.js`, `check-bestiary.js`.
+
+### Fixed
+- **Levels patched instead of designed**: ledges pillared in corridors, stepping stones deleted and re-patched, rope repairs placed after the anti-float pass, half ladders, ropes cut by ledges. `npm run solve 50` over depths 1-30: 0 unreachable exits in 1864 floors and 0 floating rungs, orphan ropes, half ladders or pillars in corridors.
+- **The merchant, his table and the shrine stayed in the scene on every later floor** (`renderer3d.js`): they were added to the actor group and never removed on `loadLevel`.
+- **`grab` and `boom` were played by the game but never defined**, so rope grabs and explosions were silent.
+- **Boss bar shown before the boss had noticed the hero; minimap empty on flat floors; crit numbers over elite names; essence banner unstyled; hero name hidden by an unrelated prompt; ice fields washing the floor white.**
+- **Frame-rate dependence**: the horizon drift timers, the flame-light hand-over and torch embers advanced per render call instead of per simulation frame; they now follow `g.frames`.
+- **`tools/qa/check-climb.js` failed on machines without a GPU** because it held W for wall-clock time; it now steps the simulation.
+
+### Changed
+- Enemy armour can no longer soak more than 75% of a hit (`ARMOR_FLOOR` in `entities/base.js`). The leaderboard worker accepts depths past 10. Game version string `v6.0.0`.
+- **Documentation**: `docs/10-v6.md` (chapter 10) describes v6 and takes precedence over chapters 1-9 where they differ; `docs/PLAN-v6.md` and `docs/HANDOFF-v6.md` hold the plan and the phase notes.
+
 ## [v5.2.2] - 2026-09-28 - A Horizon That Stands On The Ground
 
 ### Added

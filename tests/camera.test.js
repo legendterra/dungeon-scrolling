@@ -103,3 +103,24 @@ test('an unready state seats itself on the first step', () => {
   assert.equal(st.ready, true);
   assert.equal(st.anchorY, 80);
 });
+
+test('a double jump barely moves the frame and never loses the hero', () => {
+  const AIR = 0.92;      // the second jump's fraction of jumpVel
+  let worstShift = 0, worstAbove = 0;
+  for (let trigger = 4; trigger <= 26; trigger += 2) {
+    const { cam, st } = settled(200, 300);
+    const y0 = cam.y;
+    let py = 300, vy = -JUMP_VEL, grounded = false;
+    for (let f = 0; f < 220; f++) {
+      if (f === trigger) vy = -JUMP_VEL * AIR;
+      vy += GRAVITY; py += vy;
+      if (py >= 300) { py = 300; vy = 0; grounded = true; }
+      CF.step(cam, st, hero(200, py, { vy: vy, grounded: grounded }));
+      worstShift = Math.max(worstShift, Math.abs(cam.y - y0));
+      worstAbove = Math.max(worstAbove, cam.y - py);
+      if (grounded && f > trigger + 5) break;
+    }
+  }
+  assert.ok(worstShift < 20, 'frame moved ' + worstShift.toFixed(1) + 'px on a double jump');
+  assert.ok(worstAbove <= C.MAX_DEV + 0.01, 'hero got ' + worstAbove.toFixed(1) + 'px above the aim');
+});

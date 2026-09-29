@@ -63,7 +63,7 @@ async function main() {
       };
       await session.eval('__ui.frame(120, true)');
       await shot('depth1');
-      for (const [name, depth, kind] of [['boss5', 5, 'boss'], ['safe5', 5, 'safe'], ['flat-d3', 3, 'normal']]) {
+      for (const [name, depth, kind] of [['boss5', 5, 'boss'], ['safe5', 5, 'safe'], ['flat-d3', 3, 'normal'], ['mount7', 7, 'normal']]) {
         console.log(h + 'p ' + name, JSON.stringify(await session.eval(`__ui.go(${depth}, '${kind}')`)));
         await session.eval('__ui.frame(90, true)');
         await shot(name);
