@@ -80,7 +80,9 @@ window.DS = window.DS || {};
     const jit = L.jitter != null ? L.jitter : 0.45;
     const ops = openingList(L, S);
     const cols = Math.ceil((S.lx1 - S.lx0) / cell);
-    const top = Math.max(cell * 3, S.top + cell);
+    // `height` makes a wall that ENDS (a labyrinth's, with sky above it); without
+    // it the wall runs to the top of the frame and shuts the sky out.
+    const top = L.height != null ? L.height : Math.max(cell * 3, S.top + cell);
     const rows = Math.ceil(top / cell);
     for (let i = 0; i < cols; i++) {
       const cx = S.lx0 + (i + 0.5) * cell;
@@ -259,5 +261,51 @@ window.DS = window.DS || {};
     box(o.boxes, x, lift + 2.25, 0, w + 0.9, 0.5, d + 0.9, lean * 0.4, 0, 1);
     box(o.boxes, x, lift + 2.75, 0, w * 0.62, 0.5, d * 0.62, lean * 0.4, 0, 1);
     o.glow.push([x + w * 0.2, lift + 1.2, d * 0.5 + 0.02, 0.5, 0.6, 0.05, 0, 0, 1]);
+  };
+
+  /* --- a spiral stair round a well, going down out of sight ------------------------------------------ */
+  K.spiralstair = function (o, x, rng, L) {
+    const H = L.h || 26, R = L.r || 5.6, N = L.steps || 44;
+    box(o.boxes, x, H * 0.5, 0, 1.6, H, 1.6, 0, 0, 1);                             // the newel
+    for (let i = 0; i < N; i++) {
+      const t = i / N, th = t * Math.PI * 2 * 3.2;
+      const px = x + Math.sin(th) * R, pz = Math.cos(th) * R;
+      if (pz < -1.0) continue;                                                       // the far side is hidden by the wall
+      box(o.boxes, px, H - t * H, pz, 2.6, 0.4, 1.4, 0, th, i % 3 ? 2 : 0);
+      if (i % 4 === 0) box(o.boxes, px, H - t * H + 0.8, pz, 0.12, 1.6, 0.12, 0, 0, 4);
+    }
+    // the well's lip and a ring of wall below it
+    for (let k = 0; k < 14; k++) {
+      const th = k / 14 * Math.PI * 2;
+      box(o.boxes, x + Math.sin(th) * (R + 2.2), H + 0.3, Math.cos(th) * (R + 2.2), 2.2, 0.8, 1.2, 0, th, 2);
+    }
+  };
+
+  /* --- a balance: a pillar, a beam, two pans of gold on chains ---------------------------------------- */
+  K.scales = function (o, x, rng, L) {
+    box(o.boxes, x, 5.6, 0, 1.4, 11.2, 1.4, 0, 0, 1);
+    box(o.boxes, x, 0.4, 0, 4.4, 0.8, 3, 0, 0, 2);
+    box(o.boxes, x, 11.4, 0, 17, 0.7, 0.9, 0.04, 0, 2);                             // the beam, a little off level
+    box(o.boxes, x, 12.4, 0, 1.0, 1.4, 1.0, 0, 0, 0);
+    for (const s of [-1, 1]) {
+      const px = x + s * 8.1, py = s < 0 ? 7.4 : 6.2;
+      box(o.boxes, px, (11.4 + py) * 0.5, 0, 0.08, 11.4 - py, 0.08, 0, 0, 4);
+      box(o.boxes, px - 2.2, (11.4 + py) * 0.5, 0, 0.06, 11.4 - py, 0.06, 0.4, 0, 4);
+      box(o.boxes, px + 2.2, (11.4 + py) * 0.5, 0, 0.06, 11.4 - py, 0.06, -0.4, 0, 4);
+      box(o.boxes, px, py, 0, 5.2, 0.4, 3.2, 0, 0, 2);                               // the pan
+      o.glow.push([px, py + 0.5, 0, 3.6, 0.5, 2.2, 0, 0, 0]);                        // the gold in it
+    }
+  };
+
+  /* --- a bell tower with a lean on it ----------------------------------------------------------------- */
+  K.belltower = function (o, x, rng, L) {
+    const lean = rng.float(0.05, 0.09) * (rng.chance(0.5) ? 1 : -1);
+    box(o.boxes, x, 4.5, 0, 4.4, 9, 4.4, lean, 0, 0);
+    box(o.boxes, x + lean * 9, 10.2, 0, 4.9, 0.5, 4.9, lean, 0, 2);
+    for (const dx of [-1.9, 1.9]) for (const dz of [-1.9, 1.9]) box(o.boxes, x + lean * 12 + dx, 12.2, dz, 0.5, 3.6, 0.5, lean, 0, 1);
+    box(o.boxes, x + lean * 13, 12.6, 0, 1.6, 1.5, 1.6, lean, 0, 3);                 // the bell
+    o.glow.push([x + lean * 13, 12.4, 0.82, 0.7, 0.5, 0.05, 0, 0, 1]);
+    for (let b = 0; b < 4; b++) box(o.boxes, x + lean * 15, 14.4 + b * 0.8, 0, 5.2 - b * 1.2, 0.8, 5.2 - b * 1.2, lean, 0, b % 2 ? 1 : 2);
+    box(o.boxes, x + lean * 19, 18.4, 0, 0.12, 2.4, 0.12, lean, 0, 4);
   };
 })(window.DS);

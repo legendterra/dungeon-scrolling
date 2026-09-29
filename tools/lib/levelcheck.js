@@ -67,7 +67,9 @@ const FILES = [
   'src/world/hazards.js',
   'src/world/generator.js',
   'src/world/maps.js',
-  'src/world/maps/act1.js'
+  'src/world/maps/act1.js',
+  'src/world/maps/act2.js',
+  'src/world/maps/act3.js'
 ];
 
 function loadGame() {

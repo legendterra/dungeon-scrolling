@@ -1,79 +1,60 @@
-# v7 Handoff
+# v7 Handoff (dijeda 2026-09-29)
 
-Plan: [PLAN-v7.md](PLAN-v7.md). Branch kerja: `claude/modest-rubin-yaqfoa` (tanpa merge ke `main`).
-Perbarui file ini di akhir setiap fase.
+Branch: `claude/modest-rubin-yaqfoa` (tanpa merge ke `main`). Plan: [PLAN-v7.md](PLAN-v7.md).
+Lanjut di rumah: `git pull origin claude/modest-rubin-yaqfoa`, lalu bilang ke Claude
+"baca docs/HANDOFF-v7.md dan lanjutkan dari 'Berikutnya'".
 
 ## Status
 
 | Fase | Isi | Status |
 |---|---|---|
-| 0 | Persiapan, bug senjata, jam menu, `shoot-maps.js`, baseline | **selesai** (18e7331) |
-| 1 | Backdrop world-space (diam, terisi penuh, tanpa mesh di depan bidang main) | **selesai** |
-| 2 | Level diperbesar | **sebagian** (lihat di bawah) |
-| 3 | Tekstur CC0 HD | **selesai** |
-| 4-6 | Map per act + monster | belum |
-| 7 | MC baru | belum |
-| 8 | Suara, dokumen, review | belum |
+| 0 | bug senjata hilang, jam menu, `shoot-maps.js` | selesai |
+| 1 | backdrop diam di world-space, terisi penuh, akar atap | selesai (audit 30 depth lulus) |
+| 2 | level diperbesar (corridor x1.8, carved 32 baris, danau 30, gunung 128x60, trial 144) | selesai sebagian |
+| 3 | tekstur CC0 (Poly Haven, 58 tekstur, 1,25 MB) untuk backdrop dan tile | selesai |
+| 4-6 | `DS.Maps` + 30 map (Act I-III) dengan backdrop, palet, cahaya, tile masing-masing | **visual selesai, belum dipoles** |
+| monster/boss baru | 22 monster A + 13 B, boss Hades/Zeus/Minotaur/Medusa/Talos | belum |
+| 7 | MC baru (voxel lebih detail) | belum |
+| 8 | suara, dokumen, `CHANGELOG`, cache-buster 7.0.0, review | belum |
 
-## Cara jalan
+## Yang ada sekarang
 
-- Dev server: `python devserver.py 8124` (port yang dipakai `.claude/launch.json`).
-- `node tools/qa/shoot-maps.js http://127.0.0.1:8124/ --tag NAMA [--depths 2,3|all]` menulis contact sheet
-  ke `tools/qa/out/maps/NAMA/` (gitignored). Baseline: tag `before-v7`.
-- `npm test`, `npm run solve 50`, `node tools/qa/probe-load.js`.
+- `src/world/maps.js` + `src/world/maps/act1|2|3.js`: satu entri per map (rung ladder, palet, tema cahaya, grade,
+  backdrop, affinity spawn, tile). Endless memakai 30 map itu lagi (`rung.lap` ada, tint korupsi belum dipasang).
+- Kind backdrop baru: `src/core/backdrop/kinds-arch.js` (wall berbukaan, celltier, catwalk, hangcage, watchtower,
+  statue, biggate, chandelier, lighthouse, stilthouse, spiralstair, scales, belltower), `kinds-nature.js`
+  (mushrooms, ropebridge, cloudsea, mangrove, lilies, glowthreads, webs, eggs, ghostlamps, icefall, skeleton),
+  `kinds-greek.js` (colonnade, temple, bullhead, bigchain, titan, boat, thrones, chariot, stormcloud, anvil,
+  automaton, furnace, olive, asphodel).
+- Map tertutup = dinding blok di belakang level (`wall`) dengan jendela/lengkung; cahaya masuk lewat bukaan.
+- QA: `npm test` (139 hijau), `node tools/qa/audit-world.js <url> --depths 1-30`,
+  `node tools/qa/shoot-maps.js <url> --tag X --depths 21,24`, `node tools/qa/shoot-kinds.js <url>`,
+  `npm run solve 14` (0 exit tak terjangkau). Dev server: `python devserver.py 8124`.
 
-## Fase 1: yang dikirim dan yang sengaja ditunda
+## Masalah terbuka (kerjakan dulu)
 
-Dikirim:
-- `src/core/worldframe.js` (murni, diuji): jangkauan kamera per level dan persegi coverage tiap bidang
-  `z = -D`. `tests/worldframe.test.js` juga membaca `renderer3d.js` supaya konstanta yang ditirunya tidak
-  bisa menyimpang diam-diam.
-- Backdrop berdiri diam (`themeGroup.position.y = 0`). Blok HORIZON_* / drift / `settleStage` dihapus.
-  Jangkar ground = **kaki level** (`footRow`, persentil-85 tinggi kolom), bukan median.
-- Tidak ada mesh backdrop di depan `FRONT_Z = -1.6`. Atap map tertutup: dasar `max(y resep, mata tertinggi + 3)`,
-  gigi stalaktit berakar DI atap (`L.roof`), pondasi di bawah dataran, langit menyesuaikan tinggi level.
-- `Backdrop.update(time, simDt)`: nol saat sim dijeda.
-- Audit deterministik `tools/qa/audit-world.js` (`npm run qa:world`): 30 depth, 0 gagal. Audit lama
-  `audit-backdrop.js` kehilangan cek "horizon berdiri di tanah pemain" (usang).
+1. `audit-world.js --depths 11-30` terakhir gagal 5 cek. Sudah diperbaiki tanpa dijalankan ulang: `ghostlamps` dan
+   `stormcloud` jadi kind bebas, `chariot` diberi pijakan, lapisan `cloudsea` m28 dipindah ke d 12
+   (sebelumnya menembus ke z +3.6, di depan bidang main). **Belum dicek:** satu mesh masih di z -0.65
+   (`BoxGeometry[198]`) di salah satu depth Act II/III. Jalankan audit lagi untuk menemukannya.
+2. Poles visual (lihat `tools/qa/out/maps/a2`, `a3` setelah menjalankan `shoot-maps`): Labyrinth terlalu seragam,
+   Tartarus dan Zeus terlalu gelap, tiang `mangrove` terlalu besar, `wall` boss Warden masih gelap.
+3. Arena boss dan safe room masih 40x22 dan 20x22; segmen dua lantai di corridor dan atap tile opsional belum ada.
+4. Act III belum punya boss barunya: rotasi masih Lich (d25) dan Magma Colossus (d30).
 
-Ditunda ke Fase 4-6 (perlu resep per map): rung raksasa tambahan (110/180/300 u), fog per map, dinding belakang
-menerus untuk map tertutup, matahari di balik jendela berjeruji, pemecahan `backdrop3d.js` menjadi
-`src/core/backdrop/`.
+## Berikutnya
 
-Catatan visual: sheet `after-p1` memperlihatkan Rusted Prison masih seperti gurun dan blok bata level Climb
-menutupi backdrop di tengah/atas; keduanya adalah pekerjaan Fase 2 dan 4.
+1. Audit ulang, perbaiki sisa z-front, poles visual di atas.
+2. `roster` per map (ganti `affinity`) dan monster baru: template ada di `src/entities/enemies3.js` (behavior + config),
+   model di `src/core/voxel.js` (`BUILDERS` + `HEIGHT`; tambahkan API `register` supaya model baru bisa di file lain),
+   rencana per monster di PLAN-v7.md bagian "Monster baru". Hook yang perlu: `p.slowT` dan `p.pullT` di
+   `player.js` `move()` (tatapan Gorgonite, rantai Jailer), `e.hidden` di pose renderer (Bogman).
+3. Boss baru (Hades, Zeus, Minotaur, Medusa, Talos), termasuk mekanisme floor boss horizontal (d21/23/27) dan arena per boss.
+4. Ruang khusus: safe room Act I-II (kemah) dan Temple of Hestia, trial Act III (Arena of Heroes), tint korupsi endless.
+5. Fase 7 (MC) dan Fase 8 (suara, `docs/11-v7.md`, `CHANGELOG`, `?v=7.0.0`, `/code-review`).
 
-## Fase 2: yang dikirim dan yang ditunda
+## Catatan
 
-Dikirim (`src/world/levelsize.js` adalah satu-satunya tabel ukuran, diuji di `tests/levelsize.test.js`):
-- corridor 260-480 x 22 (rooms x 1.8), carved 240-440 x **32** (`parkour.js` memakai `map.h - 2` sebagai dasar),
-  flooded 160-220 x **30** (danau lebih dalam, gundukan dan dive diperbanyak), mountain **128 x 60**
-  (sembilan plateau, sumur dan vault sama besar), trial **144** x 22 (gauntlet dan hall lebih panjang, arena tetap).
-- Jangkar backdrop = lantai tempat hero mulai (`footRow`), atau permukaan air di danau (`g.waterRow`).
-- `npm run solve 14`: 0 exit tak terjangkau di 532 lantai, keempat metrik anti-melayang 0. `check-climb.js` lulus
-  (tali di gunung baru dipanjat sungguhan). `audit-world.js` lulus di depth 3/7/9/13/22.
-
-Ditunda (dengan alasan):
-- **Arena boss dan safe room** (40 -> 64-80 dan 20 -> 40): arena dibuat per boss di Fase 4-6 bersama boss barunya,
-  supaya tidak dikerjakan dua kali.
-- **Segmen dua lantai di corridor** dan **atap tile opsional per map**: keduanya dibaca dari definisi map
-  (Fase 4-6), jadi dibuat bersama definisi itu.
-- Frame time di level besar (`qa:frame`) dan ekonomi koin (musuh per lantai naik ~1.7x, harga toko belum
-  disetel ulang) harus dicek user di lokal.
-
-## Fase 3: tekstur HD
-
-- **Sumber: Poly Haven (CC0), bukan ambientCG.** Setiap zip ambientCG 9,7 MB (5 peta), sedangkan Poly Haven
-  menyediakan diffuse 1k JPG langsung (~0,7 MB, dengan md5 di API). 41 aset, 28,1 MB total, diunduh oleh
-  `tools/assets/fetch-textures.js` ke `tools/assets/cache/` (gitignored, dicek md5) dan di-bake oleh
-  `tools/assets/bake-textures.js` ke `src/art/textures/common.gen.js` (44 tekstur x 256 px, 0,86 MB, di repo).
-- `src/core/texlib.js` (`DS.TexLib`): decode async, mipmap, anisotropi 4, `clone(id, rx, ry)` per material.
-  Jatuh kembali ke tekstur prosedural bila tidak ada data. `?hdtex=0` mematikan semuanya, `DS.TexLib.tiles = false`
-  hanya tile level.
-- Backdrop: setiap family prosedural punya pengganti HD dengan rata-rata warna sama (`familyMap`), dipasang di
-  **semua rung** dan tiga slab ground.
-- Tile level: dinding/lantai/platform memakai foto grayscale yang di-sampel dengan posisi **dunia**
-  (`worldUvPatch`, dirantai dengan patch peta obor), jadi susunan bata menerus antar-tile; warna material = warna
-  palet biome, jadi mood tiap lantai tetap.
-- Ditunda: file per act yang dimuat dinamis (total 0,86 MB masih di bawah anggaran 1,5 MB, jadi semua dimuat
-  statis; `tests/textures.test.js` menjaga anggaran itu). Tekstur per map (Fase 4-6) tinggal menunjuk id di manifest.
+- Tekstur bukan dari ambientCG tapi Poly Haven (CC0, diffuse 1k JPG langsung, md5 dicek). Kredit di `ASSETS.md`;
+  ulangi dengan `npm run assets:fetch` lalu `npm run assets:bake`. `?hdtex=0` mematikan semua tekstur HD.
+- Cek user di lokal: frame time (`npm run qa:frame`) di level besar, ekonomi koin (musuh per lantai naik ~1.7x), suara.

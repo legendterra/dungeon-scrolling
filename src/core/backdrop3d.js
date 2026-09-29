@@ -249,7 +249,8 @@ window.DS = window.DS || {};
   /* Which band kinds hang free of the ground (everything else is anchored to
      it, and a roofed theme's stalactites to its roof). The audit reads the
      anchor each layer group declares and measures it against the geometry. */
-  const FREE_KINDS = { clouds: true, islands: true, cloudsea: true, hangcage: true, chandelier: true };
+  const FREE_KINDS = { clouds: true, islands: true, cloudsea: true, hangcage: true, chandelier: true,
+                       ghostlamps: true, stormcloud: true };
 
   const SWAY_KINDS = {
     islands: { spd: 0.30, bob: 0.22 }
