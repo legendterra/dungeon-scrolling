@@ -104,6 +104,7 @@ window.DS = window.DS || {};
   // Every gameplay character is a blocky 3D model (src/core/voxel.js); the 2D
   // canvas keeps only FX, telegraphs, UI bars and the lighting composite.
   let actorGroup = null;     // hero + monster models
+  let levelActors = [];      // NPC / furniture / shrine models of the current floor (removed on the next)
   let fxGroup = null;        // projectiles + pickup meshes
   let heroModel = null;
   let heroArmorKey = '';
@@ -1885,6 +1886,10 @@ window.DS = window.DS || {};
     disposeGroup(themeGroup);
 
     clearActors();
+    /* The merchant, his table and the shrine live in actorGroup too, and used to
+       stay behind on every floor after the safe room. */
+    levelActors.forEach(function (m) { disposeModel(m); });
+    levelActors = [];
     gateMeshes = [];
     leverMeshes = [];
     brazierMeshes = [];
@@ -2083,6 +2088,7 @@ window.DS = window.DS || {};
             const mFloor = snapToFloor(map, d.x + 8, d.y);
             model.root.position.set((d.x + 8) * P2U, -mFloor * P2U, 0.3);
             actorGroup.add(shadowize(model.root));
+            levelActors.push(model);
             if (d.kind === 'merchant') d.vox3d = model;
           }
         }
@@ -2140,6 +2146,7 @@ window.DS = window.DS || {};
       const sFloor = snapToFloor(g.map, g.shrine.x + 8, g.shrine.y);
       shrineMesh.root.position.set((g.shrine.x + 8) * P2U, -sFloor * P2U, 0.12);
       actorGroup.add(shadowize(shrineMesh.root));
+      levelActors.push(shrineMesh);
     }
 
     if (g && g.chests) {

@@ -497,9 +497,20 @@ window.DS = window.DS || {};
     }
   }
 
+  const BOSS_WAKE_PX = 260;
+
   function updateBoss(g) {
     const b = g.boss;
-    const on = !!(b && !b.dead && b.maxHp);
+    /* The bar belongs to a fight, not to a boss that merely exists: a Warden
+       standing at the far end of its arena has not noticed you yet. It appears
+       once the boss is hurt, is doing something, or you come within earshot,
+       and then stays for the rest of the fight. */
+    if (b && !b.hudEngaged && !b.dead) {
+      const p = g.player;
+      const near = p && Math.abs(DS.Ent.centerX(p) - DS.Ent.centerX(b)) < BOSS_WAKE_PX;
+      if (b.hp < b.maxHp || near || (b.state && b.state !== 'INTRO' && b.state !== 'IDLE')) b.hudEngaged = true;
+    }
+    const on = !!(b && !b.dead && b.maxHp && b.hudEngaged);
     show(N.boss, on);
     if (!on) { N.bossBar.lagV = 1; return; }
     text(N.bossName, b.name || 'THE KING');
@@ -536,7 +547,9 @@ window.DS = window.DS || {};
      the hero every MAP_EVERY frames. Terrain edges are brighter than solid
      rock so the shape of the floor reads at a glance; markers are dots. */
   const MAP_EVERY = 8;
-  const MAP_VIEW = { w: 66, h: 25 };      // tiles shown (a side-scroller's strip)
+  const MAP_VIEW = { w: 66, h: 25 };      // the most tiles shown (a side-scroller's strip)
+  const MAP_MIN_ROWS = 12;                // ... and the fewest rows, however flat the floor
+  const MAP_PAD = 3;                      // rows of margin around the floor's own extent
   const MAP_TILE = {
     1: 'rgba(90, 110, 160, 0.42)', 2: 'rgba(200, 225, 255, 0.75)', 3: '#ff4d6d', 5: '#ff4d6d',
     4: '#6fd3ff', 6: 'rgba(63, 169, 255, 0.5)', 7: 'rgba(242, 198, 109, 0.8)'
@@ -582,16 +595,40 @@ window.DS = window.DS || {};
 
     const T = DS.C.TILE, p = g.player;
     const ptx = (p.x + p.w / 2) / T, pty = (p.y + p.h / 2) / T;
-    const vw = Math.min(MAP_VIEW.w, map.w), vh = Math.min(MAP_VIEW.h, map.h);
-    const ox = Math.max(0, Math.min(map.w - vw, ptx - vw / 2));
-    const oy = Math.max(0, Math.min(map.h - vh, pty - vh / 2));
+    /* Fit the window to the floor, not to a fixed box. A flat floor has
+       walls on two or three rows and nothing else, so the fixed 66x25 view
+       drew a thin line in an empty frame. The view now shrinks to the rows
+       that hold anything near the hero (plus the hero's own row and a margin),
+       and the scale comes up to match, so the shape fills the panel. */
+    let vw = Math.min(MAP_VIEW.w, map.w), vh = Math.min(MAP_VIEW.h, map.h);
+    let ox = Math.max(0, Math.min(map.w - vw, ptx - vw / 2));
+    /* The floor's extent is where the SURFACE runs -- the first solid tile in
+       each column -- plus a little rock under the lowest of them, not the solid
+       fill all the way to the bottom of the map. */
+    let top = Math.floor(pty), bot = Math.floor(pty);
+    const x0 = Math.floor(ox), x1 = Math.min(map.w, Math.ceil(ox + vw));
+    for (let x = x0; x < x1; x++) {
+      for (let y = 0; y < map.h; y++) {
+        if (map.data[y * map.w + x]) { if (y < top) top = y; if (y + 3 > bot) bot = y + 3; break; }
+      }
+    }
+    const rows = Math.max(MAP_MIN_ROWS, Math.min(vh, bot - top + 1 + 2 * MAP_PAD));
+    vh = rows;
+    // The window is as tall as the panel allows at this row count, then as wide.
+    const kFit = H / vh;
+    vw = Math.min(map.w, Math.min(MAP_VIEW.w, W / kFit));
+    ox = Math.max(0, Math.min(map.w - vw, ptx - vw / 2));
+    const mid = (top + bot) / 2;
+    /* Not clamped to the map: a floor that runs along the bottom edge should
+       still sit in the middle of the panel, with empty space under it. */
+    const oy = mid - vh / 2;
     const k = Math.min(W / vw, H / vh);
     const offX = (W - vw * k) / 2, offY = (H - vh * k) / 2;
 
     const cx = cv.getContext('2d');
     cx.clearRect(0, 0, W, H);
     cx.imageSmoothingEnabled = false;
-    cx.drawImage(bake, ox, oy, vw, vh, offX, offY, vw * k, vh * k);
+    cx.drawImage(bake, offX - ox * k, offY - oy * k, map.w * k, map.h * k);
 
     function dot(wx, wy, r, color, square) {
       const sx = offX + (wx / T - ox) * k, sy = offY + (wy / T - oy) * k;

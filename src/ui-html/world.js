@@ -296,12 +296,22 @@ window.DS = window.DS || {};
     const named = !!(DS.Board && DS.Board.hasName && DS.Board.hasName());
     const maxBreath = 60 * 14;
     const breathing = p.inWater || p.breath < maxBreath;
-    // The prompt chip floats in the same spot; the name gives way to it.
-    const prompting = !!(g.prompt && g.prompt.anchor) && !breathing;
-    if ((!named && !breathing) || prompting || p.dead || !project(p.x + p.w / 2, p.y - 6)) {
+    if ((!named && !breathing) || p.dead || !project(p.x + p.w / 2, p.y - 6)) {
       W.show(P.hero.node, false);
       return;
     }
+    const hx = px.x, hy = px.y;
+    /* The prompt chip only pushes the name aside when it is actually on top of
+       it. A chest three screens away used to hide the name for as long as the
+       prompt was up. */
+    if (!breathing && g.prompt && g.prompt.anchor && project(g.prompt.anchor.x, g.prompt.anchor.y)) {
+      const s = HUI.frame.s || 1;
+      if (Math.abs(px.x - hx) < 130 * s && Math.abs(px.y - hy) < 70 * s) {
+        W.show(P.hero.node, false);
+        return;
+      }
+    }
+    px.x = hx; px.y = hy;
     W.text(P.heroName, named ? DS.Board.name : '');
     W.show(P.breath, breathing);
     if (breathing) {
@@ -359,12 +369,12 @@ window.DS = window.DS || {};
       /* Hits land on the body, not over the name tag: damage numbers are drawn
          a little lower than the FX layer spawns them (its point is the top of
          the hitbox, where the enemy's bar and name now sit). */
-      const drop = (slot.kind === 'dmg' || slot.kind === 'crit' || slot.kind === 'dot') ? 16 : 0;
+      const drop = slot.kind === 'crit' ? 28 : ((slot.kind === 'dmg' || slot.kind === 'dot') ? 16 : 0);
       if (!project(n.x, n.y + drop)) { W.show(slot.node, false); continue; }
       const max = n.max || 45;
       const t = 1 - n.life / max;
       let s = 1;
-      if (slot.kind === 'crit') s = t < 0.12 ? 1.9 - t / 0.12 * 0.9 : 1;
+      if (slot.kind === 'crit') s = t < 0.12 ? 1.6 - t / 0.12 * 0.6 : 1;
       else if (slot.kind === 'react') s = t < 0.1 ? 0.55 + t / 0.1 * 0.45 : 1 + (t - 0.1) * 0.06;
       else s = t < 0.1 ? 1.45 - t / 0.1 * 0.45 : 1;
       const a = n.life < 14 ? n.life / 14 : 1;

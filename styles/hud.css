@@ -481,6 +481,14 @@
 .ntf-banner.k-boss .rule { height: calc(2 * var(--s)); width: calc(560 * var(--s)); }
 .ntf-banner.k-boss { background: radial-gradient(closest-side, rgba(30, 4, 12, 0.66), rgba(20, 4, 12, 0.35) 55%, rgba(6, 8, 18, 0)); }
 
+/* An essence card is a gift, not a warning: tinted by its element, with a
+   soft halo behind the title and a diamond between the rules. */
+.ntf-banner.k-essence { background: radial-gradient(closest-side, color-mix(in srgb, var(--c) 22%, rgba(6, 8, 18, 0.7)), rgba(6, 8, 18, 0.4) 58%, rgba(6, 8, 18, 0)); }
+.ntf-banner.k-essence .title { font-size: calc(34 * var(--s)); letter-spacing: 0.18em; padding-left: 0.18em; color: color-mix(in srgb, var(--c) 35%, #fff); }
+.ntf-banner.k-essence .eyebrow::before, .ntf-banner.k-essence .eyebrow::after { width: calc(52 * var(--s)); }
+.ntf-banner.k-essence .rule { width: calc(300 * var(--s)); }
+.ntf-banner.k-essence .sub { color: var(--c); }
+
 .ntf-banner.is-in .rule { animation: ntf-rule 520ms var(--ease-out) both; }
 .ntf-banner.is-in .title { animation: ntf-title 520ms var(--ease-out) 80ms both; }
 .ntf-banner.is-in .eyebrow, .ntf-banner.is-in .sub { animation: ui-in-fade 420ms var(--ease-out) 200ms both; }

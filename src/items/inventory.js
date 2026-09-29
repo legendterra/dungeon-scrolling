@@ -540,7 +540,7 @@ window.DS = window.DS || {};
     const E = element && W.ELEMENTS[element];
     if (!E || !g || !g.showBanner) return;
     g.showBanner('ESSENCE OF ' + E.label.toUpperCase(),
-                 'R / T TO INFUSE ANY WEAPON', E.color);
+                 'R / T TO INFUSE ANY WEAPON', E.color, { kind: 'essence', eyebrow: 'ESSENCE UNLOCKED' });
   }
 
   function grantBossEssence(g) {
