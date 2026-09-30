@@ -87,6 +87,22 @@ window.DS = window.DS || {};
     return true;
   }
 
+  /* The hero shows a weapon in a guard stance, out in front of him: the arm comes
+     forward (`arm`), the weapon is tilted so its far end is up and away from his body
+     (`tilt` is its lean from upright, forward; `roll` swings it out to the side, off his face), and the off hand comes up to meet it
+     (`off`). In the world he carries it differently; the stage only has to show it
+     without the blade lying back across his shoulder and through his head. */
+  const STANCE = {
+    sword:    { arm: -0.95, tilt: 0.6,  roll: -0.5,  yaw: -0.25, off: -0.3 },
+    dagger:   { arm: -0.95, tilt: 0.95, roll: -0.45, yaw: -0.25, off: -0.2 },
+    greataxe: { arm: -0.8,  tilt: 0.4,  roll: -0.3,  yaw: 0,     off: -0.55 },
+    spear:    { arm: -0.8,  tilt: 0.5,  roll: -0.3,  yaw: 0,     off: -0.5 },
+    bow:      { arm: -0.9,  tilt: 0,    roll: 0,     yaw: -1.5,  off: -0.25 },
+    staff:    { arm: -0.7,  tilt: 0.1,  roll: -0.15, yaw: 0,     off: -0.45 }
+  };
+  const REST_STANCE = { arm: -0.95, tilt: 0.6, roll: -0.5, yaw: -0.25, off: -0.3 };
+  const stanceOf = function (type) { return STANCE[type] || REST_STANCE; };
+
   /* Show this look, holding `opts.weapon` (a weapon type) if given. Rebuilds only
      when something the model depends on changed. */
   function setLook(look, opts) {
@@ -103,6 +119,7 @@ window.DS = window.DS || {};
     model = DS.Look3D.build(look);
     scene.add(model.root);
     held = weaponType ? DS.Look3D.holdWeapon(model, weaponType, look) : null;
+    if (held) { const st = stanceOf(weaponType); held.rotation.set(st.tilt - st.arm, st.yaw, st.roll); }
     return true;
   }
 
@@ -127,10 +144,10 @@ window.DS = window.DS || {};
 
     if (model) {
       model.root.rotation.y = drag + Math.sin(clock * 0.55) * sway + (held ? -0.7 : 0);       // a held weapon turns toward the camera
-      model.armL.rotation.x = Math.sin(clock * 1.6) * 0.04;
+      model.armL.rotation.x = (held ? stanceOf(weaponType).off : 0) + Math.sin(clock * 1.6) * 0.04;
       model.head.rotation.y = Math.sin(clock * 0.9) * 0.1;
       model.torso.position.y = 0.34 + Math.sin(clock * 2.2) * 0.006;       // breathing, on the leg height
-      if (held) { model.armR.rotation.x = -1.0 + Math.sin(clock * 1.4) * 0.04; model.torso.rotation.y = 0; }
+      if (held) { model.armR.rotation.x = stanceOf(weaponType).arm + Math.sin(clock * 1.4) * 0.04; model.torso.rotation.y = 0; }
       else { model.armR.rotation.x = -Math.sin(clock * 1.6) * 0.04; model.torso.rotation.y = 0; }
       model.animate(model, { vx: 0, onGround: true }, clock);
     }

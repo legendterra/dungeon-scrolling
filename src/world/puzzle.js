@@ -19,6 +19,7 @@ window.DS = window.DS || {};
   const GATE_TILES = 3;              // tall enough that jumping over is out
   const LEVER_OPEN_FRAMES = 60 * 7;  // how long a pulled lever holds the gate
   const PUSH_SPEED = 0.55;
+  const PUSH_POSE_TICKS = 10;
 
   // --- construction ---------------------------------------------------------
 
@@ -265,6 +266,9 @@ window.DS = window.DS || {};
     if (!facingCrate) return;
     if (!DS.Phys.grounded(g.map, crate)) return;
 
+    /* He is shoving, whether or not the crate gives: the hero's pose reads this (see
+       poseHero), and it runs down on its own a few ticks after the last push. */
+    p.pushT = PUSH_POSE_TICKS;
     const before = crate.x;
     DS.Phys.moveX(crate, g.map, dir * PUSH_SPEED);
     if (Math.abs(crate.x - before) > 0.01) {

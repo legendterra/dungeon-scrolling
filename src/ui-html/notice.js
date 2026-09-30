@@ -90,7 +90,7 @@ window.DS = window.DS || {};
   function createScene(onDone) {
     /* Starts from what is stored, so reading the notice again from Options and agreeing
        does not quietly turn a "do not show again" off. */
-    const st = { frame: 0, read: false, hide: !!DS.Settings.get('notice', 'hide'), focus: 1, popup: false, nudge: 0, scroll: 0, done: false };
+    const st = { frame: 0, read: false, accept: false, hide: !!DS.Settings.get('notice', 'hide'), focus: 1, popup: false, nudge: 0, scroll: 0, done: false };
     const ui = {};
 
     function finish() {
@@ -101,8 +101,15 @@ window.DS = window.DS || {};
     function agree() { record(1, st.hide); DS.Audio.play('menuPick'); finish(); }
     function decline() { record(2, st.hide); DS.Audio.play('menuPick'); st.popup = true; }
     function toggleHide() { st.hide = !st.hide; DS.Audio.play('menuMove'); }
-    function press(which) {
+    /* The agreement is its own tick, and it cannot be ticked before the end of the
+       notice has been reached: scrolling alone never counts as agreeing. */
+    function toggleAccept() {
       if (!st.read) { st.nudge = 20; DS.Audio.play('error'); return; }
+      st.accept = !st.accept;
+      DS.Audio.play('menuMove');
+    }
+    function press(which) {
+      if (!st.read || (which === 1 && !st.accept)) { st.nudge = 20; DS.Audio.play('error'); return; }
       if (which === 1) agree(); else decline();
     }
 
@@ -119,6 +126,8 @@ window.DS = window.DS || {};
       ui.hint = h('span', 'hn-hint', { text: 'Scroll to the end to continue' });
       ui.check = h('div', 'hn-check', null, [h('i', 'hn-box'), h('span', '', { text: 'Do not show this notice again' })]);
       ui.check.addEventListener('click', toggleHide);
+      ui.accept = h('div', 'hn-check hn-accept', null, [h('i', 'hn-box'), h('span', '', { text: 'I have read this notice and I agree to it' })]);
+      ui.accept.addEventListener('click', toggleAccept);
       ui.decline = h('button', 'ui-btn hm-btn', { type: 'button', tabindex: '-1' }, [h('span', 'hm-btn-label', { text: 'DECLINE' })]);
       ui.agree = h('button', 'ui-btn hm-btn is-primary', { type: 'button', tabindex: '-1' }, [h('span', 'hm-btn-label', { text: 'I AGREE' })]);
       ui.decline.addEventListener('click', function () { press(0); });
@@ -145,12 +154,13 @@ window.DS = window.DS || {};
           h('div', 'hn-sub', { text: SUB }),
           ui.body,
           h('div', 'hn-progress', null, [h('span', 'hn-track', null, [ui.fill]), ui.hint]),
+          ui.accept,
           ui.check,
           h('div', 'hm-row hn-actions', null, [ui.decline, ui.agree])
         ])
       ]));
       root.appendChild(ui.pop);
-      root.appendChild(K().foot([['↑ ↓', 'Scroll'], ['← →', 'Choose'], ['SPACE', 'Do not show again'], ['ENTER', 'Confirm']]));
+      root.appendChild(K().foot([['↑ ↓', 'Scroll'], ['T', 'Tick to agree'], ['← →', 'Choose'], ['SPACE', 'Do not show again'], ['ENTER', 'Confirm']]));
       ui.body.scrollTop = st.scroll;
     }
 
@@ -174,6 +184,7 @@ window.DS = window.DS || {};
         /* Space or the pad's Y, by code: 'jump' is also W, Up and the pad's A, which
            scroll and confirm here and must not tick the box on the way. */
         if (In.pressedCode('Space') || In.pressedCode('PAD3')) toggleHide();
+        if (In.pressedCode('KeyT') || In.pressedCode('PAD2')) toggleAccept();
         if (In.justPressed('confirm')) { In.consume('confirm'); press(st.focus); }
       },
 
@@ -192,14 +203,16 @@ window.DS = window.DS || {};
         const ratio = max <= 4 ? 1 : Math.min(1, body.scrollTop / max);
         if (ratio > 0.985 && body.clientHeight > 0) st.read = true;
         ui.fill.style.width = Math.round((st.read ? 1 : ratio) * 100) + '%';
-        ui.hint.textContent = st.read ? 'Thank you — you may continue' : 'Scroll to the end to continue';
-        ui.hint.classList.toggle('is-done', st.read);
+        ui.hint.textContent = !st.read ? 'Scroll to the end to continue' : st.accept ? 'Thank you — you may continue' : 'Tick the box to agree';
+        ui.hint.classList.toggle('is-done', st.read && st.accept);
         if (st.nudge > 0) st.nudge--;
         ui.hint.classList.toggle('is-nudge', st.nudge > 0);
 
         ui.check.classList.toggle('is-on', st.hide);
+        ui.accept.classList.toggle('is-on', st.accept);
+        ui.accept.classList.toggle('is-locked', !st.read);
         ui.decline.classList.toggle('is-locked', !st.read);
-        ui.agree.classList.toggle('is-locked', !st.read);
+        ui.agree.classList.toggle('is-locked', !st.read || !st.accept);
         ui.decline.classList.toggle('is-focus', st.focus === 0);
         ui.agree.classList.toggle('is-focus', st.focus === 1);
         ui.pop.hidden = !st.popup;

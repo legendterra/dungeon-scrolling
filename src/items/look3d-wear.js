@@ -370,6 +370,11 @@ window.DS = window.DS || {};
 
   // --- capes: hung from the shoulders, streaming behind when he runs ----------------------------------------------
 
+  /* The hem never comes lower than this below the shoulder line. The hanger sits
+     about 0.84 above the feet (less on a short build), and a cape that reached the
+     floor cut through it and the plinth the moment he walked or landed. */
+  const CAPE_REACH = 0.62;
+
   const hanger = function (rig, base) {
     const d = rig.dim;
     const piv = grp(rig.torso, 0, 0.5, -(d.bodyD / 2 + 0.03));
@@ -390,16 +395,16 @@ window.DS = window.DS || {};
   W('cape', 'long', function (rig, item, pal) {
     const d = rig.dim, piv = hanger(rig);
     const lit = glowOf(item, pal.b, 0.8);
-    P(piv, d.bodyW * 0.95, 0.78, 0.05, 0, -0.39, -0.02, pal.a);
-    P(piv, d.bodyW * 1.06, 0.18, 0.05, 0, -0.72, -0.02, pal.a);
-    P(piv, d.bodyW * 1.08, 0.04, 0.06, 0, -0.82, -0.02, pal.b, lit);
-    both(piv, piv, function (n, s) { P(n, 0.03, 0.8, 0.06, d.bodyW * 0.49 * s, -0.4, -0.02, pal.b, lit); });
+    P(piv, d.bodyW * 0.95, 0.5, 0.05, 0, -0.25, -0.02, pal.a);
+    P(piv, d.bodyW * 1.06, 0.1, 0.05, 0, -0.55, -0.02, pal.a);
+    P(piv, d.bodyW * 1.08, 0.04, 0.06, 0, -(CAPE_REACH - 0.02), -0.02, pal.b, lit);
+    both(piv, piv, function (n, s) { P(n, 0.03, CAPE_REACH, 0.06, d.bodyW * 0.49 * s, -CAPE_REACH / 2, -0.02, pal.b, lit); });
     clasps(rig);
   });
 
   W('cape', 'tattered', function (rig, item, pal) {
     const d = rig.dim, piv = hanger(rig, 0.08);
-    const lens = [0.7, 0.52, 0.82, 0.48, 0.66];
+    const lens = [0.56, 0.42, CAPE_REACH - 0.08, 0.4, 0.52];
     lens.forEach(function (len, i) {
       const x = (i - 2) * (d.bodyW * 0.2);
       const strip = grp(piv, x, 0, -0.02);
@@ -412,9 +417,10 @@ window.DS = window.DS || {};
   W('cape', 'royal', function (rig, item, pal) {
     const d = rig.dim, piv = hanger(rig);
     const edge = item.pal && item.pal.length > 2 ? pal.c : pal.b;
-    P(piv, d.bodyW * 1.02, 0.86, 0.05, 0, -0.43, -0.02, pal.a);
-    P(piv, d.bodyW * 1.1, 0.05, 0.06, 0, -0.86, -0.02, edge);
-    both(piv, piv, function (n, s) { P(n, 0.04, 0.86, 0.06, d.bodyW * 0.52 * s, -0.43, -0.02, edge); });
+    const len = CAPE_REACH - 0.04;
+    P(piv, d.bodyW * 1.02, len, 0.05, 0, -len / 2, -0.02, pal.a);
+    P(piv, d.bodyW * 1.1, 0.05, 0.06, 0, -len, -0.02, edge);
+    both(piv, piv, function (n, s) { P(n, 0.04, len, 0.06, d.bodyW * 0.52 * s, -len / 2, -0.02, edge); });
     for (let i = 0; i < 7; i++) {
       const x = (i - 3) * (d.bodyW * 0.16);
       P(rig.torso, 0.12, 0.1, 0.14, x, 0.5, 0.12 - Math.abs(i - 3) * 0.03 + 0.03, CREAM);
@@ -422,26 +428,76 @@ window.DS = window.DS || {};
     }
   });
 
+  /* A folded wing seen from behind: a bent arm of bone rising from the shoulder blade,
+     with the covert feathers short and pale along it and the long flight feathers
+     hanging from it in a second row, longer toward the tip. Each side is its own
+     group, swept back into a V and breathing slowly; running folds it a little. */
   W('cape', 'wings', function (rig, item, pal) {
     const d = rig.dim;
-    both(rig.torso, rig.torso, function (n, s) {
-      const w = grp(n, 0.16 * s * d.bw, 0.42, -(d.bodyD / 2 + 0.05));
-      for (let i = 0; i < 4; i++) {
-        const f = P(w, 0.42 - i * 0.05, 0.1, 0.04, (0.2 - i * 0.02) * s, 0.14 - i * 0.14, -0.02 * i, i % 2 ? pal.b : pal.a);
-        f.rotation.z = (0.5 + i * 0.22) * s;
+    const spine = [[0, 0], [0.16, 0.12], [0.34, 0.3], [0.45, 0.52]];
+    const spineY = function (x) {
+      for (let k = 1; k < spine.length; k++) {
+        if (x <= spine[k][0]) { const a = spine[k - 1], b = spine[k]; return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]); }
       }
-      motion(rig, w, { axis: 'y', base: -0.35 * s, amp: 0.1, speed: 2.8, phase: s * 1.5, walk: 0.3 * s });
+      return spine[spine.length - 1][1];
+    };
+    both(rig.torso, rig.torso, function (n, s) {
+      const w = grp(n, 0.14 * s * d.bw, 0.4, -(d.bodyD / 2 + 0.05));
+      // The arm.
+      for (let k = 1; k < spine.length; k++) {
+        const a = spine[k - 1], b = spine[k], dx = b[0] - a[0], dy = b[1] - a[1];
+        const bone = P(w, 0.06, Math.sqrt(dx * dx + dy * dy) + 0.04, 0.05, s * (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0, pal.b);
+        bone.rotation.z = -s * Math.atan2(dx, dy);
+      }
+      // Two rows of feathers hung from it, splaying outward and growing toward the tip.
+      const xs = [0.05, 0.13, 0.21, 0.29, 0.37, 0.44];
+      xs.forEach(function (x, i) {
+        const t = i / (xs.length - 1);
+        const top = spineY(x) - 0.02;
+        const splay = 0.04 + t * 0.2;
+        const flight = grp(w, s * x, top, -0.035);
+        const fl = 0.3 + t * 0.2;
+        P(flight, 0.1, fl, 0.03, 0, -fl / 2, 0, i % 2 ? pal.a : shade(pal.a, 0.9));
+        flight.rotation.z = s * splay;
+        const covert = grp(w, s * x, top + 0.01, 0.005);
+        const cl = 0.15 + t * 0.06;
+        P(covert, 0.09, cl, 0.03, 0, -cl / 2, 0, i % 2 ? pal.a : mix(pal.a, 0xffffff, 0.35));
+        covert.rotation.z = s * (splay * 0.7);
+      });
+      motion(rig, w, { axis: 'y', base: 0.32 * s, amp: 0.05, speed: 2.2, phase: s * 1.5, walk: 0.14 * s });
     });
   });
 
+  /* Embers in a cloth: a dark burnt cloak that glows toward the hem, with tongues of
+     fire (orange at the root, a pale tip) licking down from it at uneven
+     lengths, each flickering and swaying on its own, and a few sparks rising. */
   W('cape', 'flamecape', function (rig, item, pal) {
     const d = rig.dim, piv = hanger(rig, 0.1);
-    const lit = glowOf(item, pal.a, 0.9);
-    P(piv, d.bodyW * 0.9, 0.62, 0.05, 0, -0.31, -0.02, pal.a, lit);
-    for (let i = 0; i < 5; i++) {
-      const f = P(piv, d.bodyW * 0.17, 0.3, 0.05, (i - 2) * d.bodyW * 0.19, -0.7 - (i % 2) * 0.06, -0.02, i % 2 ? pal.a : pal.b, lit);
-      motion(rig, f, { kind: 'flick', amp: 0.2, speed: 8 + i, phase: i * 1.3 });
-    }
+    const w = d.bodyW * 0.9, hem = CAPE_REACH - 0.2;
+    // Deeper reds than the item's orange: on a lit stage the orange washes toward tan.
+    const ember = mix(pal.a, 0x9a1a08, 0.6), fire = mix(pal.a, 0xd02010, 0.5);
+    const bands = [[0.16, shade(ember, 0.4), 0.05], [0.14, shade(ember, 0.75), 0.2], [hem - 0.3, ember, 0.4]];
+    let y = 0;
+    bands.forEach(function (b) {
+      P(piv, w, b[0], 0.05, 0, y - b[0] / 2, -0.02, b[1], glowOf(item, b[1], b[2]));
+      y -= b[0];
+    });
+    const lens = [0.15, 0.2, 0.14, 0.2, 0.16];
+    const tw = w / lens.length;
+    lens.forEach(function (len, i) {
+      const t = grp(piv, (i - (lens.length - 1) / 2) * tw, -hem, -0.02);
+      [[0.6, fire, 1, 0.3], [0.4, shade(pal.b, 0.9), 0.5, 0.55]].reduce(function (top, seg) {
+        const h = len * seg[0];
+        P(t, tw * 0.95 * seg[2], h + 0.01, 0.055, 0, top - h / 2, 0, seg[1], glowOf(item, seg[1], seg[3]));
+        return top - h;
+      }, 0);
+      motion(rig, t, { kind: 'flick', amp: 0.16, speed: 7 + i * 1.3, phase: i * 1.3 });
+      motion(rig, t, { axis: 'z', amp: 0.09, speed: 4 + i * 0.7, phase: i * 2.1 });
+    });
+    [-0.15, 0.18].forEach(function (x, i) {
+      const spark = P(piv, 0.04, 0.04, 0.04, x * d.bw, -0.3, -0.07, pal.b, glowOf(item, pal.b, 0.9));
+      motion(rig, spark, { kind: 'bob', axis: 'y', base: -0.3 - i * 0.05, amp: 0.07, speed: 3 + i, phase: i * 2 });
+    });
   });
 
   // --- extras ------------------------------------------------------------------------------------------------------------

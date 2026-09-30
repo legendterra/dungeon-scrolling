@@ -130,3 +130,36 @@ test('corruption starts at nothing, holds what it is given, and cannot leave 0..
   DS.PostFX.setCorruption(undefined);
   assert.equal(DS.PostFX.corruption, 0);
 });
+
+// --- software GPU: the safe mode ---------------------------------------------------------------
+
+test('renderer names that mean "the CPU is drawing" are told from real cards', () => {
+  const DS = withWindow();
+  for (const name of ['ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)', 'llvmpipe (LLVM 15.0.7, 256 bits)',
+                      'Microsoft Basic Render Driver', 'Mesa Software Rasterizer']) {
+    assert.equal(DS.PostFX.isSoftware(name), true, name);
+  }
+  for (const name of ['ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11)',
+                      'Apple M2', 'Adreno (TM) 640', '']) {
+    assert.equal(DS.PostFX.isSoftware(name), false, name);
+  }
+});
+
+test('a software renderer starts low and smaller unless the player has chosen; a choice ends it', () => {
+  const soft = { getContext: () => ({ getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 1 }), getParameter: () => 'llvmpipe (LLVM 15)', RENDERER: 2 }),
+                 capabilities: {}, extensions: { has: () => false } };
+  let DS = withWindow();
+  DS.__win.addEventListener = () => {};
+  DS.PostFX.init(soft, {}, {});
+  assert.equal(DS.PostFX.safeMode, true);
+  assert.equal(DS.PostFX.quality, 'low');
+  assert.equal(DS.__win.__store['ds.gfx'], undefined, 'not written down');
+  DS.PostFX.setQuality('med', { lock: true, quiet: true });
+  assert.equal(DS.PostFX.safeMode, false, 'their own pick ends it');
+
+  DS = withWindow();
+  DS.__win.addEventListener = () => {};
+  DS.__win.__store['ds.gfx'] = 'high';
+  DS.PostFX.init(soft, {}, {});
+  assert.equal(DS.PostFX.safeMode, false, 'a stored pick is respected');
+});

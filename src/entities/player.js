@@ -215,6 +215,7 @@ window.DS = window.DS || {};
     }
 
     if (p.iframes > 0) p.iframes--;
+    if (p.pushT > 0) p.pushT--;
     /* v7: what the deeper monsters do to a body without hurting it. `slowT` is a
        weight on the legs (a gorgon's stare, mud, a drowned hand), `pullT` a chain
        or a whirl dragging you toward `pullX`. */

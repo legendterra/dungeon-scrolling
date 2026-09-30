@@ -49,7 +49,7 @@ test('it starts from the stored choice, and agreeing keeps it', () => {
   DS.Notice.record(1, true);                            // the player asked not to see it again
   const scene = DS.Notice.createScene(() => {});
   assert.equal(scene.state.hide, true, 'the box starts ticked');
-  scene.state.read = true;
+  scene.state.read = true; scene.state.accept = true;
   tap(scene, 'confirm');                                // I AGREE (focus starts there)
   assert.equal(DS.Settings.get('notice', 'hide'), true, 'agreeing did not turn it off');
   assert.equal(DS.Settings.get('notice', 'ack'), 1);
@@ -58,8 +58,35 @@ test('it starts from the stored choice, and agreeing keeps it', () => {
 test('agreeing with the box unticked leaves the notice to come back', () => {
   const { DS, tap } = fresh();
   const scene = DS.Notice.createScene(() => {});
-  scene.state.read = true;
+  scene.state.read = true; scene.state.accept = true;
   tap(scene, 'confirm');
   assert.equal(DS.Settings.get('notice', 'hide'), false);
   assert.equal(DS.Notice.needed(), true, 'it will be shown again next launch');
+});
+
+test('I AGREE needs the agreement tick, and the tick needs the end of the notice', () => {
+  const { DS, tap } = fresh();
+  let finished = 0;
+  const scene = DS.Notice.createScene(() => { finished++; });
+  tap(scene, 'confirm');
+  assert.equal(finished, 0, 'not read yet');
+  tap(scene, 'code:KeyT');
+  assert.equal(scene.state.accept, false, 'cannot tick before the end');
+  scene.state.read = true;
+  tap(scene, 'confirm');
+  assert.equal(finished, 0, 'read but not ticked: still no');
+  assert.equal(DS.Settings.get('notice', 'ack'), 0, 'nothing was recorded');
+  tap(scene, 'code:KeyT');
+  assert.equal(scene.state.accept, true);
+  tap(scene, 'confirm');
+  assert.equal(finished, 1);
+  assert.equal(DS.Settings.get('notice', 'ack'), 1);
+});
+
+test('declining needs only the end of the notice', () => {
+  const { DS, tap } = fresh();
+  const scene = DS.Notice.createScene(() => {});
+  scene.state.read = true; scene.state.focus = 0;
+  tap(scene, 'confirm');
+  assert.equal(DS.Settings.get('notice', 'ack'), 2);
 });

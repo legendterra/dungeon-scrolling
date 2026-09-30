@@ -210,7 +210,7 @@ window.DS = window.DS || {};
   add('cape', 'portalwalker', 'Portal Walker\'s Cloak', 'limited',
       { family: 'long', pal: ['#3a2aa8', '#4ee2ec'], glow: true, earn: { counter: 'act.1', n: 1, text: 'Clear Act I' } });
   add('extra', 'wanderer', 'Endless Wanderer\'s Lantern', 'limited',
-      { family: 'aura', pal: ['#ffd27a'], glow: true, earn: { counter: 'depth', n: 40, text: 'Reach depth 40' } });
+      { family: 'aura', pal: ['#3dff9a'], glow: true, earn: { counter: 'depth', n: 40, text: 'Reach depth 40' } });
 
   // --- the look ----------------------------------------------------------------------------
 

@@ -842,6 +842,7 @@ window.DS = window.DS || {};
       applyQuality('low');
     }
 
+    if (DS.PostFX && DS.PostFX.safeMode) renderScale = Math.min(renderScale, DS.PostFX.SAFE_SCALE);
     resize();
     enabled = true;
     return true;
@@ -3167,7 +3168,9 @@ window.DS = window.DS || {};
     const winding = meleeHeld && p.charging && !swinging;
     const face = swinging ? (p.attackDir || p.facing || 1) : (p.facing || 1);
     const walkSign = face < 0 ? -1 : 1;
-    let targetRy = moving ? WALK_YAW * walkSign : IDLE_YAW;
+    /* Shoving a crate holds him still (the crate blocks him), but he stands side-on to it. */
+    const pushing = !!p.onGround && !p.onRope && p.pushT > 0;
+    let targetRy = moving || pushing ? WALK_YAW * walkSign : IDLE_YAW;
     if (swinging || winding) targetRy = ATTACK_YAW * walkSign;
     // The mirror itself. Nothing else writes root.scale on the hero, so a
     // straight assignment per frame is safe (the enemy path has to multiply,
@@ -3198,6 +3201,18 @@ window.DS = window.DS || {};
       m.armL.rotation.x = -swing * 0.6;
       if (!p.swingTimer) m.armR.rotation.x = swing * 0.6;
       if (!p.swingTimer) m.torso.rotation.y = swing * 0.08;
+      if (pushing && !p.swingTimer) {
+        /* Both palms flat on the crate, the body leaned into it, and the feet
+           working in short slow steps; it eases in and out over the last ticks. */
+        const w = Math.min(1, p.pushT / 6);
+        const tread = Math.sin(time * 7) * 0.4;
+        m.armL.rotation.x = M.lerp(m.armL.rotation.x, -1.45, w);
+        m.armR.rotation.x = M.lerp(m.armR.rotation.x, -1.45, w);
+        m.torso.rotation.x = 0.28 * w;
+        m.torso.rotation.y = 0;
+        m.legL.rotation.x = M.lerp(m.legL.rotation.x, tread, w);
+        m.legR.rotation.x = M.lerp(m.legR.rotation.x, -tread, w);
+      }
     }
 
     /* Charge aura. Held attacks charge in the hand, so the model has to show
@@ -5007,7 +5022,10 @@ window.DS = window.DS || {};
     init: init,
     resize: resize,
     setRenderScale: function (s) {
-      const next = Math.min(1, Math.max(0.5, +s || 1));
+      /* A software renderer never gets more than the safe scale; the player can
+         still go lower in Options. */
+      const cap = DS.PostFX && DS.PostFX.safeMode ? DS.PostFX.SAFE_SCALE : 1;
+      const next = Math.min(cap, Math.max(0.5, +s || 1));
       if (next === renderScale) return;
       renderScale = next;
       resize();

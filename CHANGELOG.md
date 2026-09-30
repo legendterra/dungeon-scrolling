@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v7.2.2] - 2026-09-30 - Fixes from the first players
+
+### Fixed
+- **The notice** (`src/ui-html/notice.js`): I AGREE needs its own tick ("I have read this notice and I agree to it", key T / pad X), and that tick cannot be set before the end of the notice has been reached. Scrolling alone no longer counts as agreeing.
+- **First character screen** (`src/ui-html/creator.js`): no ESC the first time (it started the game); BEGIN asks "Start with this look?" with YES / NO.
+- **Character screen hover**: the hero and the side panel stayed on the last thing the mouse touched. Leaving the list gives them back what was chosen; moving onto the hero (to turn him) keeps the try-on.
+- **Slow on some machines** (`src/core/postfx.js`, `renderer3d.js`): Show FPS now also prints the GPU. A browser that draws WebGL on the CPU (SwiftShader, llvmpipe, Basic Render) starts on Low at 75 % render scale, once, with a note to turn hardware acceleration on; nothing is written down, and choosing a quality in Options or F8 ends it. The cache was ruled out: it only affects load time.
+- **Capes** (`src/items/look3d-wear.js`): none reaches the ground any more (`CAPE_REACH`), at any height, walking or falling; a test measures the hem of every cape.
+- **Character stage weapons**: held out in front in a guard stance, off the face and the shoulder, per weapon.
+
+### Changed
+- **Flame Cloak** is a burnt cloth with tongues of fire and rising sparks; **Feathered Wings** are folded wings with a bone arm and two rows of feathers.
+- **Endless Wanderer's Lantern** is spectral green instead of yellow.
+
+### Added
+- The hero leans into a crate and pushes with both hands (`p.pushT`, `poseHero`), also while the crate holds him still.
+
 ## [v7.2.0] - 2026-09-30 - The Crown of the Gods
 
 ### Added

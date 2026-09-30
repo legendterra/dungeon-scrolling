@@ -54,3 +54,7 @@
 .hn-pop-card { width: calc(560 * var(--s)); padding: calc(28 * var(--s)) calc(34 * var(--s)); display: flex; flex-direction: column; gap: calc(10 * var(--s)); }
 .hn-pop-title { font-family: var(--font-display); font-weight: 700; font-size: calc(30 * var(--s)); text-transform: uppercase; }
 .hn-pop-text { font-size: calc(15 * var(--s)); line-height: 1.6; color: var(--ink-dim); }
+
+/* The agreement itself: locked until the end of the notice has been reached. */
+.hn-accept { margin-top: calc(12 * var(--s)); color: var(--ink); font-weight: 600; }
+.hn-accept.is-locked { opacity: 0.45; cursor: not-allowed; }

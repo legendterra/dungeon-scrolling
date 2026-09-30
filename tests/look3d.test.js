@@ -243,3 +243,49 @@ test('walking the look hero through Voxel.pose keeps the head on the neck (intro
   }
   assert.ok(hi - lo <= 0.05, 'head bob stays a bob, not a drift: ' + (hi - lo).toFixed(3));
 });
+
+/* The lowest point of what hangs on the torso (the legs stand on the floor by
+   definition), in the space of the root with the feet at 0, turning every box through
+   its parents' scale and rotation so a swaying group counts too. */
+function lowest(model) {
+  let low = Infinity;
+  const rot = (v, r) => {
+    let [x, y, z] = v;
+    let c = Math.cos(r.z), s = Math.sin(r.z); [x, y] = [x * c - y * s, x * s + y * c];
+    c = Math.cos(r.y); s = Math.sin(r.y); [x, z] = [x * c + z * s, -x * s + z * c];
+    c = Math.cos(r.x); s = Math.sin(r.x); [y, z] = [y * c - z * s, y * s + z * c];
+    return [x, y, z];
+  };
+  (function walk(node, chain) {
+    const here = chain.concat(node);
+    if (node.isMesh && here.includes(model.torso)) {
+      const g = node.geometry;
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+        let p = [sx * g.x / 2, sy * g.y / 2, sz * g.z / 2];
+        for (let i = here.length - 1; i >= 0; i--) {
+          const n = here[i];
+          p = rot([p[0] * n.scale.x, p[1] * n.scale.y, p[2] * n.scale.z], n.rotation);
+          p = [p[0] + n.position.x, p[1] + n.position.y, p[2] + n.position.z];
+        }
+        low = Math.min(low, p[1]);
+      }
+    }
+    node.children.forEach((k) => walk(k, here));
+  })(model.root, []);
+  return low;
+}
+
+test('no cape or wing reaches the ground, at any height, walking or falling', () => {
+  const DS = fresh();
+  const capes = DS.Look.CATALOG.filter((i) => i.slot === 'cape' && i.id !== 'none');
+  assert.ok(capes.length >= 8, 'the capes are there to check: ' + capes.length);
+  for (const it of capes) for (const height of DS.Look.TRAITS.height) {
+    const m = DS.Look3D.build(Object.assign(worn(DS, 'cape', it.id), { height }));
+    let low = lowest(m);
+    for (let f = 0; f < 40; f++) {
+      DS.Look3D.animate(m, { vx: f % 2 ? 2.4 : 0, onGround: f % 4 === 0 }, f * 0.37);
+      low = Math.min(low, lowest(m));
+    }
+    assert.ok(low >= 0.1, it.key + ' (' + height + ') hem at ' + low.toFixed(3));
+  }
+});

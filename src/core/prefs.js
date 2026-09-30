@@ -11,7 +11,7 @@ window.DS = window.DS || {};
 (function (DS) {
   'use strict';
 
-  DS.VERSION = 'v7.2.1';
+  DS.VERSION = 'v7.2.2';
 
   const S = DS.Settings;
   const num = function (min, max, step) { return { type: 'number', min: min, max: max, step: step }; };
@@ -127,7 +127,13 @@ window.DS = window.DS || {};
     frames++;
     if (!since) since = now;
     if (now - since >= 500) {
-      fpsNode.textContent = Math.round(frames * 1000 / (now - since)) + ' FPS';
+      /* Second line: what the game is running on, so a report of "it lags" can come
+         with a screenshot that says whether the GPU is a real one. */
+      const px = DS.PostFX;
+      const gpu = px && px.gpuName ? px.gpuName().slice(0, 64) : '';
+      fpsNode.style.whiteSpace = 'pre';
+      fpsNode.textContent = Math.round(frames * 1000 / (now - since)) + ' FPS' +
+        (px ? ' · ' + (px.quality || '').toUpperCase() + (px.safeMode ? ' (SAFE)' : '') : '') + (gpu ? '\n' + gpu : '');
       frames = 0;
       since = now;
     }

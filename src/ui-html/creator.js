@@ -95,7 +95,8 @@ window.DS = window.DS || {};
 
   function create(ctx) {
     ctx = ctx || {};
-    const st = { tab: 0, col: 1, y: 0, x: 0, weaponType: 'sword', note: '', noteT: 0, done: false, armed: null, hold: {}, frames: 0 };
+    const st = { tab: 0, col: 1, y: 0, x: 0, weaponType: 'sword', note: '', noteT: 0, done: false, armed: null, hold: {}, frames: 0,
+                 mouse: false, pre: null, confirm: false, cfocus: 1 };
     const ui = { nodes: new Map(), tabNodes: [], list: null, sig: '', dollSig: '' };
     let secs = [], lines = [];
 
@@ -135,9 +136,20 @@ window.DS = window.DS || {};
       if (ctx.onClose) ctx.onClose();
     }
 
+    /* BEGIN: the first time it asks; afterwards DONE simply leaves. */
+    function begin() {
+      if (st.done) return;
+      if (ctx.first) { st.confirm = true; st.cfocus = 1; } else close();
+    }
+    function answer(yes) {
+      st.confirm = false;
+      if (yes) close();
+    }
+
     function gotoTab(i) {
       st.tab = (i + TABS.length) % TABS.length;
       st.armed = null;
+      st.mouse = false; st.pre = null;
       layout();
       focusWorn();
       sound('menuMove');
@@ -233,13 +245,36 @@ window.DS = window.DS || {};
       } else {
         node = h('button', 'hc-ctl hc-chip', { type: 'button', tabindex: '-1', text: c.label });
       }
-      node.addEventListener('pointerenter', function () {
-        const at = position(c);
-        if (at && (st.y !== at.y || st.x !== at.x || st.col !== 1)) { st.col = 1; st.y = at.y; st.x = at.x; st.armed = null; }
-      });
-      node.addEventListener('click', function () { st.col = 1; const at = position(c); if (at) { st.y = at.y; st.x = at.x; } activate(c); });
+      node.addEventListener('pointerenter', function () { mouseEnter(c); });
+      node.addEventListener('click', function () { mouseClick(c); });
       ui.nodes.set(c, node);
       return node;
+    }
+
+    function mouseEnter(c) {
+      const at = position(c);
+      /* Where the focus was before the mouse started trying things on, so leaving
+         the list puts the hero back on that instead of on the last thing touched. */
+      if (!st.mouse) { st.mouse = true; st.pre = { col: st.col, y: st.y, x: st.x }; }
+      if (at && (st.y !== at.y || st.x !== at.x || st.col !== 1)) { st.col = 1; st.y = at.y; st.x = at.x; st.armed = null; }
+    }
+    function mouseClick(c) {
+      st.col = 1;
+      const at = position(c);
+      if (at) { st.y = at.y; st.x = at.x; }
+      activate(c);
+      st.pre = { col: 1, y: st.y, x: st.x };               // what was chosen is what the mouse gives back to
+    }
+
+    /* The mouse left the list: whatever it last hovered is no longer being tried on. */
+    function mouseLeft() {
+      if (!st.mouse) return;
+      st.mouse = false;
+      const pre = st.pre;
+      st.pre = null;
+      if (!pre) return;
+      st.armed = null;
+      if (lines[pre.y] && lines[pre.y][pre.x]) { st.col = pre.col; st.y = pre.y; st.x = pre.x; } else focusWorn();
     }
 
     function position(c) {
@@ -308,12 +343,37 @@ window.DS = window.DS || {};
         h('div', 'hc-doll-row', null, [ui.doll, rnd])
       ]);
 
+      /* Trying something on with the mouse lasts while the mouse is on the list or on the
+         hero (to turn him and see the back of a cape); it ends when it goes anywhere else. */
+      const inside = function (node, e) { return !!(e && e.relatedTarget && node.contains(e.relatedTarget)); };
+      listPanel.addEventListener('pointerleave', function (e) { if (!inside(stage, e)) mouseLeft(); });
+      stage.addEventListener('pointerleave', function (e) { if (!inside(listPanel, e)) mouseLeft(); });
+
       root.appendChild(h('main', 'hk-body hc-wrap', null, [tabCol, listPanel, stage, detail]));
 
       const done = h('button', 'ui-btn hm-btn hm-foot-btn is-primary', { type: 'button', tabindex: '-1' }, [h('span', 'hm-btn-label', { text: first ? 'BEGIN' : 'DONE' })]);
-      done.addEventListener('click', function () { sound('menuPick'); close(); });
-      root.appendChild(K().foot([['↑ ↓ ← →', 'Move'], ['ENTER', 'Wear · buy'], ['Q E', 'Page'], ['R', 'Random'], ['ESC', first ? 'Begin' : 'Back']],
-                                h('div', 'hk-foot-left', null, [done])));
+      done.addEventListener('click', function () { sound('menuPick'); begin(); });
+      // The first time there is no ESC: the walker is only made by choosing BEGIN, and then answering.
+      const keys = [['↑ ↓ ← →', 'Move'], ['ENTER', 'Wear · buy'], ['Q E', 'Page'], ['R', 'Random']];
+      if (!first) keys.push(['ESC', 'Back']);
+      root.appendChild(K().foot(keys, h('div', 'hk-foot-left', null, [done])));
+
+      ui.no = h('button', 'ui-btn hm-btn', { type: 'button', tabindex: '-1' }, [h('span', 'hm-btn-label', { text: 'NO' })]);
+      ui.yes = h('button', 'ui-btn hm-btn is-primary', { type: 'button', tabindex: '-1' }, [h('span', 'hm-btn-label', { text: 'YES' })]);
+      ui.no.addEventListener('click', function () { answer(false); });
+      ui.yes.addEventListener('click', function () { answer(true); });
+      ui.no.addEventListener('pointerenter', function () { st.cfocus = 0; });
+      ui.yes.addEventListener('pointerenter', function () { st.cfocus = 1; });
+      ui.pop = h('div', 'hn-pop', null, [
+        h('div', 'ui-panel hn-pop-card', null, [
+          h('div', 'hk-eyebrow', { text: 'FIRST TIME' }),
+          h('div', 'hn-pop-title', { text: 'Start with this look?' }),
+          h('div', 'hn-pop-text', { text: 'You can change it any time from the Character screen.' }),
+          h('div', 'hm-row', null, [ui.no, ui.yes])
+        ])
+      ]);
+      ui.pop.hidden = !st.confirm;
+      root.appendChild(ui.pop);
     }
 
     function refresh() {
@@ -354,6 +414,11 @@ window.DS = window.DS || {};
         ui.dAct.classList.toggle('is-locked', !d.act.enabled);
       }
       if (st.noteT > 0) st.noteT--;
+      if (ui.pop) {
+        ui.pop.hidden = !st.confirm;
+        ui.no.classList.toggle('is-focus', st.cfocus === 0);
+        ui.yes.classList.toggle('is-focus', st.cfocus === 1);
+      }
       const note = st.noteT > 0 ? st.note : '';
       if (ui.noteNode.textContent !== note) ui.noteNode.textContent = note;
     }
@@ -421,6 +486,7 @@ window.DS = window.DS || {};
     function step(dx, dy) {
       if (!lines.length) return;
       const before = st.y + ':' + st.x;
+      st.mouse = false; st.pre = null;                      // the keyboard has taken over from the mouse
       if (dy) {
         st.y = clamp(st.y + dy, 0, lines.length - 1);
         st.x = Math.min(st.x, lines[st.y].length - 1);
@@ -443,7 +509,18 @@ window.DS = window.DS || {};
         /* Counted every tick, in every mode: a key still down from leaving the tab
            column must not read as a fresh press on the first piece it lands on. */
         const goU = held('u', 'up'), goD = held('d', 'down'), goL = held('l', 'left'), goR = held('r', 'right');
-        if (In.justPressed('back') || In.justPressed('pause')) { In.consume('back'); In.consume('pause'); close(); return; }
+        if (st.confirm) {
+          if (In.justPressed('left')) st.cfocus = 0;
+          if (In.justPressed('right')) st.cfocus = 1;
+          if (In.justPressed('confirm')) { In.consume('confirm'); sound('menuPick'); answer(st.cfocus === 1); }
+          else if (In.justPressed('back') || In.justPressed('pause')) { In.consume('back'); In.consume('pause'); answer(false); }
+          return;
+        }
+        if (In.justPressed('back') || In.justPressed('pause')) {
+          In.consume('back'); In.consume('pause');
+          if (!ctx.first) close();                          // the first time ESC does nothing
+          return;
+        }
         if (In.justPressed('swap')) gotoTab(st.tab - 1);
         if (In.justPressed('skill')) gotoTab(st.tab + 1);
         if (In.justPressed('reroll')) randomize();
@@ -473,7 +550,8 @@ window.DS = window.DS || {};
       },
       // For the tests and the QA tool.
       controls: function () { return lines; },
-      activate: activate, describe: describe, randomize: randomize, gotoTab: gotoTab, close: close
+      activate: activate, describe: describe, randomize: randomize, gotoTab: gotoTab, close: close,
+      begin: begin, answer: answer, mouseEnter: mouseEnter, mouseClick: mouseClick, mouseLeft: mouseLeft
     };
   }
 

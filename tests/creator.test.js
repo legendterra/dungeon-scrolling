@@ -186,19 +186,59 @@ test('the weapon page lists the skins of the chosen weapon, and the type chips s
   assert.equal(DS.Look.look.weapon.sword, undefined, 'only the bow changed');
 });
 
-test('R draws a look from what is owned; ESC leaves, and the first time it also marks the character made', () => {
+test('R draws a look from what is owned; ESC leaves a later visit and marks nothing more', () => {
   const { DS, tick } = fresh();
   let closed = 0;
-  const scene = DS.Creator.create({ first: true, onClose: () => closed++ });
-  assert.equal(DS.Look.created, false);
+  DS.Look.markCreated();
+  const scene = DS.Creator.create({ onClose: () => closed++ });
   tick(scene, 'reroll');
   for (const slot of DS.Look.ITEM_SLOTS) assert.ok(DS.Look.owns(DS.Look.itemOf(slot, DS.Look.look[slot])), slot);
   tick(scene, 'back');
   assert.equal(closed, 1);
-  assert.equal(DS.Look.created, true);
   assert.equal(scene.done, true);
   tick(scene, 'back');
   assert.equal(closed, 1, 'closes once');
+});
+
+test('the first time ESC does nothing; BEGIN asks, NO stays, YES makes the walker', () => {
+  const { DS, tick } = fresh();
+  let closed = 0;
+  const scene = DS.Creator.create({ first: true, onClose: () => closed++ });
+  assert.equal(DS.Look.created, false);
+  tick(scene, 'back'); tick(scene, 'pause');
+  assert.equal(closed, 0, 'ESC and pause are ignored');
+  assert.equal(scene.done, false);
+  scene.begin();
+  assert.equal(scene.state.confirm, true, 'BEGIN asks first');
+  assert.equal(closed, 0);
+  tick(scene, 'back');
+  assert.equal(scene.state.confirm, false, 'ESC answers NO');
+  assert.equal(closed, 0);
+  scene.begin();
+  tick(scene, 'left'); tick(scene, 'confirm');            // NO
+  assert.equal(scene.state.confirm, false);
+  assert.equal(closed, 0);
+  scene.begin();
+  tick(scene, 'confirm');                                 // YES is where it starts
+  assert.equal(closed, 1);
+  assert.equal(DS.Look.created, true);
+});
+
+test('leaving the list gives the hero back what the mouse had not chosen', () => {
+  const { DS } = fresh();
+  const scene = DS.Creator.create({});
+  const worn = scene.controls()[scene.state.y][scene.state.x];
+  const other = ctrl(scene, (c) => c.kind === 'swatch' && c.value !== worn.value);
+  scene.mouseEnter(other);
+  assert.equal(scene.controls()[scene.state.y][scene.state.x], other, 'hovering moves the preview');
+  scene.mouseLeft();
+  assert.equal(scene.controls()[scene.state.y][scene.state.x], worn, 'leaving puts it back');
+  // Clicking makes the new one the one it comes back to.
+  scene.mouseEnter(other); scene.mouseClick(other);
+  assert.equal(DS.Look.look.skin, other.value);
+  const third = ctrl(scene, (c) => c.kind === 'swatch' && c.value !== other.value);
+  scene.mouseEnter(third); scene.mouseLeft();
+  assert.equal(scene.controls()[scene.state.y][scene.state.x], other, 'back on the chosen one, not the last hover');
 });
 
 test('a run that ends banks its keys and counts its bosses toward the limited sets', () => {

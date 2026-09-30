@@ -59,6 +59,13 @@ window.DS = window.DS || {};
 
   const SHADOW_SIZE = { low: 0, med: 1024, high: 2048 };
 
+  /* A browser with hardware acceleration switched off (or a blocklisted GPU)
+     draws WebGL on the CPU, and the full chain then crawls whatever the machine.
+     Those renderers say so in their own name. */
+  const SOFTWARE_GPU = /swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic|mesa offscreen/i;
+  const SAFE_SCALE = 0.75;
+  function isSoftware(name) { return SOFTWARE_GPU.test(String(name || '')); }
+
   let renderer = null, scene = null, camera = null;
   let composer = null, target = null;
   let renderPass = null, saoPass = null, clampPass = null, raysPass = null, bloomPass = null;
@@ -66,6 +73,10 @@ window.DS = window.DS || {};
   let supported = null;          // null = not probed yet
   let quality = DEFAULT_QUALITY;
   let locked = false;            // a manual pick turns the auto-downgrade off
+  let stored = false;            // the player has picked a quality before
+  let safe = false;              // a software renderer: low quality, smaller render, until they choose
+  let safeNote = false;          // the one-time toast is still owed
+  let gpu = null;
   const listeners = [];
   const size = { w: 0, h: 0 };
 
@@ -458,8 +469,20 @@ window.DS = window.DS || {};
   function load() {
     try {
       const v = localStorage.getItem(STORE_KEY);
-      if (QUALITIES.indexOf(v) >= 0) quality = v;
+      if (QUALITIES.indexOf(v) >= 0) { quality = v; stored = true; }
     } catch (e) { /* storage blocked: the default stands */ }
+  }
+
+  /* The card the browser reports, for the FPS overlay and for the safe mode. */
+  function gpuName() {
+    if (gpu !== null) return gpu;
+    gpu = '';
+    try {
+      const gl = renderer && renderer.getContext && renderer.getContext();
+      const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      gpu = String((info && gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) || (gl && gl.getParameter(gl.RENDERER)) || '');
+    } catch (e) { /* no way to ask: unknown */ }
+    return gpu;
   }
 
   function save() {
@@ -485,7 +508,7 @@ window.DS = window.DS || {};
     opts = opts || {};
     if (QUALITIES.indexOf(q) < 0) return quality;
     quality = q;
-    if (opts.lock) locked = true;
+    if (opts.lock) { locked = true; safe = false; safeNote = false; }   // their own pick ends the safe mode
     if (opts.persist !== false) save();
     perf.sum = 0; perf.n = 0; perf.start = 0;
     perf.warmUntil = now() + WARMUP_MS;
@@ -508,6 +531,10 @@ window.DS = window.DS || {};
     const t = now();
     const dt = perf.last ? t - perf.last : 0;
     perf.last = t;
+    if (safeNote && DS.currentGame && typeof DS.currentGame.toast === 'function') {
+      safeNote = false;
+      toast('Hardware acceleration looks off in this browser. Turn it on for smooth play.');
+    }
     if (locked || quality === 'low' || !dt) return;
     if (dt > IGNORE_MS || t < perf.warmUntil) { perf.sum = 0; perf.n = 0; perf.start = 0; return; }
     if (!perf.start) perf.start = t;
@@ -564,6 +591,9 @@ window.DS = window.DS || {};
   function init(r, s, c) {
     renderer = r; scene = s; camera = c;
     load();
+    /* Nobody has chosen yet and the GPU is really the CPU: start where it can run,
+       without writing that down, so switching acceleration on brings High back. */
+    if (!stored && isSoftware(gpuName())) { quality = 'low'; safe = true; safeNote = true; }
     if (quality !== 'low') build();
     window.addEventListener('keydown', function (e) {
       if (e.code === 'F8') { e.preventDefault(); cycle(); }
@@ -593,6 +623,10 @@ window.DS = window.DS || {};
     get requested() { return quality; },
     get supported() { return probe(); },
     get locked() { return locked; },
+    isSoftware: isSoftware,
+    gpuName: gpuName,
+    get safeMode() { return safe; },
+    SAFE_SCALE: SAFE_SCALE,
     set locked(v) { locked = !!v; },
     get downgrades() { return perf.downgrades; },
     /* Live handles for tuning from a console or a QA pass. */
