@@ -32,6 +32,7 @@ window.DS = window.DS || {};
   let fireLight = null, emberMat = null;
   const flames = [], embers = [], flies = [], trees = [], flyers = [];
   let hearth = 0;
+  let campHero = null, campLook = '';
 
   const MOTE = 0xfff0a8;
   const EMBER = 0xff9a3c;
@@ -156,6 +157,8 @@ window.DS = window.DS || {};
     hero.position.set(-1.15, 0.14, 0.75);
     hero.rotation.y = 0.55;
     hero.userData.hero = true;
+    campHero = hero;
+    campLook = DS.Look3D ? DS.Look3D.keyOfCurrent() : '';
 
     const chest = prop(null, 'chest', { tier: 'wood' });
     chest.position.set(1.85, 0.14, 0.9);
@@ -220,6 +223,20 @@ window.DS = window.DS || {};
     if (!build()) return false;
     clock += dt;
     const t = clock;
+
+    /* He is whoever was made on the character screen: dress him again when that changes. */
+    if (campHero && DS.Look3D && DS.Look) {
+      const key = DS.Look3D.keyOfCurrent();
+      if (key !== campLook) {
+        campLook = key;
+        while (campHero.children.length) {
+          const old = campHero.children[0];
+          campHero.remove(old);
+          old.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
+        }
+        campHero.add(DS.Voxel.build('hero', {}).root);
+      }
+    }
 
     // The fire: one light whose intensity breathes, so the whole clearing
     // brightens and dims with it.

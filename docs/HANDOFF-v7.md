@@ -1,4 +1,4 @@
-# v7 Handoff (diperbarui 2026-09-30)
+# v7 Handoff (diperbarui 2026-09-30, v7.1.0)
 
 Branch kerja: `claude/modest-rubin-yaqfoa`. Rencana: [PLAN-v7.md](PLAN-v7.md) dan tambahan user [PLAN-v7b.md](PLAN-v7b.md).
 Izin dari user: kalau tes, audit, dan review lolos, **merge ke `main` dan deploy dengan wrangler**
@@ -14,28 +14,30 @@ Izin dari user: kalau tes, audit, dan review lolos, **merge ke `main` dan deploy
 | Rencana v7b 5 | notice riset AI (`ui-html/notice.js`) | selesai |
 | Rencana v7b 1 | Options lengkap + rebind + controls sheet mengikuti tombol (`ui-html/options.js`, `core/settings.js`, `prefs.js`) | selesai |
 | Rencana v7b 2 | leaderboard berhalaman + peringkat sendiri (`/api/board`, `menus.js leaderboard`) | selesai |
-| Rencana v7b 3-4 | pembuat karakter, katalog skin, dompet kunci, toko | belum |
+| Rencana v7b 3-4 | pembuat karakter (`ui-html/creator.js`, `scenes/lookstage.js`), katalog ~150 skin (`items/look.js`), dua perender satu look (`look3d.js` voxel, `look2d.js` piksel), dompet kunci + toko, limited dari pencapaian, kunci dibank saat run berakhir | selesai (v7.1.0) |
 | Rencana v7b 7 | efek portal shader (`fx3d/portal.js`, dipakai di pintu keluar), `tools/qa/shoot-portal.js` | selesai |
 | Rencana v7b 6 | cutscene 3D masuk portal (`scenes/intro3d.js`, bisa di-skip), `tools/qa/shoot-intro.js`; memakai hero default sampai pembuat karakter jadi | selesai |
-| Monster Act II-III | 9 monster A + 4 B (Act II), 8 A + 6 B (Act III), roster map 11-30 | belum |
+| Monster Act II | 5 A + 3 B (`enemies5.js`, `voxel-bestiary2.js`), roster map 11-19 | selesai (v7.1.0) |
+| Monster Act III | 8 A + 6 B, roster map 21-29 | belum |
 | Boss baru | Hades, Zeus, Minotaur, Medusa, Talos; arena per boss; rotasi endless | belum |
 | Fase 7 MC | voxel MC baru (menyatu dengan pembuat karakter) | belum |
 | Fase 8 | suara ambience, `docs/11-v7.md`, review per fase | sebagian (CHANGELOG v7.0.0 sudah) |
 
 ## QA yang ada
 
-`npm test` (173), `node tools/qa/audit-world.js <url> --depths 1-30`, `check-bestiary.js <url> --only v7`,
-`shoot-monsters.js`, `shoot-maps.js`, `check-notice.js`, `check-options.js`, `check-leaderboard.js`, `probe-load.js`.
+`npm test` (240), `node tools/qa/audit-world.js <url> --depths 1-30`, `check-bestiary.js <url> --only v7`,
+`shoot-monsters.js`, `shoot-maps.js`, `check-notice.js`, `check-options.js`, `check-leaderboard.js`, `check-character.js [--tour]`,
+`shoot-look.js [--only outfits|heads|traits|weapons]`, `check-review.js`, `check-bag.js`, `measure-hero.js`, `probe-load.js`.
 Dev server: `python devserver.py 8124`. Tambahkan `?notice=0` ke URL untuk melewati notice di alat QA.
 `check-board.js` lama gagal (memeriksa gambar canvas; UI sekarang HTML) - belum diperbarui.
 
 ## Berikutnya
 
-1. Pembuat karakter + katalog skin + dompet kunci (bagian 3-4 di PLAN-v7b: model `look`, dua perender 3D voxel dan piksel 2D,
-   harga dari matematika kunci, Limited hanya dari pencapaian) bersama MC voxel baru.
-2. Portal shader dan cutscene masuk portal (bagian 6-7).
-3. Monster Act II-III, boss baru, ruang khusus (safe room, trial, tint endless), arena boss lebih besar.
-4. Suara, `docs/11-v7.md`, `/code-review` per fase.
+1. Monster Act III (`enemies6.js`, `voxel-bestiary3.js`, roster map 21-29), lalu boss baru (Hades d25, Zeus d30, Minotaur d21,
+   Medusa d23, Talos d27; set Limited-nya sudah ada di `look.js` BOSS_SETS dan otomatis terhitung lewat `g.runBosses`).
+2. Ruang khusus (safe room, trial, tint endless), arena boss lebih besar.
+3. Suara ambience, `docs/11-v7.md`, `/code-review` per fase.
+4. Opsional: set beli (`Look.setPrice` sudah ada, belum ada set yang dijual), toggle "tampilkan armor" di atas look, MC voxel baru (sekarang chibi dasar + look).
 
 ## Catatan
 

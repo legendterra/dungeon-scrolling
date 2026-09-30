@@ -15,7 +15,7 @@ window.DS = window.DS || {};
   const K = function () { return DS.HKit; };
   function h(tag, cls, props, kids) { return DS.HUI.el(tag, cls, props, kids); }
 
-  const VERSION = DS.VERSION || 'v7.0.0';
+  const VERSION = DS.VERSION || 'v7.1.0';
 
   // --- shared: the controls sheet -------------------------------------------
 
@@ -91,7 +91,8 @@ window.DS = window.DS || {};
 
   const ITEMS = [
     { label: 'START RUN', desc: 'Choose your steel and descend' },
-    { label: 'LEADERBOARD', desc: 'The deepest runs, and where you stand' },
+    { label: 'CHARACTER', desc: 'Make your walker, and dress him from the wardrobe' },
+    { label: 'SCOREBOARD', desc: 'The deepest runs, and where you stand' },
     { label: 'HOW TO PLAY', desc: 'Controls, elements and the rules of the dungeon' },
     { label: 'RECORDS', desc: 'Your deepest runs and finest steel' },
     { label: 'OPTIONS', desc: 'Graphics, audio, controls and more' }
@@ -381,11 +382,7 @@ window.DS = window.DS || {};
     }
     if (!rows.length) list.appendChild(h('li', 'hm-lempty', { text: 'No runs recorded yet' }));
     return h('section', 'ui-panel hm-ladder', null, [
-      h('div', 'hm-ladder-head', null, [
-        h('div', 'hm-panel-title', { text: 'Ladder' }),
-        h('span', 'hm-online' + (DS.Board && DS.Board.online ? ' is-on' : ''),
-          { text: DS.Board && DS.Board.online ? 'ONLINE' : 'THIS DEVICE' })
-      ]),
+      h('div', 'hm-ladder-head', null, [h('div', 'hm-panel-title', { text: 'Scoreboard' })]),
       rank ? h('div', 'hm-yourrank', { text: 'YOUR RUN · RANK #' + rank }) : null,
       list
     ]);
@@ -394,12 +391,12 @@ window.DS = window.DS || {};
   // --- leaderboard ----------------------------------------------------------
 
   function boardRow(r, mine, you) {
-    return h('li', 'hb-row' + (mine ? ' is-mine' : '') + (you ? ' is-you' : '') + (r.cleared ? ' is-cleared' : ''), null, [
-      h('span', 'hb-rank ui-num', { text: you ? 'YOU \u00b7 #' + r.rank : '#' + r.rank }),
-      h('span', 'hb-name', { text: r.name }),
-      h('span', 'hb-depth ui-num', { text: DS.Acts ? DS.Acts.shortLabel(r.depth) : String(r.depth) }),
-      h('span', 'hb-kills ui-num', { text: String(r.kills) }),
-      h('span', 'hb-time ui-num', { text: formatTime(r.frames) })
+    return h('li', 'hl-row' + (mine ? ' is-mine' : '') + (you ? ' is-you' : '') + (r.cleared ? ' is-cleared' : ''), null, [
+      h('span', 'hl-rank ui-num', { text: you ? 'YOU \u00b7 #' + r.rank : '#' + r.rank }),
+      h('span', 'hl-name', { text: r.name }),
+      h('span', 'hl-depth ui-num', { text: DS.Acts ? DS.Acts.shortLabel(r.depth) : String(r.depth) }),
+      h('span', 'hl-kills ui-num', { text: String(r.kills) }),
+      h('span', 'hl-time ui-num', { text: formatTime(r.frames) })
     ]);
   }
 
@@ -412,22 +409,22 @@ window.DS = window.DS || {};
       '|' + Math.round(DS.HUI.frame.h);
     K().rebuild(s, sig, function (root) {
       root.appendChild(h('div', 'hm-scrim-full'));
-      root.appendChild(K().masthead({ eyebrow: 'LADDER', title: 'Leaderboard', accent: 'var(--gold)',
+      root.appendChild(K().masthead({ eyebrow: 'SCOREBOARD', title: 'Scoreboard', accent: 'var(--gold)',
         sub: d && d.offline ? 'Offline: showing the runs kept on this device.' : 'The deepest runs, wherever they were played.' }));
 
-      const head = h('div', 'hb-head', null, [
-        h('span', 'hb-rank', { text: 'RANK' }), h('span', 'hb-name', { text: 'NAME' }),
-        h('span', 'hb-depth', { text: 'DEPTH' }), h('span', 'hb-kills', { text: 'KILLS' }), h('span', 'hb-time', { text: 'TIME' })
+      const head = h('div', 'hl-head', null, [
+        h('span', 'hl-rank', { text: 'RANK' }), h('span', 'hl-name', { text: 'NAME' }),
+        h('span', 'hl-depth', { text: 'DEPTH' }), h('span', 'hl-kills', { text: 'KILLS' }), h('span', 'hl-time', { text: 'TIME' })
       ]);
-      const list = h('ol', 'hb-list');
-      if (!d) list.appendChild(h('li', 'hb-empty', { text: 'Loading the ladder\u2026' }));
-      else if (!d.rows.length) list.appendChild(h('li', 'hb-empty', { text: 'No runs recorded yet. Be the first.' }));
+      const list = h('ol', 'hl-list');
+      if (!d) list.appendChild(h('li', 'hl-empty', { text: 'Loading the scoreboard\u2026' }));
+      else if (!d.rows.length) list.appendChild(h('li', 'hl-empty', { text: 'No runs recorded yet. Be the first.' }));
       else d.rows.forEach(function (r) { list.appendChild(boardRow(r, me && r.name.toLowerCase() === me, false)); });
 
       let you;
       if (d && d.me) you = boardRow(d.me, true, true);
-      else you = h('li', 'hb-row is-you is-none', null, [
-        h('span', 'hb-note', { text: DS.Board && DS.Board.name ? 'No run under ' + DS.Board.name + ' on the ladder yet.' : 'Play a run to appear here.' })
+      else you = h('li', 'hl-row is-you is-none', null, [
+        h('span', 'hl-note', { text: DS.Board && DS.Board.name ? 'No run under ' + DS.Board.name + ' on the scoreboard yet.' : 'Play a run to appear here.' })
       ]);
 
       const prev = button('\u25c0  PREV', 'hm-foot-btn', function () { act.boardPage(-1); });
@@ -436,16 +433,16 @@ window.DS = window.DS || {};
       if (!d || d.page <= 0) prev.classList.add('is-locked');
       if (!d || d.page >= d.pages - 1) next.classList.add('is-locked');
       if (!d || !d.me) find.classList.add('is-locked');
-      const pager = h('div', 'hb-pager', null, [
+      const pager = h('div', 'hl-pager', null, [
         prev,
-        h('span', 'hb-page ui-num', { text: d ? 'PAGE ' + (d.page + 1) + ' / ' + d.pages : 'PAGE \u2014' }),
+        h('span', 'hl-page ui-num', { text: d ? 'PAGE ' + (d.page + 1) + ' / ' + d.pages : 'PAGE \u2014' }),
         next, find,
         h('span', 'hk-mast-fill'),
-        h('span', 'hb-total', { text: d ? d.total + ' RUN' + (d.total === 1 ? '' : 'S') + ' ON THE LADDER' : '' })
+        h('span', 'hl-total', { text: d ? d.total + ' RUN' + (d.total === 1 ? '' : 'S') + ' ON THE SCOREBOARD' : '' })
       ]);
 
-      root.appendChild(h('main', 'hk-body hb-body', null, [
-        h('section', 'ui-panel hb-panel', null, [head, list, h('ol', 'hb-you', null, [you]), pager])
+      root.appendChild(h('main', 'hk-body hl-body', null, [
+        h('section', 'ui-panel hl-panel', null, [head, list, h('ol', 'hl-you', null, [you]), pager])
       ]));
       const back = button('BACK', 'hm-foot-btn', function () { act.back(); });
       root.appendChild(K().foot([['\u2190 \u2192', 'Page'], ['ENTER', 'Find me'], ['ESC', 'Back']], h('div', 'hk-foot-left', null, [back])));
@@ -461,6 +458,7 @@ window.DS = window.DS || {};
     else if (state.page === 'records') records(state, act);
     else if (state.page === 'board' && state.board) leaderboard(state, act);
     else if (state.page === 'options' && state.options) state.options.draw();
+    else if (state.page === 'look' && state.look) state.look.draw();
     else mainMenu(state, act);
   }
 
@@ -473,7 +471,7 @@ window.DS = window.DS || {};
     const g = state.g;
     const won = state.won;
     const rows = state.rows || [];
-    const sig = 'over|' + won + '|' + rows.length + '|' + state.rank + '|' + (rows[0] ? rows[0].name + rows[0].depth : '') +
+    const sig = 'over|' + won + '|' + rows.length + '|' + state.rank + '|' + (rows[0] ? rows[0].name + rows[0].depth : '') + '|' + (state.bank ? state.bank.banked : '') +
       '|' + (state.frame > 30) + '|' + Math.round(DS.HUI.frame.h);
     K().rebuild(s, sig, function (root) {
       O.btns = [];
@@ -499,7 +497,26 @@ window.DS = window.DS || {};
         O.btns.push(again, menuB);
         btnRow.appendChild(again);
         btnRow.appendChild(menuB);
+        if (DS.Creator && act.character) {
+          const look = button('CHARACTER', '', function () { act.character(); }, function () { act.focus(2); });
+          O.btns.push(look);
+          btnRow.appendChild(look);
+        }
       }
+
+      // What the run carried out: keys for the wardrobe, and any limited piece it won.
+      const bank = state.bank;
+      const banked = bank ? h('div', 'hm-over-bank', null, [
+        h('div', 'hk-section-label', { text: 'CARRIED OUT' }),
+        h('div', 'hm-bank-row', null, [
+          DS.SPR && DS.SPR.key ? K().icon(DS.SPR.key, 'hm-bank-key') : null,
+          h('span', 'hm-bank-n ui-num', { text: '+' + bank.banked }),
+          h('span', 'hm-bank-l', { text: 'KEYS BANKED · ' + DS.Look.profile.wallet.keys + ' IN THE WARDROBE' })
+        ]),
+        bank.won.length ? h('div', 'hm-bank-won', null, bank.won.map(function (it) {
+          return h('span', 'hm-bank-item rar-' + it.rarity, { text: 'NEW · ' + it.name });
+        })) : null
+      ]) : null;
 
       root.appendChild(h('main', 'hm-over', null, [
         h('section', 'hm-over-hero', null, [
@@ -516,6 +533,7 @@ window.DS = window.DS || {};
             tile('BEST STREAK', 'x' + (g.streakBest || 0))
           ]),
           weapon,
+          banked,
           h('div', 'hm-over-who', { text: (DS.Board && DS.Board.name) || 'PLAYER' }),
           btnRow
         ]),

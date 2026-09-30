@@ -438,7 +438,12 @@ html.hb-dragging, html.hb-dragging * { cursor: grabbing !important; }
 html.hb-dragging .hb-floor { border-color: rgba(255, 77, 109, 0.55); color: var(--ink-dim); }
 .hb-floor.is-drop-ok { background: rgba(255, 77, 109, 0.18); border-style: solid; border-color: var(--danger); color: var(--ink); }
 
-.hb-detail { min-height: 0; overflow: hidden; }
+.hb-detail { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* The card fills its column whatever it holds; the header stays at the top, the details below it,
+   and the comparison line at the foot. Long lists scroll inside it instead of resizing it. */
+.hb-detail > .hk-card, .hb-detail > .hb-detail-empty { flex: 1 1 auto; min-height: 0; }
+.hb-detail > .hk-card > .hk-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.hb-detail > .hk-card > .hk-card-vs { margin-top: auto; flex: none; }
 .hb-detail-empty {
   height: 100%; display: flex; flex-direction: column; gap: calc(10 * var(--s));
   padding: calc(18 * var(--s)); border: 1px dashed rgba(170, 210, 255, 0.14);

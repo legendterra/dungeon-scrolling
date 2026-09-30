@@ -54,7 +54,7 @@ window.DS = window.DS || {};
       about.push({ kind: 'button', label: 'Read the notice now', text: 'OPEN', run: function (o) { o.close(); DS.Scenes.notice(); } });
     }
     about.push(
-      { kind: 'info', label: 'Version', text: 'Dungeon Scrolling ' + (DS.VERSION || 'v7.0.0') },
+      { kind: 'info', label: 'Version', text: 'Dungeon Scrolling ' + (DS.VERSION || 'v7.1.0') },
       { kind: 'info', label: 'Textures', text: 'CC0 photo scans by Poly Haven (polyhaven.com)' },
       { kind: 'info', label: 'Engine', text: 'three.js (MIT) · fonts Rajdhani and Nunito Sans (OFL, Google Fonts)' },
       { kind: 'info', label: 'Everything else', text: 'Art, sound and music are generated in code' },
@@ -100,6 +100,11 @@ window.DS = window.DS || {};
         toggle('Screen flashes', 'access', 'flashes', 'Full-screen colour flashes on big hits.'),
         slider('Interface size', 'gfx', 'uiScale', pct, 'Larger text and panels.')
       ] },
+      { id: 'player', label: 'PLAYER', rows: [
+        { kind: 'name', label: 'Player name', note: 'The scoreboard knows you by this name. Type the same name on another device and your rank is there too.' },
+        { kind: 'info', label: 'Scoreboard', text: 'Kept online: the same on every device' },
+        { kind: 'info', label: 'Character and keys', text: 'Kept in this browser only' }
+      ] },
       { id: 'about', label: 'ABOUT', rows: about }
     ];
   }
@@ -120,7 +125,7 @@ window.DS = window.DS || {};
   function create(ctx) {
     ctx = ctx || {};
     const TABS = tabs(ctx);
-    const st = { tab: 0, row: 0, col: 0, slot: 0, note: '', noteT: 0, done: false, hold: { l: 0, r: 0 }, armed: -1 };
+    const st = { tab: 0, row: 0, col: 0, slot: 0, note: '', noteT: 0, done: false, hold: { l: 0, r: 0 }, armed: -1, edit: null, tick: 0 };
     const ui = { rows: [], tabNodes: [], list: null, sig: '' };
 
     function rows() { return TABS[st.tab].rows; }
@@ -138,6 +143,7 @@ window.DS = window.DS || {};
       if (st.done) return;
       st.done = true;
       DS.Input.captureNext(null);
+      if (st.edit) { st.edit = null; DS.Input.setTextSink(null); }
       if (ctx.onClose) ctx.onClose();
     }
     const api = { close: close, note: say };
@@ -164,6 +170,7 @@ window.DS = window.DS || {};
     function activate(r) {
       if (r.kind === 'toggle' || r.kind === 'choice') adjust(r, 1);
       else if (r.kind === 'bind') beginCapture(r);
+      else if (r.kind === 'name') beginEdit();
       else if (r.kind === 'button') {
         if (r.danger && st.armed !== TABS[st.tab].rows.indexOf(r)) {
           st.armed = TABS[st.tab].rows.indexOf(r);
@@ -177,8 +184,35 @@ window.DS = window.DS || {};
       }
     }
 
+    /* The name is typed the way the name prompt takes it: the letter keys go to a text sink for as
+       long as the field is open, ENTER keeps what was typed, ESC leaves the name as it was. */
+    function beginEdit() {
+      st.edit = { text: DS.Board.name || '' };
+      DS.Input.setTextSink(function (ch) {
+        if (!st.edit) return;
+        if (ch === '') st.edit.text = st.edit.text.slice(0, -1);
+        else if (st.edit.text.length < DS.Board.MAX_NAME) st.edit.text += ch;
+      });
+      say('Type a name of two to twelve characters. ENTER keeps it, ESC leaves it as it was.');
+      DS.Audio.play('menuPick');
+    }
+    function commitEdit() {
+      const kept = DS.Board.setName(st.edit.text);
+      if (!kept) { say('A name needs two to twelve characters.'); DS.Audio.play('error'); return; }
+      st.edit = null;
+      DS.Input.setTextSink(null);
+      say('You are ' + kept + '. Use the same name on another device and the scoreboard finds you there.');
+      DS.Audio.play('menuPick');
+    }
+    function cancelEdit() {
+      st.edit = null;
+      DS.Input.setTextSink(null);
+      say('Name unchanged.');
+      DS.Audio.play('menuMove');
+    }
+
     function beginCapture(r) {
-      say('Press the key or mouse button for ' + r.label.toUpperCase() + ' — ESC cancels.');
+      say('Press a key, or the right or middle mouse button, for ' + r.label.toUpperCase() + ' — ESC or a left click cancels.');
       DS.Audio.play('menuPick');
       DS.Input.captureNext(function (code) {
         if (code === 'Escape') { say('Cancelled.'); return; }
@@ -223,6 +257,10 @@ window.DS = window.DS || {};
           ctl.appendChild(b);
           rec.keys.push(b);
         }
+      } else if (r.kind === 'name') {
+        rec.field = h('button', 'ho-namefield', { type: 'button', tabindex: '-1' });
+        rec.field.addEventListener('click', function (e) { e.stopPropagation(); st.row = i; st.col = 1; activate(r); });
+        ctl.appendChild(rec.field);
       } else if (r.kind === 'button') {
         rec.btn = h('button', 'ui-btn ho-btn' + (r.danger ? ' is-danger' : ''), { type: 'button', tabindex: '-1' }, [h('span', 'hm-btn-label', { text: r.text })]);
         rec.btn.addEventListener('click', function (e) { e.stopPropagation(); st.row = i; st.col = 1; activate(r); });
@@ -294,6 +332,12 @@ window.DS = window.DS || {};
             b.classList.toggle('is-capturing', capturing);
             if (capturing) b.textContent = 'PRESS…';
           });
+        } else if (r.kind === 'name') {
+          const editing = !!st.edit;
+          const text = editing ? st.edit.text + (st.tick % 40 < 24 ? '_' : '\u00a0') : (DS.Board.name || 'NOT SET');
+          if (rec.field.textContent !== text) rec.field.textContent = text;
+          rec.field.classList.toggle('is-edit', editing);
+          rec.field.classList.toggle('is-empty', !editing && !DS.Board.name);
         } else if (r.kind === 'button') {
           rec.btn.classList.toggle('is-armed', st.armed === i);
         }
@@ -316,10 +360,20 @@ window.DS = window.DS || {};
     return {
       state: st,
       get done() { return st.done; },
+      get typing() { return !!st.edit; },
 
       update: function () {
         const In = DS.Input;
+        /* Counted every tick, in every mode: a key still down from leaving the tab
+           column must not read as a fresh press on the first row it lands on. */
+        const stepL = held(-1, 'left'), stepR = held(1, 'right');
         if (In.isCapturing()) return;
+        st.tick++;
+        if (st.edit) {
+          if (In.justPressed('confirm')) { In.consume('confirm'); commitEdit(); }
+          else if (In.justPressed('back') || In.justPressed('pause')) { In.consume('back'); In.consume('pause'); cancelEdit(); }
+          return;
+        }
         if (In.justPressed('back') || In.justPressed('pause')) {
           In.consume('back'); In.consume('pause');
           if (st.armed >= 0) { st.armed = -1; return; }
@@ -342,8 +396,8 @@ window.DS = window.DS || {};
         const r = list[st.row];
         if (In.justPressed('up')) { st.row = firstFocusable(st.row, -1); st.armed = -1; DS.Audio.play('menuMove'); }
         if (In.justPressed('down')) { st.row = firstFocusable(st.row, 1); st.armed = -1; DS.Audio.play('menuMove'); }
-        if (r && held(-1, 'left')) adjust(r, -1);
-        if (r && held(1, 'right')) adjust(r, 1);
+        if (r && stepL) adjust(r, -1);
+        if (r && stepR) adjust(r, 1);
         if (r && In.justPressed('confirm')) { In.consume('confirm'); activate(r); }
       },
 

@@ -55,9 +55,9 @@ async function key(session, code) {
   await cdp.sleep(120);
 }
 
-const rows = (s) => s.eval('Array.from(document.querySelectorAll("[data-screen=board] .hb-list .hb-row")).map((n) => n.querySelector(".hb-rank").textContent + " " + n.querySelector(".hb-name").textContent)');
-const pageText = (s) => s.eval('(document.querySelector("[data-screen=board] .hb-page") || {}).textContent');
-const you = (s) => s.eval('(document.querySelector("[data-screen=board] .hb-you .hb-row") || {}).textContent');
+const rows = (s) => s.eval('Array.from(document.querySelectorAll("[data-screen=board] .hl-list .hl-row")).map((n) => n.querySelector(".hl-rank").textContent + " " + n.querySelector(".hl-name").textContent)');
+const pageText = (s) => s.eval('(document.querySelector("[data-screen=board] .hl-page") || {}).textContent');
+const you = (s) => s.eval('(document.querySelector("[data-screen=board] .hl-you .hl-row") || {}).textContent');
 
 async function main() {
   const args = process.argv.slice(2);
@@ -77,11 +77,11 @@ async function main() {
     await session.eval('DS.Board.setName("Ada")');
     await waitFor(session, 'document.querySelector("[data-screen=menu]:not([hidden]) .hm-item")', 15000);
     const items = await session.eval('Array.from(document.querySelectorAll("[data-screen=menu] .hm-item-label")).map((n) => n.textContent)');
-    check('the title has a LEADERBOARD entry', items.includes('LEADERBOARD'), items.join(' | '));
+    check('the title has a SCOREBOARD entry', items.includes('SCOREBOARD'), items.join(' | '));
 
     const openBoard = async () => {
-      await session.eval('Array.from(document.querySelectorAll("[data-screen=menu] .hm-item")).find((n) => /LEADERBOARD/.test(n.textContent)).click()');
-      await waitFor(session, 'document.querySelector("[data-screen=board]:not([hidden]) .hb-page")', 8000);
+      await session.eval('Array.from(document.querySelectorAll("[data-screen=menu] .hm-item")).find((n) => /SCOREBOARD/.test(n.textContent)).click()');
+      await waitFor(session, 'document.querySelector("[data-screen=board]:not([hidden]) .hl-page")', 8000);
       await cdp.sleep(500);
     };
     await openBoard();
@@ -94,22 +94,22 @@ async function main() {
     await key(session, 'ArrowRight');
     list = await rows(session);
     check('the right arrow pages forward', /PAGE 2 \/ 3/.test(await pageText(session)) && list[0].startsWith('#11 '), list[0]);
-    check('the player is highlighted on the page that holds them', await session.eval('!!document.querySelector("[data-screen=board] .hb-list .hb-row.is-mine")'));
+    check('the player is highlighted on the page that holds them', await session.eval('!!document.querySelector("[data-screen=board] .hl-list .hl-row.is-mine")'));
     await shoot(session, path.join(out, '2-page2.png'), view);
 
     await key(session, 'ArrowRight');
     list = await rows(session);
     check('the last page is short', list.length === 7 && list[0].startsWith('#21 '), list.length + ' rows');
-    check('and NEXT locks', await session.eval('document.querySelectorAll("[data-screen=board] .hb-pager .hm-btn")[1].classList.contains("is-locked")'));
+    check('and NEXT locks', await session.eval('document.querySelectorAll("[data-screen=board] .hl-pager .hm-btn")[1].classList.contains("is-locked")'));
     await key(session, 'ArrowRight');
     check('the right arrow at the end stays put', /PAGE 3 \/ 3/.test(await pageText(session)));
 
     await key(session, 'ArrowLeft'); await key(session, 'ArrowLeft'); await key(session, 'ArrowLeft');
     check('the left arrow returns to page one and stops', /PAGE 1 \/ 3/.test(await pageText(session)));
-    await session.eval('Array.from(document.querySelectorAll("[data-screen=board] .hb-pager .hm-btn")).find((n) => /FIND ME/.test(n.textContent)).click()');
+    await session.eval('Array.from(document.querySelectorAll("[data-screen=board] .hl-pager .hm-btn")).find((n) => /FIND ME/.test(n.textContent)).click()');
     await cdp.sleep(500);
     check('FIND ME jumps to the page that holds the player', /PAGE 2 \/ 3/.test(await pageText(session)));
-    await session.eval('Array.from(document.querySelectorAll("[data-screen=board] .hb-pager .hm-btn")).find((n) => /PREV/.test(n.textContent)).click()');
+    await session.eval('Array.from(document.querySelectorAll("[data-screen=board] .hl-pager .hm-btn")).find((n) => /PREV/.test(n.textContent)).click()');
     await cdp.sleep(500);
     check('PREV by mouse works', /PAGE 1 \/ 3/.test(await pageText(session)));
 
@@ -122,7 +122,7 @@ async function main() {
     await openBoard();
     const sub = await session.eval('(document.querySelector("[data-screen=board] .hk-mast-sub, [data-screen=board] .hk-sub") || document.querySelector("[data-screen=board]")).textContent');
     check('offline says so', /Offline/i.test(sub), sub.slice(0, 80));
-    const empty = await session.eval('(document.querySelector("[data-screen=board] .hb-empty") || {}).textContent');
+    const empty = await session.eval('(document.querySelector("[data-screen=board] .hl-empty") || {}).textContent');
     check('and shows the local runs (none yet)', /No runs recorded/.test(empty || ''), empty);
     await shoot(session, path.join(out, '3-offline.png'), view);
 

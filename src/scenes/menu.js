@@ -225,7 +225,7 @@ window.DS = window.DS || {};
 
   // --- main menu ------------------------------------------------------------
 
-  const ITEMS = ['START RUN', 'LEADERBOARD', 'HOW TO PLAY', 'RECORDS', 'OPTIONS'];
+  const ITEMS = ['START RUN', 'CHARACTER', 'SCOREBOARD', 'HOW TO PLAY', 'RECORDS', 'OPTIONS'];
 
   // The item column sits to the left of the camp, so neither covers the other.
   const MENU_X = 16, MENU_Y = 74, MENU_W = 130, MENU_H = 16;
@@ -241,7 +241,7 @@ window.DS = window.DS || {};
          name is what follows the hero through the dungeon. Asking here means
          every route into a run -- START RUN, the death screen's RUN AGAIN, a
          direct call to loadout -- lands on the prompt exactly once. */
-      page: (page === 'loadout' && !DS.Board.hasName()) ? 'name' : (page || 'menu'),
+      page: (page === 'loadout' && !DS.Board.hasName()) ? 'name' : (page && page !== 'look' ? page : 'menu'),
       skipIntro: !!skipIntro,
       typed: DS.Board.name || '',
       note: '',
@@ -278,6 +278,9 @@ window.DS = window.DS || {};
       }
     };
 
+    // 'look' is the character screen, reached from the run summary.
+    if (page === 'look' && htmlOn() && DS.Creator) openLook(state, false);
+
     return {
       update: function () {
         const In = DS.Input;
@@ -286,8 +289,10 @@ window.DS = window.DS || {};
 
         // Only the name prompt takes typed text; every other page hands the
         // letter keys straight back to the game.
-        if (state.page !== 'name') In.setTextSink(null);
+        // ...except while the Options name field is open, which is typing too.
+        if (state.page !== 'name' && !(state.page === 'options' && state.options && state.options.typing)) In.setTextSink(null);
         if (state.page === 'options') { state.options.update(); return; }
+        if (state.page === 'look') { state.look.update(); return; }
         if (state.page === 'board') { updateBoard(state); return; }
         if (state.page === 'name') { updateName(state); return; }
 
@@ -333,6 +338,8 @@ window.DS = window.DS || {};
       },
 
       draw: function () {
+        // The character screen brings its own stage; the camp would fight it.
+        if (state.page === 'look' && state.look && htmlOn()) { DS.HMenus.menu(state, act); return; }
         backdrop(state);
         if (htmlOn()) { DS.HMenus.menu(state, act); return; }
         title(state);
@@ -365,7 +372,7 @@ window.DS = window.DS || {};
     };
   }
 
-  /* The leaderboard: one page at a time, fetched when asked for. A stale answer
+  /* The scoreboard: one page at a time, fetched when asked for. A stale answer
      (a page requested, then another before the first came back) is dropped. */
   function boardGo(state, index) {
     const d = state.board.data;
@@ -400,8 +407,16 @@ window.DS = window.DS || {};
   function choose(state) {
     DS.Audio.play('menuPick');
     const which = ITEMS[state.cursor];
-    if (which === 'START RUN') state.page = DS.Board.hasName() ? 'loadout' : 'name';
-    else if (which === 'LEADERBOARD') {
+    if (which === 'START RUN') {
+      /* The very first run begins with making a character; after that, a name. */
+      if (needsCreator()) openLook(state, true);
+      else state.page = DS.Board.hasName() ? 'loadout' : 'name';
+    }
+    else if (which === 'CHARACTER') {
+      if (!htmlOn() || !DS.Creator) { DS.Audio.play('error'); return; }
+      openLook(state, false);
+    }
+    else if (which === 'SCOREBOARD') {
       if (!htmlOn()) { state.stats = DS.Storage.load(); state.page = 'records'; return; }
       state.board = { page: 0, data: null, token: 0, want: 0 };
       state.page = 'board';
@@ -413,6 +428,23 @@ window.DS = window.DS || {};
       state.options = DS.Options.create({ fromMenu: true, onClose: function () { state.page = 'menu'; state.options = null; } });
       state.page = 'options';
     }
+  }
+
+  // --- character ------------------------------------------------------------
+
+  const needsCreator = function () { return htmlOn() && !!DS.Creator && !!DS.Look && !DS.Look.created; };
+
+  /* `first` is the make-a-character page a new browser gets before its first run:
+     when it closes the flow carries on to the name and the weapon. */
+  function openLook(state, first) {
+    state.look = DS.Creator.create({
+      fromMenu: true, first: first,
+      onClose: function () {
+        state.look = null;
+        state.page = first ? (DS.Board.hasName() ? 'loadout' : 'name') : 'menu';
+      }
+    });
+    state.page = 'look';
   }
 
   // --- name prompt ----------------------------------------------------------
@@ -653,8 +685,14 @@ window.DS = window.DS || {};
       bestItem: best ? { name: best.name, rarity: best.rarity } : null
     });
 
+    /* The keys left in the pack come out with him, and the run counts toward the
+       limited pieces (bosses felled, acts cleared, depth reached). */
+    const bank = DS.Look ? DS.Look.finishRun({
+      keys: g.inv.keys || 0, depth: g.depth, bosses: g.runBosses || [], actsCleared: g.actsCleared || 0
+    }) : null;
+
     const state = {
-      frame: 0, won: won, stats: stats, best: best, g: g,
+      frame: 0, won: won, stats: stats, best: best, g: g, bank: bank,
       rows: DS.Board.rows(), rank: 0, btn: 0
     };
 
@@ -666,7 +704,8 @@ window.DS = window.DS || {};
         DS.Audio.play('menuMove');
       },
       again: function () { DS.Audio.play('menuPick'); DS.Scenes.loadout(); },
-      menu: function () { DS.Audio.play('menuPick'); DS.Scenes.menu(); }
+      menu: function () { DS.Audio.play('menuPick'); DS.Scenes.menu(); },
+      character: function () { DS.Audio.play('menuPick'); DS.Scenes.menu('look'); }
     };
 
     /* The run goes up on the ladder the moment this screen opens, and the
@@ -713,10 +752,14 @@ window.DS = window.DS || {};
           break;
         }
 
-        if (html && (In.justPressed('left') || In.justPressed('right'))) act.focus(1 - state.btn);
+        const n = html && DS.Creator ? 3 : 2;
+        if (html && In.justPressed('left')) act.focus((state.btn + n - 1) % n);
+        if (html && In.justPressed('right')) act.focus((state.btn + 1) % n);
         if (In.justPressed('confirm')) {
           In.consume('confirm');
-          if (html && state.btn === 1) DS.Scenes.menu(); else DS.Scenes.loadout();
+          if (html && state.btn === 2 && n === 3) act.character();
+          else if (html && state.btn === 1) DS.Scenes.menu();
+          else DS.Scenes.loadout();
         } else if (In.justPressed('back')) { In.consume('back'); DS.Scenes.menu(); }
       },
 
@@ -765,8 +808,7 @@ window.DS = window.DS || {};
         }
 
         R.rectS(160, 52, 1, 82, '#2a2740');
-        R.text('LADDER', 168, 54, GOLD);
-        R.textSmallRight(DS.Board.online ? 'ONLINE' : 'THIS DEVICE', C.W - 26, 55, MUTED);
+        R.text('SCOREBOARD', 168, 54, GOLD);
 
         const ladder = state.rows || [];
         for (let i = 0; i < ladder.length && i < 8; i++) {

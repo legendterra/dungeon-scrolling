@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v7.1.0] - 2026-09-30 - Your Own Walker
+
+### Added
+- **A character of your own** (`src/items/look.js`, `look3d.js`, `look3d-wear.js`, `look2d.js`): the hero is drawn from a *look*, a small JSON of ids kept on the device (`ds_profile`). The voxel hero in the world and the pixel doll in the bag, pause screen and HUD portrait are two renderers of the same look, so they always match. Free traits: skin tone, build, height, eyes, brows, mouth, eye and hair colour, and a dye on every dyed piece. A catalogue of ~150 wearables: hair (18 styles), facial hair, marks, headwear (11), tops (11), legs (7), boots (5), gloves (4), capes (7), extras (8) and a skin ladder for each of the six weapons. A worn look beats the armour in the bag for how he looks; the armour still counts for what it does.
+- **The character screen** (`src/ui-html/creator.js`, `src/scenes/lookstage.js`, `styles/creator.css`): eleven pages, a 3D stage with a turntable and a camera that leans in on the face, try-on by hovering or moving onto a piece, and the pixel doll beside it. Opened before the first run of a new browser (then the name, then the weapon), from CHARACTER on the title, and from the run summary.
+- **Rarities and the key wallet**: common, rare, epic, legendary, mythic and limited. Keys left in the pack when a run ends are banked (`+N` on the summary). Prices follow the key drops: a ten-floor run carries about ten keys, and a common piece is 30 (about three runs) up to 1500 for a mythic top, scaled by slot and rounded to five. Buying is armed by the first ENTER and made by the second, or by the BUY button.
+- **Limited pieces are earned, never bought**: ten wins over a boss earns that boss's helm, armour and mantle (nine sets, the new bosses' sets are ready), clearing Act I earns the Portal Walker's cloak, reaching depth 40 the Wanderer's lantern. The screen shows the progress. Bosses felled are counted per run (`g.runBosses`).
+- **Act II bestiary** (`src/entities/enemies5.js`, `src/core/voxel-bestiary2.js`): the cave eel (a ring of lightning around its body: stay out, jump or dash), the glowworm (a lit lure, and a strand aimed at where you stand that holds for the last of the wind-up), the drowner (grabs, slows and drags), the egg sac (hatches two spiders at a time, four at most, one last when it bursts), the ice troll (a slam that sends a frost wave each way along the floor), the mosquito, the lake spirit (a fan of three drops) and the ice wolf pack (a bite that chills). Rosters for maps 11-14 and 16-19; two new tells, `zap` and `buzz`.
+- **The hero costs a fifth of the draw calls**: the still parts of each bone are baked into one vertex-coloured mesh per kind of surface (plain, glowing, see-through) and what moves by itself stays its own object; a fully dressed hero went from +243 draw calls to +45 (`tools/qa/measure-hero.js`), with identical triangles, colours and extent (`tests/look-merge.test.js`, on the real three.js). The name over his head now rides above a wizard's hat.
+- **QA**: `tools/qa/check-character.js` (first-run flow, buy, refuse, BEGIN, in-run hero, bag doll, banking, summary, return), `shoot-look.js` (contact sheets of outfits, heads, traits and weapon skins), `check-review.js` (the review's findings, driven in a browser), `measure-hero.js`; 240 unit tests.
+
+### Fixed (reported in play)
+- **The inventory made you dizzy**: the scoreboard's stylesheet reused the class `hb-body`, which turned the bag's three-column grid into a centred row whose columns took the width of their contents, so the whole screen re-flowed every time the pointer crossed an item; and the detail card slid in afresh on every hover. The scoreboard's classes are `hl-` now, and the detail card is one frame that never changes size or place: only its contents are swapped, with no entrance (`tools/qa/check-bag.js`).
+
+### Changed (asked for)
+- **Change your name in Options**: a PLAYER tab with the name field (click or ENTER to type, ENTER keeps it, ESC leaves it as it was). The scoreboard is online and finds a player by name (matched without regard to case), so the same name on another device shows the same runs and rank; the character, keys and settings stay in that browser.
+- **It is the scoreboard**: "Ladder", "Leaderboard" and the "This device" / "Online" tag are gone from the title entry, the run summary and the page.
+
+### Fixed (found by the code review of v7.0.0)
+- **A frame-rate cap made every HTML screen blink**: the sweeper that hides untouched screens ran on ticks the cap skipped, so each drawn frame hid, rebuilt and re-animated every panel (and real clicks were lost). It now sweeps only after a frame that drew (`DS.drawSeq`).
+- **The cap held the wrong rate**: it measured from the last drawn frame, so 60 on a 75 Hz panel gave 37 fps. It follows a schedule now and holds its rate on any refresh.
+- **A cap was read as a slow machine**: the auto-quality step measured the interval between drawn frames against 20 ms, so a 30 cap lowered HIGH to LOW in about eleven seconds and saved it. It allows a quarter over what the cap asks for.
+- **Right from the Options tab column changed the first row** (Quality AUTO to LOW, saved): a key still down from leaving the tabs read as a fresh press. Hold counters now run every tick, in Options and on the character screen.
+- **"Do not show again" was ticked by Up, W and the pad's A**, and reading the notice again from Options could switch a stored choice off. It is ticked by Space or the pad's Y, and starts from what is stored.
+- **Rebinding**: a left click while waiting for a key no longer binds the mouse button (it cancels; right and middle bind), and a pad button cancels the wait.
+- **Effects that ride a blow rode blows that did not land**: dashing through a bogman, drowned knight, spore cloud or goat ram still slowed or shoved you. `strikePlayer` reports the wound, and the effects follow it.
+- **The title screen had no room for a sixth entry at large interface sizes**: the list is tighter and fits at 125%.
+
+
+### Changed
+- The hero at the camp, in the opening and in the run is the made character; the armour paper doll is only the fallback. The bag's subtitle says so.
+- `DS.Scenes.menu(page)` takes a page (`'look'`), the run summary has a CHARACTER button, and the title has a CHARACTER entry.
+
 ## [v7.0.0] - 2026-09-30 - A World That Stands Still, Thirty Places, And A Way To Make The Game Your Own
 
 ### Added

@@ -156,7 +156,7 @@ window.DS = window.DS || {};
   add('gloves', 'gloves', 'Gloves', 'common', { dyed: true }); add('gloves', 'gauntlets', 'Gauntlets', 'rare', { pal: ['#a8b0c0', '#5c6474'] });
 
   // capes
-  add('cape', 'none', 'No Cape', 'common', S); add('cape', 'short', 'Short Cape', 'common', { dyed: true });
+  add('cape', 'none', 'No Cape', 'common', S); add('cape', 'short', 'Short Cape', 'common', S, { dyed: true });
   add('cape', 'long', 'Long Cape', 'common', { dyed: true }); add('cape', 'tattered', 'Tattered Cloak', 'rare', { pal: ['#4a4658', '#2c2a38'] });
   add('cape', 'royal', 'Royal Mantle', 'epic', { pal: ['#8a1f30', '#f2c14e'] });
   add('cape', 'wings', 'Feathered Wings', 'legendary', { pal: ['#f4f2f8', '#c8ccd8'] });
@@ -217,7 +217,7 @@ window.DS = window.DS || {};
   const DEFAULT_LOOK = {
     skin: 'fair', build: 'regular', height: 'mid', eyes: 'round', eyeColor: 'brown', brows: 'plain', mouth: 'smile',
     facial: 'none', mark: 'none', hair: 'short', hairColor: 'brown', hat: 'none', top: 'tunic', topDye: 'blue',
-    pants: 'trousers', pantsDye: 'brown', boots: 'boots', bootsDye: 'charcoal', cape: 'none', capeDye: 'crimson',
+    pants: 'trousers', pantsDye: 'brown', boots: 'boots', bootsDye: 'charcoal', cape: 'short', capeDye: 'crimson',
     gloves: 'none', glovesDye: 'brown', extra: 'none', hatDye: 'red', extraDye: 'red',
     weapon: {}
   };
@@ -260,6 +260,7 @@ window.DS = window.DS || {};
 
   let profile = null;
   const listeners = [];
+  let rev = 0;           // counts every change to what he looks like or owns: cheap to compare each frame
 
   function fresh() {
     return { v: VERSION, created: false, look: JSON.parse(JSON.stringify(DEFAULT_LOOK)), owned: {},
@@ -295,6 +296,7 @@ window.DS = window.DS || {};
     try { window.localStorage.setItem(KEY, JSON.stringify(get())); return true; } catch (err) { return false; }
   }
   function changed(what) {
+    rev++;
     for (let i = 0; i < listeners.length; i++) { try { listeners[i](what, get()); } catch (err) { /* a listener must not break a change */ } }
   }
 
@@ -400,7 +402,8 @@ window.DS = window.DS || {};
       return CATALOG.filter(function (i) { return i.slot === slot && (!weaponType || i.w === weaponType); });
     },
     get profile() { return get(); },
-    reload: function () { profile = null; return get(); },
+    reload: function () { profile = null; rev++; return get(); },
+    get rev() { return rev; },
     save: save, owns: owns, equip: equip, buy: buy, setPrice: setPrice, bank: bank, count: count, countMax: countMax,
     checkEarned: checkEarned, finishRun: finishRun, markSeen: markSeen,
     onChange: function (fn) { listeners.push(fn); },

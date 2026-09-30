@@ -2,12 +2,12 @@
   "game": "DUNGEON SCROLLING",
   "title": "Game Design & Technical Bible",
   "subtitle": "Every screen, every number, every system - and everything that still needs fixing",
-  "version": "v6.0.0",
-  "slug": "Dungeon-Scrolling-GDD-v6.0.0",
-  "date": "2026-09-29",
+  "version": "v7.1.0",
+  "slug": "Dungeon-Scrolling-GDD-v7.1.0",
+  "date": "2026-09-30",
   "engine": "Vanilla JavaScript + Three.js, no build step",
   "repo": "github.com/legendterra/dungeon-scrolling",
   "url": "dungeonscrolling.moneyspender.net",
   "author": "Legendterra",
-  "note": "This book is the reference for the next development passes. Part V is a numbered issue register: every entry names the file, the evidence, and the fix, so a later pass can work from it without re-reading the codebase. The Status column was refreshed in v5.2.2, which closed BUG-018 (the backdrop is now themed, textured and lit from its own sky) and BUG-026 (a horizon line that stood on the level-wide median instead of on the ground the player is walking on), and added the two tools that measure them: `npm run qa:backdrop` (346 checks over ten floors) and `npm run shots:backdrop` (the contact sheet). Chapter 10 (v6.0.0) covers the acts, the 3D stage, the HTML UI, animation and audio, and takes precedence over chapters 1-9 where they differ."
+  "note": "This book is the reference for the next development passes. Part V is a numbered issue register: every entry names the file, the evidence, and the fix, so a later pass can work from it without re-reading the codebase. The Status column was refreshed in v5.2.2, which closed BUG-018 (the backdrop is now themed, textured and lit from its own sky) and BUG-026 (a horizon line that stood on the level-wide median instead of on the ground the player is walking on), and added the two tools that measure them: `npm run qa:backdrop` (346 checks over ten floors) and `npm run shots:backdrop` (the contact sheet). Chapter 10 (v6.0.0) covers the acts, the 3D stage, the HTML UI, animation and audio, and takes precedence over chapters 1-9 where they differ. Chapter 11 (v7.1.0) covers the world-space backdrop, thirty places, the Act I bestiary, the new options, notice and paged ladder, the portal and opening, and the character system with its key economy; it takes precedence over chapters 1-10 where they differ."
 }

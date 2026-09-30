@@ -88,6 +88,8 @@ async function boot(base, opts) {
   await session.cmd('Page.enable');
   await session.cmd('Runtime.enable');
   await session.cmd('Page.addScriptToEvaluateOnNewDocument', { source: HOOK });
+  // A tool may need its own probe in place before the page's scripts run (draw-call counters).
+  if (opts.preScript) await session.cmd('Page.addScriptToEvaluateOnNewDocument', { source: opts.preScript });
   await session.goto(base, 2600);
   await waitFor(session, 'window.DS && DS.UI3 && DS.UI3.ready', 30000);
   await session.eval(`localStorage.setItem('ds_name', 'MAPS');`);

@@ -107,6 +107,7 @@ window.DS = window.DS || {};
        its own room. Killing it is what breaks the seals on the vault chests
        and lets the exit door work again. */
     g.onFloorBossDown = function (boss) {
+      noteBoss(g, boss);
       g.bossDown = true;
       g.lockedDoor = false;
 
@@ -140,6 +141,7 @@ window.DS = window.DS || {};
        third one is what the death screen will later call a cleared dungeon,
        but the stairs keep going down into the endless floors. */
     g.onBossDefeated = function (boss) {
+      noteBoss(g, boss);
       g.won = true;
       g.bossesSlain = (g.bossesSlain || 0) + 1;
       const name = (boss && boss.name) || 'THE KING';
@@ -966,6 +968,12 @@ window.DS = window.DS || {};
     else if (g.pauseCursor === 1) { g.paused = false; UI.openBag(g); }
     else if (g.pauseCursor === 2) DS.Audio.toggleMute();
     else DS.Scenes.gameOver(g, runCleared(g));
+  }
+
+  /* Which bosses fell this run, by their DS.Bosses key (the Slime King has none
+     and is 'king'): the character profile counts them toward the limited sets. */
+  function noteBoss(g, boss) {
+    (g.runBosses = g.runBosses || []).push((boss && boss.bossKey) || 'king');
   }
 
   function runCleared(g) {

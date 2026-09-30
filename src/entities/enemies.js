@@ -385,15 +385,17 @@ window.DS = window.DS || {};
   }
 
   // A melee strike box in front of the enemy; hits the player once per swing.
+  /* True only when the blow LANDED: a dash's invulnerability spends the swing (it hits
+     once) but gives the wound, and anything that rides on the wound, no purchase. */
   function strikePlayer(g, e, box) {
-    if (e.struck) return;
+    if (e.struck) return false;
     const p = g.player;
-    if (!p || p.dead) return;
-    if (!M.rectsOverlap(box.x, box.y, box.w, box.h, p.x, p.y, p.w, p.h)) return;
+    if (!p || p.dead) return false;
+    if (!M.rectsOverlap(box.x, box.y, box.w, box.h, p.x, p.y, p.w, p.h)) return false;
 
     e.struck = true;
     const dir = M.sign(Ent.centerX(p) - Ent.centerX(e)) || 1;
-    p.hurt(g, e.attackDamage, dir);
+    return !!p.hurt(g, e.attackDamage, dir);
   }
 
   function meleeBox(e) {

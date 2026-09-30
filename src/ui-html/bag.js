@@ -353,7 +353,7 @@ window.DS = window.DS || {};
       root.appendChild(h('div', 'hk-scrim'));
       root.appendChild(K().masthead({
         eyebrow: 'CHARACTER', title: 'Inventory', accent: 'var(--accent)',
-        sub: 'Drag to equip. The hero wears what you give them.', right: K().purse(g.inv)
+        sub: 'Drag to equip. Armour counts for what it does; how he looks is the Character screen.', right: K().purse(g.inv)
       }));
       B.detail = h('section', 'hb-detail');
       B.detailSig = '';
@@ -372,11 +372,16 @@ window.DS = window.DS || {};
   function drawDoll(g) {
     const cv = B.doll;
     if (!cv) return;
-    const doll = (g.player && g.player.doll) || DS.Paperdoll.bare();
-    const index = Math.floor(g.frames / 40) % doll.idle.length;
-    if (index === B.dollFrame) return;
-    B.dollFrame = index;
-    const frame = doll.idle[index];
+    /* v7: the doll is the hero's look in pixels (src/items/look2d.js), so the
+       person in the bag is the person in the world; the paper doll is the
+       fallback for a build without it. */
+    const look = DS.Look2D && DS.Look ? DS.Look.look : null;
+    const doll = look ? null : ((g.player && g.player.doll) || DS.Paperdoll.bare());
+    const index = Math.floor(g.frames / 40) % (look ? 2 : doll.idle.length);
+    const sig = index + '|' + (look ? DS.Look3D.keyOfCurrent() : '');
+    if (sig === B.dollFrame) return;
+    B.dollFrame = sig;
+    const frame = look ? DS.Look2D.frames(look)[index] : doll.idle[index];
     const targetH = 250 * DS.HUI.frame.s;
     const k = Math.max(1, Math.floor(targetH / frame.height));
     if (cv.width !== frame.width * k || cv.height !== frame.height * k) {
@@ -409,9 +414,10 @@ window.DS = window.DS || {};
       return;
     }
     // The screen footer already carries ENTER / F / Q, so the card does not.
-    const card = K().itemCard(item, { inv: g.inv, player: g.player });
-    card.classList.add('ui-anim-in');
-    host.appendChild(card);
+    /* One frame, always the same size and in the same place: hovering only swaps what is written
+       in it. (It used to slide in afresh for every item the pointer crossed, and change height
+       with every affix list.) */
+    host.appendChild(K().itemCard(item, { inv: g.inv, player: g.player }));
   }
 
   DS.HBag = { update: update, draw: draw };

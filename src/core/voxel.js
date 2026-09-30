@@ -170,6 +170,11 @@ window.DS = window.DS || {};
   /* Paper-doll armour recolours the body; the weapon is a separate model
      attached to the right arm so a swing carries it. */
   function buildHero(info) {
+    /* v7: the hero is drawn from his look (src/items/look3d.js), which beats the
+       armour in the bag for how he LOOKS; the armour still counts for what it
+       does. The paper-doll recolour below is the fallback for a build with no
+       look module (and for the headless tests). */
+    if (DS.Look3D && DS.Look) return DS.Look3D.build(info.look || DS.Look.look);
     const armor = info.armor || {};
     const chest = armor.chest, legs = armor.legs, head = armor.head;
     const cloth = (chest && DS.Armor && DS.Armor.MATERIALS[chest.material]) || null;

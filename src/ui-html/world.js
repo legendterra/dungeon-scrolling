@@ -296,7 +296,9 @@ window.DS = window.DS || {};
     const named = !!(DS.Board && DS.Board.hasName && DS.Board.hasName());
     const maxBreath = 60 * 14;
     const breathing = p.inWater || p.breath < maxBreath;
-    if ((!named && !breathing) || p.dead || !project(p.x + p.w / 2, p.y - 6)) {
+    // The tag rides above whatever is on his head (a wizard's hat is taller than his hair).
+    const above = 6 + (DS.Look3D && DS.Look ? DS.Look3D.headroom(DS.Look.look) * 10 : 0);
+    if ((!named && !breathing) || p.dead || !project(p.x + p.w / 2, p.y - above)) {
       W.show(P.hero.node, false);
       return;
     }

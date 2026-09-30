@@ -132,8 +132,7 @@ window.DS = window.DS || {};
       const p = g.player;
       if (p && !p.dead && c.t % 34 === 0 &&
           M.dist(cx(p), cy(p), c.x, c.y - c.r * 0.3) < c.r + 4) {
-        p.hurt(g, e.attackDamage, M.sign(cx(p) - c.x) || 1);
-        weigh(p, 50, 0.8);
+        if (p.hurt(g, e.attackDamage, M.sign(cx(p) - c.x) || 1)) weigh(p, 50, 0.8);
       }
       if (c.t <= 0) e.cloud = null;
     }
@@ -342,9 +341,7 @@ window.DS = window.DS || {};
         DS.Audio.play('bubble');
         DS.FX.dust(cx(e), e.y + e.h, 4);
       }
-      const was = e.struck;
-      E.strikePlayer(g, e, E.meleeBox(e));
-      if (!was && e.struck && g.player) weigh(g.player, 70, 0.55);
+      if (E.strikePlayer(g, e, E.meleeBox(e)) && g.player) weigh(g.player, 70, 0.55);
       return;
     }
     if (phase === 'recover') { e.vx *= 0.7; return; }
@@ -392,9 +389,7 @@ window.DS = window.DS || {};
     if (phase === 'strike') {
       e.vx = e.facing * 3.0 * slow;
       const p = g.player;
-      const was = e.struck;
-      E.strikePlayer(g, e, E.meleeBox(e));
-      if (!was && e.struck && p) { p.vx = e.facing * 4.8; p.vy = -1.8; }
+      if (E.strikePlayer(g, e, E.meleeBox(e)) && p) { p.vx = e.facing * 4.8; p.vy = -1.8; }
       if (blocked(g, e)) { e.vx = 0; e.attackTimer = 1; }
       return;
     }
@@ -429,9 +424,7 @@ window.DS = window.DS || {};
     }
     if (phase === 'strike') {
       e.vx *= 0.5;
-      const was = e.struck;
-      E.strikePlayer(g, e, E.meleeBox(e));
-      if (!was && e.struck && g.player) {
+      if (E.strikePlayer(g, e, E.meleeBox(e)) && g.player) {
         weigh(g.player, 90, 0.6);
         DS.FX.burst(cx(g.player), cy(g.player), 6, ['#a8e4ff', '#ffffff'], { speed: 1.4, life: 12, grav: 0.05 });
       }

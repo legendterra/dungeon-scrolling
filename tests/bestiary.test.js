@@ -126,7 +126,9 @@ test('a floor spawns from its roster and nothing else; endless keeps the loose f
 test('each map that names a signature monster puts it first', () => {
   const DS = loadWorld();
   const first = { 1: 'crab', 2: 'sporeshroom', 3: 'crystalbeetle', 4: 'jailer', 6: 'bogman',
-                  7: 'mountaingoat', 8: 'drownedknight', 9: 'ashhound' };
+                  7: 'mountaingoat', 8: 'drownedknight', 9: 'ashhound',
+                  11: 'eel', 12: 'mosquito', 13: 'drownedknight', 14: 'glowworm', 16: 'drowner', 17: 'eggsac',
+                  18: 'lakespirit', 19: 'trollice' };
   for (const d in first) {
     const table = DS.Enemies.spawnTable(Number(d)).slice().sort((a, b) => b.weight - a.weight);
     assert.equal(table[0].value, first[d], 'depth ' + d);
@@ -135,7 +137,7 @@ test('each map that names a signature monster puts it first', () => {
 
 /* How far from the monster the hero stands, per kind: close enough for the ones
    that only wake when you are on top of them. */
-const STAND = { sporeshroom: 22, bogman: 30, sewerrat: 40, prisoner: 44 };
+const STAND = { sporeshroom: 22, bogman: 30, sewerrat: 40, prisoner: 44, glowworm: 10 };
 
 test('every new monster fights without throwing, at every rank', () => {
   const DS = loadWorld();
@@ -248,3 +250,55 @@ test('every new kind has a voxel model that builds, poses and animates', () => {
     }
   }
 });
+
+test('an effect that rides a blow only rides a blow that landed', () => {
+  const DS = loadWorld();
+  const T = DS.C.TILE;
+  for (const kind of ['bogman', 'drownedknight', 'mountaingoat', 'sporeshroom']) {
+    if (!DS.Enemies.TYPES[kind]) continue;
+    const seen = {};
+    for (const lands of [false, true]) {
+      const { g } = world(DS, 12);
+      let swings = 0;
+      g.player.hurt = () => { swings++; return lands; };   // false is a dash's invulnerability
+      g.player.slowT = 0;
+      const e = DS.Enemies.create(g, 10 * T, 11 * T, kind, 'normal');
+      const stand = STAND[kind] || 52;
+      const x0 = e.x;
+      let shoved = 0;
+      for (let f = 0; f < 1500 && !e.dead; f++) {
+        g.player.x = x0 + (f % 500 < 250 ? -stand : stand);
+        g.player.y = 12 * T - 14;
+        g.frames = f;
+        DS.Enemies.update(g, e);
+        shoved = Math.max(shoved, Math.abs(g.player.vx));
+      }
+      assert.ok(swings > 0, kind + ' swung (landing: ' + lands + ')');
+      seen[lands] = { slow: g.player.slowT || 0, shoved: shoved };
+    }
+    assert.equal(seen[false].slow, 0, kind + ' left a dashing hero unslowed');
+    assert.equal(seen[false].shoved, 0, kind + ' left a dashing hero unshoved');
+    assert.ok(seen[true].slow > 0 || seen[true].shoved > 0, kind + ' still has its effect when the blow lands');
+  }
+});
+
+test('strikePlayer reports whether the wound was given, and a swing is spent either way', () => {
+  const DS = loadWorld();
+  const T = DS.C.TILE;
+  for (const lands of [true, false]) {
+    const { g } = world(DS, 12);
+    g.player.hurt = () => lands;
+    const e = DS.Enemies.create(g, 10 * T, 11 * T, 'slime', 'normal');
+    g.player.x = e.x; g.player.y = e.y;
+    const box = { x: e.x - 4, y: e.y - 4, w: 40, h: 40 };
+    assert.equal(DS.Enemies.strikePlayer(g, e, box), lands);
+    assert.equal(e.struck, true, 'the swing is spent');
+    assert.equal(DS.Enemies.strikePlayer(g, e, box), false, 'and it hits once');
+  }
+  const { g } = world(DS, 12);
+  const e = DS.Enemies.create(g, 10 * T, 11 * T, 'slime', 'normal');
+  g.player.x = e.x + 300;
+  assert.equal(DS.Enemies.strikePlayer(g, e, { x: e.x, y: e.y, w: 10, h: 10 }), false, 'a miss is not a wound');
+  assert.equal(e.struck, false, 'and does not spend the swing');
+});
+

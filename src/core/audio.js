@@ -317,6 +317,11 @@ window.DS = window.DS || {};
                              }); },
     spore:       function () { noise({ dur: 0.34, vol: 0.09, freq: 700, freqTo: 1800, type: 'bandpass', q: 1.2 });
                                tone({ freq: 180, to: 120, dur: 0.3, type: 'sine', vol: 0.06 }); },
+    zap:         function () { noise({ dur: 0.2, vol: 0.13, freq: 5400, freqTo: 1600, type: 'highpass' });
+                               tone({ freq: 1100, to: 180, dur: 0.18, type: 'sawtooth', vol: 0.08 });
+                               [0.06, 0.12].forEach(function (d) { noise({ dur: 0.03, vol: 0.1, freq: 3800, type: 'bandpass', q: 4, delay: d }); }); },
+    buzz:        function () { tone({ freq: 330, dur: 0.24, type: 'sawtooth', vol: 0.05 });
+                               tone({ freq: 343, dur: 0.24, type: 'square', vol: 0.03 }); },
     steam:       function () { noise({ dur: 0.7, vol: 0.13, freq: 5600, freqTo: 1800, type: 'highpass' }); },
     thunder:     function () { noise({ dur: 0.9, vol: 0.28, freq: 900, freqTo: 40 });
                                noise({ dur: 0.12, vol: 0.22, freq: 5200, type: 'highpass' });
@@ -374,7 +379,7 @@ window.DS = window.DS || {};
     coin: 30, shard: 30, uiHover: 35, uiTab: 35, torch: 250, telegraph: 120,
     rattle: 120, squish: 90, growl: 200, land: 60, landHard: 60, enemyDie: 60,
     clack: 100, hiss: 200, chain: 200, bubble: 150, howl: 300, bleat: 200, neigh: 250, spore: 200,
-    steam: 250, boulder: 150
+    steam: 250, boulder: 150, zap: 150, buzz: 250
   };
   /* Names that are detuned a little on every play so a repeated sound does not
      sound like a sample loop. Tonal cues (UI, jingles) stay exact. */
@@ -384,7 +389,7 @@ window.DS = window.DS || {};
     swingAxe: 0.05, swingSpear: 0.06, swingStaff: 0.05, bowLoose: 0.06, shoot: 0.06,
     enemyDie: 0.08, hurt: 0.04, jump: 0.05, land: 0.08, landHard: 0.05, dash: 0.05,
     squish: 0.12, rattle: 0.1, growl: 0.1, torch: 0.1, screech: 0.08,
-    clack: 0.08, bubble: 0.1, howl: 0.06, bleat: 0.08, neigh: 0.05
+    clack: 0.08, bubble: 0.1, howl: 0.06, bleat: 0.08, neigh: 0.05, zap: 0.06, buzz: 0.08
   };
   const lastPlayed = {};
 

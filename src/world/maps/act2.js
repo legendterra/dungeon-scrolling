@@ -26,6 +26,7 @@
     theme: { fog: 0x040a0c, ambient: 0x2a4048, hemiSky: 0x38545c, hemiGround: 0x0c1418, dir: 0x8ab0c0, dirI: 0.30 },
     grade: { gamma: 1.06 },
     affinity: { spider: 1.6, wraith: 1.4, zombie: 1.2, spitter: 1.2 },
+    roster: { eel: 32, spider: 22, wraith: 18, bat: 12, zombie: 8 },
     backdrop: {
       curve: { gain: 0.24, warm: 0.2 },
       hero: { kind: 'shaft', col: 0x6aa0b8, core: 0xe0f4ff, edge: 0x2a4a5a, az: 0.5, elev: 6.2, r: 3.0,
@@ -65,6 +66,7 @@
     },
     theme: { fog: 0x0a1a10, ambient: 0x3e5e44, hemiSky: 0x5a8a5a, hemiGround: 0x101a10, dir: 0xc8e890, dirI: 0.40 },
     affinity: { spitter: 1.6, bomber: 1.4, zombie: 1.2, slime: 1.2 },
+    roster: { mosquito: 28, spitter: 22, frogshaman: 20, bomber: 14, zombie: 12 },
     backdrop: {
       like: 'swamp', variant: 'mire',
       hero: { col: 0xc8f0a0, core: 0xf8ffe8, edge: 0x5a8a3c },
@@ -99,6 +101,7 @@
     theme: { fog: 0x061420, ambient: 0x386884, hemiSky: 0x4a8aac, hemiGround: 0x0e1e28, dir: 0xa0e4ff, dirI: 0.42 },
     grade: { sat: 1.04, gamma: 1.04 },
     affinity: { wraith: 1.4, icewisp: 1.6, zombie: 1.2, harpy: 1.4 },
+    roster: { drownedknight: 28, harpy: 22, icewisp: 20, wraith: 18, shielder: 8 },
     backdrop: {
       like: 'flooded', variant: 'stair',
       curve: { gain: 0.32, warm: 0.3 },
@@ -136,6 +139,7 @@
     theme: { fog: 0x04101a, ambient: 0x244860, hemiSky: 0x2c5a78, hemiGround: 0x08141c, dir: 0x60b0e0, dirI: 0.30 },
     grade: { sat: 1.1, gamma: 1.05 },
     affinity: { spider: 1.5, icewisp: 1.5, bat: 1.3 },
+    roster: { glowworm: 30, spider: 26, icewisp: 20, bat: 14 },
     backdrop: {
       curve: { gain: 0.26, warm: 0.26 },
       hero: { kind: 'sigil', col: 0x60b8f0, core: 0xe0f4ff, edge: 0x1a5a8a, az: 0.5, elev: 6.2, r: 3.2,
@@ -212,6 +216,7 @@
     },
     theme: { fog: 0x111a0a, ambient: 0x585a36, hemiSky: 0x7a8248, hemiGround: 0x181a0c, dir: 0xffc878, dirI: 0.44 },
     affinity: { zombie: 1.5, wraith: 1.4, necromancer: 1.2, spitter: 1.2 },
+    roster: { drowner: 30, wraith: 22, zombie: 20, necromancer: 14, spitter: 8 },
     backdrop: {
       like: 'swamp', variant: 'fen',
       recipe: {
@@ -246,6 +251,7 @@
     theme: { fog: 0x0c1206, ambient: 0x3a4a2a, hemiSky: 0x506a38, hemiGround: 0x10140a, dir: 0xa8e050, dirI: 0.34 },
     grade: { sat: 1.1 },
     affinity: { spider: 2.2, bat: 1.2, harpy: 1.2 },
+    roster: { eggsac: 34, spider: 30, bat: 10 },
     backdrop: {
       curve: { gain: 0.28, warm: 0.3 },
       hero: { kind: 'sigil', col: 0x9ae040, core: 0xf0ffd0, edge: 0x4a7a10, az: 0.5, elev: 6.2, r: 3.2,
@@ -286,6 +292,7 @@
     theme: { fog: 0x050e16, ambient: 0x2a4c62, hemiSky: 0x3a6a88, hemiGround: 0x0a141c, dir: 0x9ad0ee, dirI: 0.34 },
     grade: { sat: 1.04, gamma: 1.05 },
     affinity: { wraith: 1.6, piranha: 1.2, cultist: 1.2 },
+    roster: { lakespirit: 26, wraith: 26, cultist: 20, icewisp: 10, drownedknight: 10 },
     backdrop: {
       like: 'flooded', variant: 'black lake',
       recipe: {
@@ -320,6 +327,7 @@
     theme: { fog: 0x0a1824, ambient: 0x6a90b0, hemiSky: 0x88b8d8, hemiGround: 0x1a2c3c, dir: 0xc8f0ff, dirI: 0.50 },
     grade: { sat: 1.06, gamma: 1.03 },
     affinity: { icewisp: 2.0, golem: 1.4, wraith: 1.2 },
+    roster: { trollice: 32, icewolf: 28, icewisp: 24, golem: 14 },
     backdrop: {
       curve: { gain: 0.4, warm: 0.2 },
       hero: { kind: 'moon', col: 0xb0e8ff, core: 0xffffff, edge: 0x5a90c0, az: 0.48, elev: 8.0, r: 5.0,

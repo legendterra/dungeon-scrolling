@@ -74,9 +74,16 @@ window.DS = window.DS || {};
     document.documentElement.classList.toggle('hk-open', anyOpen());
   }
 
+  let sweptSeq = -1;
   function sweep() {
     requestAnimationFrame(sweep);
     if (DS.__paused) return;
+    /* A screen is "touched" by being drawn. A tick the frame-rate cap skipped drew
+       nothing, so sweeping it would hide every panel and bring it back on the next
+       drawn frame: sweep once per frame that actually drew. */
+    const seq = DS.drawSeq | 0;
+    if (seq === sweptSeq) return;
+    sweptSeq = seq;
     let changed = false;
     for (const k in screens) {
       const s = screens[k];

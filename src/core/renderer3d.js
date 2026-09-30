@@ -102,6 +102,7 @@ window.DS = window.DS || {};
   let levelActors = [];      // NPC / furniture / shrine models of the current floor (removed on the next)
   let fxGroup = null;        // projectiles + pickup meshes
   let heroModel = null;
+  let heroWeaponSkin = '';
   let heroArmorKey = '';
   let heroWeaponMesh = null;
   let heroWeaponAura = null;   // orbiting element motes on an elemental weapon
@@ -1099,6 +1100,7 @@ window.DS = window.DS || {};
     heroWeaponMesh = null;
     heroWeaponAura = null;
     heroWeaponRef = null;
+    heroWeaponSkin = '';
     projMeshes.forEach(function (pm) {
       pm.mesh.traverse(function (o) { if (o.geometry) o.geometry.dispose(); });
       if (pm.mesh.parent) pm.mesh.parent.remove(pm.mesh);
@@ -2530,7 +2532,10 @@ window.DS = window.DS || {};
   function gripWeapon(arm, item, offhand) {
     if (!arm || !item) return null;
     const base = DS.Weapons.WEAPONS[item.type];
-    const mesh = DS.Voxel.buildWeapon(item.type, DS.Weapons.rarityColor(item.rarity));
+    /* A worn weapon skin (v7 look) replaces the rarity tint; plain steel keeps it. */
+    const skin = !offhand && DS.Look3D && DS.Look ? DS.Look3D.weaponSkin(item.type, DS.Look.look) : null;
+    const mesh = DS.Voxel.buildWeapon(item.type, skin ? skin.css : DS.Weapons.rarityColor(item.rarity));
+    if (skin) DS.Look3D.dressWeapon(mesh, skin);
     shadowize(mesh);
     mesh.position.y = -0.34;   // the hand, at arm's end
     /* Hold it like a tool, not a plank glued to the forearm: blades rise over
@@ -2548,9 +2553,13 @@ window.DS = window.DS || {};
   function ensureHero(g) {
     const p = g.player;
     if (!p || !DS.Voxel) return;
-    const key = DS.Paperdoll ? DS.Paperdoll.keyFor(p.inv.armor) : '';
+    /* v7: the hero is his look (src/items/look3d.js), so the model is rebuilt
+       when the look changes; the armour in the bag no longer paints him. */
+    const look = DS.Look3D && DS.Look ? DS.Look.look : null;
+    const key = look ? 'look:' + DS.Look3D.keyOfCurrent()
+              : (DS.Paperdoll ? DS.Paperdoll.keyFor(p.inv.armor) : '');
     if (!heroModel) {
-      heroModel = DS.Voxel.build('hero', { armor: p.inv.armor });
+      heroModel = DS.Voxel.build('hero', { armor: p.inv.armor, look: look });
       heroArmorKey = key;
       actorGroup.add(shadowize(heroModel.root));
       heroWeaponRef = null;
@@ -2559,7 +2568,7 @@ window.DS = window.DS || {};
       heroArmorKey = key;
       actorGroup.remove(heroModel.root);
       disposeModel(heroModel);   // takes the gripped weapon with it
-      heroModel = DS.Voxel.build('hero', { armor: p.inv.armor });
+      heroModel = DS.Voxel.build('hero', { armor: p.inv.armor, look: look });
       actorGroup.add(shadowize(heroModel.root));
       // The old grip is gone, so forget it; the weapon pass below re-grips.
       heroWeaponRef = null;
@@ -2568,8 +2577,11 @@ window.DS = window.DS || {};
     }
 
     const item = DS.Inv.weapon(p.inv);
-    if (item !== heroWeaponRef) {
+    /* A weapon skin is part of what is gripped: a new skin re-grips the blade. */
+    const skinKey = item && look && DS.Look3D.weaponSkin(item.type, look) ? look.weapon[item.type] : '';
+    if (item !== heroWeaponRef || skinKey !== heroWeaponSkin) {
       heroWeaponRef = item;
+      heroWeaponSkin = skinKey;
       if (heroWeaponMesh && heroWeaponMesh.parent) {
         heroWeaponMesh.parent.remove(heroWeaponMesh);
       }
@@ -3088,6 +3100,11 @@ window.DS = window.DS || {};
   /* Burst a model into voxel chunks tinted like its own meshes. Chunks tumble
      on the pooled FX layer, so nothing here owns geometry afterward. */
   const shatterPos = new THREE.Vector3();
+  /* A merged body mesh (the hero's) is vertex-coloured: it carries the colours it was made from. */
+  function shatterColor(mesh) {
+    const list = mesh.userData && mesh.userData.chunkColors;
+    return list && list.length ? list[Math.floor(Math.random() * list.length)] : mesh.material.color.getHex();
+  }
   function shatterModel(model, count, sizeMul) {
     const F = DS.FX3D;
     if (!F || !F.ready || !model || !model.root) return;
@@ -3105,7 +3122,7 @@ window.DS = window.DS || {};
       const sp = F.rnd(0.02, 0.06);
       F.chunkAt(shatterPos.x, shatterPos.y, shatterPos.z + 0.05,
         Math.cos(a) * sp, F.rnd(0.03, 0.09), Math.sin(a) * sp * 0.4,
-        F.rnd(0.1, 0.2) * sizeMul, mesh.material.color.getHex(), F.rnd(34, 58), model.root.position.y);
+        F.rnd(0.1, 0.2) * sizeMul, shatterColor(mesh), F.rnd(34, 58), model.root.position.y);
     }
     F.puffAt(model.root.position.x, model.root.position.y + 0.5, ACTOR_Z, 0, 0.006, 0,
              0.3 * sizeMul, 0.6, 0xb8b0a8, 0.14, 26);
@@ -3280,6 +3297,9 @@ window.DS = window.DS || {};
     }
 
     heroFx(g, p, m, heldItem, heldBase, swinging);
+
+    // Things worn that move on their own: a cape, a plume, a flame (v7 look).
+    if (m.animate) m.animate(m, p, time);
 
     // Legacy motes: only when the pooled FX layer is missing.
     if (heroWeaponAura) {

@@ -45,6 +45,17 @@ async function key(session, code, holdMs) {
   await cdp.sleep(60);
 }
 
+/* Text the way a keyboard sends it: each character its own key. */
+async function typeText(session, text) {
+  for (const ch of text) {
+    const code = /[a-z]/i.test(ch) ? 'Key' + ch.toUpperCase() : 'Digit0';
+    await session.eval(`window.dispatchEvent(new KeyboardEvent('keydown', { code: '${code}', key: ${JSON.stringify(ch)}, bubbles: true }))`);
+    await cdp.sleep(40);
+    await session.eval(`window.dispatchEvent(new KeyboardEvent('keyup', { code: '${code}', key: ${JSON.stringify(ch)}, bubbles: true }))`);
+    await cdp.sleep(30);
+  }
+}
+
 const shown = (s, name) => s.eval(`!!document.querySelector('[data-screen=${name}]:not([hidden])')`);
 
 async function main() {
@@ -65,12 +76,34 @@ async function main() {
     check('OPTIONS opens', await shown(session, 'options'));
 
     const tabs = await session.eval('Array.from(document.querySelectorAll(".ho-tab")).map((n) => n.textContent)');
-    check('six tabs', tabs.length === 6, tabs.join(' | '));
+    check('seven tabs, PLAYER among them', tabs.length === 7 && tabs.includes('PLAYER'), tabs.join(' | '));
     for (let i = 0; i < tabs.length; i++) {
       await session.eval(`document.querySelectorAll('.ho-tab')[${i}].click()`);
       await cdp.sleep(350);
       await shoot(session, path.join(out, `tab-${i + 1}-${tabs[i].toLowerCase()}.png`), view);
     }
+
+    // The player name: clicked open, typed, kept, remembered, and left alone by ESC.
+    await session.eval("Array.from(document.querySelectorAll('.ho-tab')).find((n) => /PLAYER/.test(n.textContent)).click()");
+    await cdp.sleep(300);
+    check('the PLAYER tab has a name field', await session.eval('!!document.querySelector("[data-screen=options] .ho-namefield")'));
+    await session.eval('document.querySelector("[data-screen=options] .ho-namefield").click()');
+    await cdp.sleep(200);
+    check('clicking the name opens it for typing', await session.eval('document.querySelector("[data-screen=options] .ho-namefield").classList.contains("is-edit")'));
+    await typeText(session, 'Ada');
+    await key(session, 'Enter');
+    await cdp.sleep(150);
+    check('ENTER keeps the name', (await session.eval('DS.Board.name')) === 'Ada', await session.eval('DS.Board.name'));
+    check('and the screen shows it', /Ada/.test(await session.eval('document.querySelector("[data-screen=options] .ho-namefield").textContent')));
+    check('and it is written down for the next visit', /Ada/.test(await session.eval('localStorage.getItem("ds_name")')));
+    await session.eval('document.querySelector("[data-screen=options] .ho-namefield").click()');
+    await cdp.sleep(150);
+    await typeText(session, 'zed');
+    await key(session, 'Escape');
+    await cdp.sleep(150);
+    check('ESC leaves the name as it was', (await session.eval('DS.Board.name')) === 'Ada' && await shown(session, 'options'));
+    check('and the keyboard is given back (typing does not fill the field)', !(await session.eval('DS.Input.isCapturing()')));
+    await shoot(session, path.join(out, 'player-name.png'), view);
 
     // Graphics: a slider by the mouse...
     await session.eval("document.querySelectorAll('.ho-tab')[0].click()");

@@ -161,7 +161,9 @@ window.DS = window.DS || {};
 
   window.addEventListener('mousedown', function (e) {
     const code = 'MOUSE' + e.button;
-    if (capture) { e.preventDefault(); finishCapture(code); return; }
+    /* A left click is the interface's own (it landed on BACK, or on the very slot that
+       asked) and cancels; the other buttons are a binding. */
+    if (capture) { e.preventDefault(); finishCapture(e.button === 0 ? 'Escape' : code); return; }
     down.add(code);
     pressed.add(code);
     anyPressedFlag = true;
@@ -224,7 +226,12 @@ window.DS = window.DS || {};
 
     // Diff against last frame so pad buttons produce edge events like keys do.
     now.forEach(function (code) {
-      if (!padPrev.has(code)) { pressed.add(code); anyPressedFlag = true; }
+      if (!padPrev.has(code)) {
+        /* A pad has no bindings to change, so a button pressed while a screen waits for
+           a key cancels the wait, and is not also a press for the screen behind it. */
+        if (capture) finishCapture('Escape');
+        else { pressed.add(code); anyPressedFlag = true; }
+      }
       down.add(code);
     });
     padPrev.forEach(function (code) {
@@ -257,6 +264,9 @@ window.DS = window.DS || {};
     isDown: function (action) { return matches(action, down); },
 
     justPressed: function (action) { return matches(action, pressed); },
+
+    // Went down this frame, by raw code ('Space', 'PAD3'), whatever the action map says.
+    pressedCode: function (code) { return pressed.has(code); },
 
     justReleased: function (action) { return matches(action, released); },
 

@@ -345,6 +345,15 @@ window.DS = window.DS || {};
   function updatePortrait(g) {
     const P = DS.Paperdoll;
     if (!P || !g.inv) return;
+    // v7: the portrait is the look's face (look2d.js), not the armour's paper doll.
+    if (DS.Look2D && DS.Look) {
+      const look = DS.Look.look;
+      const lk = 'look:' + DS.Look3D.keyOfCurrent();
+      if (N.portraitCv._key === lk) return;
+      N.portraitCv._key = lk;
+      paint(N.portraitCv, DS.Look2D.frames(look)[0], DS.Look2D.headRect(look));
+      return;
+    }
     const k = P.keyFor ? P.keyFor(g.inv.armor) : 'bare';
     if (N.portraitCv._key === k) return;
     N.portraitCv._key = k;

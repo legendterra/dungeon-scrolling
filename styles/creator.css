@@ -1,0 +1,105 @@
+/* The character screen (src/ui-html/creator.js). Sizes are in --s units like
+   every other screen; the middle column is left empty on purpose: it is the
+   window onto the hero's stage (src/scenes/lookstage.js) behind the interface. */
+
+.rar-common { --rc: #c9cfdf; }
+.rar-rare { --rc: #4fb3ff; }
+.rar-epic { --rc: #c86ee0; }
+.rar-legendary { --rc: #ffb347; }
+.rar-mythic { --rc: #ff5a86; }
+.rar-limited { --rc: #5ff0c8; }
+
+.hc-shade {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(4, 6, 14, 0.88) 0%, rgba(4, 6, 14, 0.6) 40%, rgba(4, 6, 14, 0.05) 56%, rgba(4, 6, 14, 0.05) 68%, rgba(4, 6, 14, 0.74) 100%);
+}
+
+.hc-wrap { display: grid; grid-template-columns: calc(128 * var(--s)) calc(404 * var(--s)) 1fr calc(300 * var(--s)); gap: calc(14 * var(--s)); align-items: stretch; }
+
+.hc-tabs { display: flex; flex-direction: column; gap: calc(4 * var(--s)); overflow-y: auto; scrollbar-width: none; }
+.hc-tab {
+  text-align: left; padding: calc(9 * var(--s)) calc(12 * var(--s)); cursor: pointer;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(14 * var(--s)); letter-spacing: 0.14em;
+  color: var(--ink-dim); background: rgba(12, 16, 30, 0.6); border: 1px solid rgba(150, 190, 255, 0.12);
+  border-left: calc(3 * var(--s)) solid transparent;
+}
+.hc-tab:hover { color: var(--ink); background: rgba(20, 28, 52, 0.75); }
+.hc-tab.is-on { color: var(--ink); border-left-color: var(--accent); background: rgba(24, 34, 62, 0.85); }
+.hc-tab.is-focus { border-color: var(--accent); box-shadow: 0 0 calc(12 * var(--s)) rgba(111, 211, 255, 0.28); }
+
+.hc-panel { display: flex; flex-direction: column; min-height: 0; padding: calc(10 * var(--s)) calc(12 * var(--s)) calc(8 * var(--s)); }
+.hc-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: calc(6 * var(--s)); scrollbar-width: thin; scrollbar-color: var(--accent) rgba(255, 255, 255, 0.05); }
+.hc-note { flex: 0 0 auto; min-height: calc(40 * var(--s)); padding-top: calc(6 * var(--s)); font-size: calc(13 * var(--s)); line-height: 1.25; color: var(--gold); }
+.hc-sec + .hc-sec { margin-top: calc(14 * var(--s)); }
+.hc-grid { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: calc(6 * var(--s)); margin-top: calc(8 * var(--s)); }
+
+.hc-chip {
+  padding: calc(7 * var(--s)) calc(4 * var(--s)); cursor: pointer; text-align: center; white-space: nowrap;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(13 * var(--s)); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-dim); background: rgba(0, 0, 0, 0.3); border: 1px solid var(--edge);
+}
+.hc-chip:hover { color: var(--ink); }
+.hc-chip.is-worn { color: #1c1406; background: var(--gold); border-color: var(--gold); }
+.hc-chip.is-focus { border-color: var(--accent); box-shadow: 0 0 calc(10 * var(--s)) rgba(111, 211, 255, 0.35); }
+
+.hc-swatch { aspect-ratio: 1; cursor: pointer; background: var(--sw); border: 2px solid rgba(255, 255, 255, 0.14); }
+.hc-swatch.is-worn { outline: calc(2 * var(--s)) solid var(--gold); outline-offset: calc(1 * var(--s)); }
+.hc-swatch.is-focus { border-color: #fff; transform: scale(1.12); z-index: 1; box-shadow: 0 0 calc(10 * var(--s)) rgba(255, 255, 255, 0.35); }
+.hc-swatch.is-off { opacity: 0.32; }
+
+.hc-card {
+  display: flex; flex-direction: column; justify-content: space-between; gap: calc(4 * var(--s)); cursor: pointer;
+  min-height: calc(58 * var(--s)); padding: calc(7 * var(--s)) calc(8 * var(--s)); text-align: left;
+  background: rgba(12, 16, 30, 0.65); border: 1px solid var(--edge); border-bottom: calc(3 * var(--s)) solid var(--rc, var(--edge));
+}
+.hc-card:hover { background: rgba(24, 32, 58, 0.8); }
+.hc-card-name { font-size: calc(13.5 * var(--s)); line-height: 1.12; color: var(--ink); }
+.hc-card-tag { font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s)); letter-spacing: 0.12em; color: var(--ink-mute); }
+.hc-card.is-owned .hc-card-tag { color: var(--sp); }
+.hc-card.is-locked .hc-card-tag { color: var(--rc); }
+.hc-card-tag.is-price { color: var(--gold); }
+.hc-card-tag.is-short { color: var(--danger); }
+.hc-card.is-worn { background: rgba(242, 198, 109, 0.15); border-color: rgba(242, 198, 109, 0.5); }
+.hc-card.is-worn .hc-card-tag { color: var(--gold); }
+.hc-card.is-focus { border-color: var(--accent); box-shadow: 0 0 calc(12 * var(--s)) rgba(111, 211, 255, 0.3); }
+.hc-card.is-armed { animation: hc-armed 0.7s steps(2) infinite; }
+@keyframes hc-armed { 50% { border-color: var(--gold); } }
+
+.hc-stage { position: relative; cursor: grab; touch-action: none; }
+.hc-stage:active { cursor: grabbing; }
+.hc-stage-hint {
+  position: absolute; left: 0; right: 0; bottom: calc(4 * var(--s)); text-align: center; pointer-events: none;
+  font-family: var(--font-display); font-weight: 600; font-size: calc(11 * var(--s)); letter-spacing: 0.32em; color: rgba(190, 210, 255, 0.4);
+}
+.hc-fallback { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); image-rendering: pixelated; pointer-events: none; }
+
+.hc-detail { display: flex; flex-direction: column; gap: calc(9 * var(--s)); padding: calc(14 * var(--s)) calc(16 * var(--s)); min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.hc-d-name { font-family: var(--font-display); font-weight: 700; font-size: calc(22 * var(--s)); line-height: 1; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink); }
+.hc-d-rar { min-height: calc(16 * var(--s)); font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s)); letter-spacing: 0.28em; color: var(--rc, var(--ink-mute)); }
+.hc-d-lines { min-height: calc(74 * var(--s)); white-space: pre-line; font-size: calc(14 * var(--s)); line-height: 1.32; color: var(--ink-dim); }
+.hc-d-act { width: 100%; min-width: 0; height: calc(42 * var(--s)); font-size: calc(16 * var(--s)); }
+.hc-d-act.is-locked { opacity: 0.4; cursor: not-allowed; filter: saturate(0.4); }
+.hc-doll-row { display: flex; align-items: flex-end; justify-content: space-between; gap: calc(10 * var(--s)); }
+.hc-doll { image-rendering: pixelated; image-rendering: crisp-edges; }
+.hc-rnd { min-width: calc(96 * var(--s)); }
+
+.hc-wallet {
+  display: inline-flex; align-items: center; gap: calc(8 * var(--s)); align-self: flex-end; margin-bottom: calc(6 * var(--s));
+  height: calc(34 * var(--s)); padding: 0 calc(14 * var(--s)) 0 calc(10 * var(--s));
+  background: rgba(8, 10, 20, 0.7); border: 1px solid rgba(242, 198, 109, 0.4); color: var(--gold);
+}
+.hc-key-icon { width: calc(20 * var(--s)); height: calc(20 * var(--s)); }
+.hc-keys { font-size: calc(20 * var(--s)); }
+.hc-wallet-l { font-family: var(--font-display); font-weight: 700; font-size: calc(12 * var(--s)); letter-spacing: 0.24em; color: var(--ink-dim); }
+
+/* The run summary's "carried out" strip (src/ui-html/menus.js gameOver). */
+.hm-over-bank { display: flex; flex-direction: column; gap: calc(8 * var(--s)); margin-top: calc(6 * var(--s)); }
+.hm-bank-row { display: flex; align-items: center; gap: calc(10 * var(--s)); color: var(--gold); }
+.hm-bank-key { width: calc(22 * var(--s)); height: calc(22 * var(--s)); }
+.hm-bank-n { font-size: calc(26 * var(--s)); }
+.hm-bank-l { font-family: var(--font-display); font-weight: 700; font-size: calc(13 * var(--s)); letter-spacing: 0.16em; color: var(--ink-dim); }
+.hm-bank-won { display: flex; flex-wrap: wrap; gap: calc(8 * var(--s)); }
+.hm-bank-item {
+  padding: calc(4 * var(--s)) calc(10 * var(--s)); font-family: var(--font-display); font-weight: 700; font-size: calc(13 * var(--s));
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--rc, var(--gold)); border: 1px solid var(--rc, var(--gold)); background: rgba(0, 0, 0, 0.35);
+}

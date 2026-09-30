@@ -17,7 +17,7 @@ window.DS = window.DS || {};
   function setScene(scene) { pending = scene; }
 
   DS.Scenes = {
-    menu: function () { setScene(DS.Menu.createMenu()); },
+    menu: function (page) { setScene(DS.Menu.createMenu(page)); },
 
     /* The startup notice (ui-html/notice.js), then the title screen. Either
        answer goes on to the game. */
@@ -90,6 +90,9 @@ window.DS = window.DS || {};
     // The frame-rate cap skips the picture, never the simulation.
     if (DS.Prefs && !DS.Prefs.wantDraw(now)) return;
     current.draw();
+    /* Which drawn frame this is: the HTML layer hides a screen only when a frame
+       that DREW did not touch it (a capped tick draws nothing, and is not evidence). */
+    DS.drawSeq = (DS.drawSeq | 0) + 1;
 
     /* The pointer, drawn once, here: one owner, so no screen can forget it and
        none can draw a second one. A scene names the cursor it wants; a run

@@ -504,7 +504,11 @@ window.DS = window.DS || {};
     if (t - perf.start < WINDOW_MS) return;
     const avg = perf.sum / perf.n;
     perf.sum = 0; perf.n = 0; perf.start = 0;
-    if (avg > SLOW_MS) {
+    /* A frame-rate cap stretches the interval between drawn frames on purpose (a
+       30 cap is 33 ms a frame): slow is a quarter over what the cap asks for, or
+       the machine's own 20 ms budget, whichever is larger. */
+    const gap = DS.Prefs && DS.Prefs.frameGap ? DS.Prefs.frameGap() : 0;
+    if (avg > Math.max(SLOW_MS, gap * 1.25)) {
       perf.downgrades++;
       setQuality(QUALITIES[QUALITIES.indexOf(quality) - 1], { quiet: true });
       toast('GRAPHICS LOWERED: ' + quality.toUpperCase());

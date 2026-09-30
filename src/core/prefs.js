@@ -11,7 +11,7 @@ window.DS = window.DS || {};
 (function (DS) {
   'use strict';
 
-  DS.VERSION = 'v7.0.0';
+  DS.VERSION = 'v7.1.0';
 
   const S = DS.Settings;
   const num = function (min, max, step) { return { type: 'number', min: min, max: max, step: step }; };
@@ -91,13 +91,25 @@ window.DS = window.DS || {};
 
   /* Called every animation frame by the loop: counts frames and, when the cap
      asks for it, says whether this frame should be drawn. */
-  let lastDraw = 0;
-  function wantDraw(now) {
+  /* The milliseconds one frame is meant to take under the cap; 0 when there is none. */
+  function frameGap() {
     const cap = S.get('gfx', 'fpsCap');
-    if (cap === 'max') return true;
-    const gap = 1000 / (cap === '30' ? 30 : 60);
-    if (now - lastDraw < gap - 2) return false;
-    lastDraw = now;
+    return cap === 'max' ? 0 : 1000 / (cap === '30' ? 30 : 60);
+  }
+
+  /* A frame is drawn on the first tick at or after its slot on a fixed schedule,
+     and the schedule advances by exactly one gap per drawn frame. Measuring from
+     the LAST drawn frame instead rounds every frame up to a whole refresh period
+     (a 60 cap on a 75 Hz panel gave 37 fps); this holds the average at the cap on
+     any refresh rate. A stall (a hidden tab, a long load) starts the schedule
+     again from now rather than drawing a burst to catch up. */
+  const SLOT_SLACK_MS = 2;
+  let nextDraw = 0;
+  function wantDraw(now) {
+    const gap = frameGap();
+    if (!gap) { nextDraw = 0; return true; }
+    if (now < nextDraw - SLOT_SLACK_MS) return false;
+    nextDraw = (now - nextDraw > gap) ? now + gap : nextDraw + gap;
     return true;
   }
 
@@ -122,5 +134,5 @@ window.DS = window.DS || {};
   }
 
   DS.Prefs = { applyAll: applyAll, apply: apply, saveControls: saveControls, resetControls: resetControls,
-               wantDraw: wantDraw, fpsTick: fpsTick };
+               wantDraw: wantDraw, frameGap: frameGap, fpsTick: fpsTick };
 })(window.DS);

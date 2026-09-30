@@ -6,9 +6,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load } = require('./_load');
 
-const STUBS = 'window.addEventListener = function (t, fn) { (window.__ev = window.__ev || {})[t] = fn; };' +
-              'window.navigator = { getGamepads: function () { return []; } }; window.document = {};' +
-              'window.DS = window.DS || {}; window.DS.__ev = function () { return window.__ev; };';
+/* __ev keeps the LAST listener of each type (what the older tests drive); __evAll keeps every one,
+   for the events input.js listens to twice (mousedown). __pads is the gamepad list. */
+const STUBS = 'window.addEventListener = function (t, fn) { (window.__ev = window.__ev || {})[t] = fn;' +
+              ' ((window.__evAll = window.__evAll || {})[t] = window.__evAll[t] || []).push(fn); };' +
+              'window.__pads = []; window.navigator = { getGamepads: function () { return window.__pads; } }; window.document = {};' +
+              'window.DS = window.DS || {}; window.DS.__ev = function () { return window.__ev; };' +
+              'window.DS.__evAll = function () { return window.__evAll; }; window.DS.__win = window;';
 
 function fresh() {
   const DS = load(['src/core/rng.js', 'src/core/input.js'], STUBS);
@@ -114,3 +118,55 @@ test('labels read like a keyboard, and the sheets follow the bindings', () => {
   const after = JSON.stringify(DS.Input.controlGroups());
   assert.ok(after.includes('"V"'), 'the dash row shows V now');
 });
+
+test('while a screen waits for a key, a left click cancels and the other buttons bind', () => {
+  const DS = fresh();
+  const click = (button) => DS.__evAll().mousedown[0]({ button, preventDefault() {} });
+  let got = null;
+  DS.Input.captureNext((c) => { got = c; });
+  click(0);
+  assert.equal(got, 'Escape', 'a left click is the interface clicking, not a binding');
+  assert.equal(DS.Input.isCapturing(), false);
+  assert.equal(DS.Input.isDown('attack'), false, 'and it was not also an attack');
+  got = null;
+  DS.Input.captureNext((c) => { got = c; });
+  click(2);
+  assert.equal(got, 'MOUSE2', 'the right button binds');
+  got = null;
+  DS.Input.captureNext((c) => { got = c; });
+  click(1);
+  assert.equal(got, 'MOUSE1', 'so does the middle one');
+  // Outside a capture a left press is an ordinary press.
+  click(0);
+  assert.equal(DS.Input.isDown('attack'), true);
+});
+
+test('a pad button cancels a capture, and is not also a press for the screen behind it', () => {
+  const DS = fresh();
+  const pad = { buttons: Array.from({ length: 16 }, () => ({ pressed: false })), axes: [0, 0] };
+  DS.__win.__pads = [pad];
+  DS.Input.poll();
+  let got = null;
+  DS.Input.captureNext((c) => { got = c; });
+  pad.buttons[1].pressed = true;                          // B
+  DS.Input.poll();
+  assert.equal(got, 'Escape');
+  assert.equal(DS.Input.isCapturing(), false);
+  assert.equal(DS.Input.justPressed('back'), false, 'the press that cancelled did not also go back');
+  // With nothing to capture, the same button is a normal press.
+  pad.buttons[1].pressed = false; DS.Input.poll(); DS.Input.endFrame();
+  pad.buttons[1].pressed = true; DS.Input.poll();
+  assert.equal(DS.Input.justPressed('back'), true);
+});
+
+test('pressedCode reads the raw code: a key several actions share is told apart', () => {
+  const DS = fresh();
+  const ev = DS.__ev();
+  ev.keydown({ code: 'ArrowUp', key: 'ArrowUp', repeat: false, preventDefault() {}, stopImmediatePropagation() {} });
+  assert.equal(DS.Input.justPressed('jump'), true, 'Up is a jump key');
+  assert.equal(DS.Input.pressedCode('Space'), false, 'but it is not Space');
+  assert.equal(DS.Input.pressedCode('ArrowUp'), true);
+  DS.Input.endFrame();
+  assert.equal(DS.Input.pressedCode('ArrowUp'), false, 'a press lasts one frame');
+});
+

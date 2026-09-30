@@ -122,7 +122,7 @@ test('the notice text is complete, in English, and says what the player was prom
   const DS = withNotice();
   const text = DS.Notice.SECTIONS.map((s) => s.title + ' ' + s.text).join(' ') + DS.Notice.APOLOGY_TEXT;
   for (const must of [/artificial-intelligence/i, /research/i, /free/i, /no real-money/i, /not affiliated/i,
-                      /stored/i, /leaderboard/i, /as is/i, /I AGREE/, /DECLINE/, /sorry/i, /Poly Haven/, /Options/]) {
+                      /stored/i, /scoreboard/i, /as is/i, /I AGREE/, /DECLINE/, /sorry/i, /Poly Haven/, /Options/]) {
     assert.ok(must.test(text), 'mentions ' + must);
   }
   assert.ok(DS.Notice.SECTIONS.length >= 6);

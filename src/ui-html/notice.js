@@ -37,7 +37,7 @@ window.DS = window.DS || {};
     { title: 'What is stored', text:
       'Your settings, character appearance, unlocked cosmetics and progress are stored **locally in your browser**. If you ' +
       'submit a score, the display name you chose, the depth reached, your kill count and the run time are sent to a public ' +
-      'leaderboard, so choose a name you are comfortable sharing. No account, e-mail address or tracking identifier is ' +
+      'scoreboard, so choose a name you are comfortable sharing. No account, e-mail address or tracking identifier is ' +
       'collected. Clearing your browser data removes everything stored locally.' },
     { title: 'No warranty', text:
       'The game is provided “as is”, without warranty of any kind. Because it is a prototype, it may contain defects, ' +
@@ -88,7 +88,9 @@ window.DS = window.DS || {};
   }
 
   function createScene(onDone) {
-    const st = { frame: 0, read: false, hide: false, focus: 1, popup: false, nudge: 0, scroll: 0, done: false };
+    /* Starts from what is stored, so reading the notice again from Options and agreeing
+       does not quietly turn a "do not show again" off. */
+    const st = { frame: 0, read: false, hide: !!DS.Settings.get('notice', 'hide'), focus: 1, popup: false, nudge: 0, scroll: 0, done: false };
     const ui = {};
 
     function finish() {
@@ -169,7 +171,9 @@ window.DS = window.DS || {};
         }
         if (In.justPressed('left')) st.focus = 0;
         if (In.justPressed('right')) st.focus = 1;
-        if (In.justPressed('jump')) toggleHide();
+        /* Space or the pad's Y, by code: 'jump' is also W, Up and the pad's A, which
+           scroll and confirm here and must not tick the box on the way. */
+        if (In.pressedCode('Space') || In.pressedCode('PAD3')) toggleHide();
         if (In.justPressed('confirm')) { In.consume('confirm'); press(st.focus); }
       },
 

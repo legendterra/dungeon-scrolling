@@ -74,3 +74,13 @@
 .ho-btn { min-width: calc(130 * var(--s)); height: calc(36 * var(--s)); font-size: calc(14 * var(--s)); }
 .ho-btn.is-danger { border-color: var(--danger); color: var(--danger); }
 .ho-btn.is-armed { background: var(--danger); color: #fff; }
+
+/* The player-name field on the PLAYER tab (src/ui-html/options.js). */
+.ho-namefield {
+  min-width: calc(220 * var(--s)); max-width: calc(320 * var(--s)); padding: calc(6 * var(--s)) calc(12 * var(--s)); cursor: text; text-align: left;
+  font-family: var(--font-display); font-weight: 700; font-size: calc(16 * var(--s)); letter-spacing: 0.06em; color: var(--ink);
+  background: rgba(0, 0, 0, 0.35); border: 1px solid var(--edge); white-space: pre; overflow: hidden; text-overflow: ellipsis;
+}
+.ho-namefield:hover, .ho-row.is-focus .ho-namefield { border-color: var(--edge-strong); }
+.ho-namefield.is-empty { color: var(--ink-mute); }
+.ho-namefield.is-edit { color: #fff; border-color: var(--gold); box-shadow: 0 0 calc(10 * var(--s)) rgba(242, 198, 109, 0.35); }
