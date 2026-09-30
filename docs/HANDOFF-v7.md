@@ -4,6 +4,14 @@ Branch kerja: `claude/modest-rubin-yaqfoa`. Rencana: [PLAN-v7.md](PLAN-v7.md) da
 Izin dari user: kalau tes, audit, dan review lolos, **merge ke `main` dan deploy dengan wrangler**
 (`npx --yes wrangler@4 deploy` dari root; login ada di mesin ini; coba `--dry-run` dulu). Naikkan `?v=` di `index.html` tiap rilis.
 
+## Rilis
+
+- **v7.1.0 sudah live** di https://dungeonscrolling.moneyspender.net (2026-09-30): `main` = commit 34b0f4c, Worker version 51091468.
+  Isi: sistem karakter, Act II, perbaikan review v7.0.0, tab PLAYER (ganti nama), penamaan Scoreboard, perbaikan layout inventory.
+- Scoreboard disimpan di D1 (server), dikenali dari nama; karakter, kunci, dan pengaturan hanya di localStorage peramban itu.
+- Deploy berikutnya: naikkan `?v=` di `index.html` dan `DS.VERSION` (`core/prefs.js`), jalankan `npm test` dan `tools/qa/*`, lalu
+  `git push origin HEAD:main` dan `npx --yes wrangler@4 deploy` dari root.
+
 ## Status
 
 | Bagian | Isi | Status |
