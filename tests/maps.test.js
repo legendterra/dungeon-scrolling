@@ -10,7 +10,7 @@ const { load } = require('./_load');
    band kinds the backdrop knows, enemy kinds the bestiary has). */
 
 const ACT_FILES = ['src/world/maps/act1.js'].concat(
-  ['act2', 'act3'].map((a) => 'src/world/maps/' + a + '.js').filter((f) => fs.existsSync(path.join(__dirname, '..', f))));
+  ['act2', 'act3', 'special'].map((a) => 'src/world/maps/' + a + '.js').filter((f) => fs.existsSync(path.join(__dirname, '..', f))));
 const DS = load(['src/core/rng.js', 'src/systems/difficulty.js', 'src/world/maps.js'].concat(ACT_FILES));
 const maps = DS.Maps.list();
 
@@ -102,4 +102,45 @@ test('every map names an ambience the audio layer has', () => {
     used.add(m.ambience);
   }
   assert.ok(used.size >= 12, 'the places do not all sound alike (' + used.size + ' kinds)');
+});
+
+test('the act of the gods has a safe room and a trial of its own, found by depth, endless included', () => {
+  const hestia = DS.Maps.special('safe', 25);
+  const arena = DS.Maps.special('trial', 24);
+  assert.equal(hestia.key, 's3_hestia');
+  assert.equal(hestia.label, 'Temple of Hestia');
+  assert.equal(arena.key, 't3_heroes');
+  assert.equal(arena.label, 'Arena of Heroes');
+  // The first two acts keep wearing the map of the depth in front of them.
+  for (const d of [1, 5, 10, 15, 20]) {
+    assert.equal(DS.Maps.special('safe', d), null, 'safe ' + d);
+    assert.equal(DS.Maps.special('trial', d), null, 'trial ' + d);
+  }
+  // An endless depth answers as the depth it echoes.
+  assert.equal(DS.Maps.special('safe', 55).key, 's3_hestia');
+  assert.equal(DS.Maps.special('trial', 84).key, 't3_heroes');
+  assert.equal(DS.Maps.special('trial', 35), null);
+  assert.equal(DS.Maps.special('boss', 25), null, 'only the safe room and the trial');
+});
+
+test('a special room is complete: palette, tiles, light rig, backdrop, an ambience the audio layer has', () => {
+  const kinds = new Set(load(['src/core/audio.js']).Audio.ambienceKinds());
+  for (const m of DS.Maps.specials()) {
+    assert.ok(m.palette && m.palette.pal && m.palette.sky && m.palette.light, m.key + ' palette');
+    assert.ok(m.tiles && m.tiles.wall && m.tiles.top && m.tiles.plat, m.key + ' tiles');
+    for (const f of ['fog', 'ambient', 'hemiSky', 'hemiGround', 'dir', 'dirI']) assert.ok(m.theme[f] != null, m.key + ' theme.' + f);
+    assert.ok(m.backdrop && m.backdrop.hero && m.backdrop.recipe.layers.length >= 5, m.key + ' backdrop');
+    assert.ok(kinds.has(m.ambience), m.key + ' ambience ' + m.ambience);
+    for (const t of [m.tiles.wall, m.tiles.top, m.tiles.plat]) assert.ok(tileIds.has(t.tex), m.key + ' tile texture ' + t.tex);
+    for (const l of m.backdrop.recipe.layers) assert.ok(KINDS.has(l.kind), m.key + ' uses a band kind the backdrop does not know: ' + l.kind);
+    assert.equal(DS.Maps.byKey(m.key), m);
+  }
+  assert.equal(DS.Maps.specials().length, 2);
+});
+
+test('a special room may not take a key or a slot twice', () => {
+  assert.throws(() => DS.Maps.defineSpecial({ key: 's3_hestia', kind: 'safe', act: 2, label: 'Again' }), /already defined/);
+  assert.throws(() => DS.Maps.defineSpecial({ key: 'x_other', kind: 'safe', act: 3, label: 'Again' }), /already/);
+  assert.throws(() => DS.Maps.defineSpecial({ key: 'x_bad', kind: 'boss', act: 3, label: 'No' }), /kind must be/);
+  assert.throws(() => DS.Maps.defineSpecial({ key: 'x_bad2', kind: 'safe', act: 4, label: 'No' }), /act must be/);
 });

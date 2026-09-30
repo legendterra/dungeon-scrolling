@@ -146,3 +146,12 @@ test('terrain knobs stay inside what the move model was tuned for', () => {
     assert.ok(f.pitChance <= ten.pitChance);
   }
 });
+
+test('endless corrupts the colours a little further each lap of the thirty maps', () => {
+  for (let d = 1; d <= 30; d++) assert.equal(D.corruption(d), 0, 'depth ' + d);
+  assert.equal(D.corruption(31), 0.3);
+  assert.equal(D.corruption(60), 0.3);
+  assert.equal(D.corruption(61), 0.6);
+  assert.ok(Math.abs(D.corruption(91) - 0.85) < 1e-9, 'capped: still a place you can read');
+  assert.ok(D.corruption(500) <= 0.85);
+});

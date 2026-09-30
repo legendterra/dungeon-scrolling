@@ -168,6 +168,10 @@ window.DS = window.DS || {};
   function loadLevel(g, kind) {
     g.levelKind = kind;
     g.biome = DS.Biomes.forDepth(g.depth);
+    /* The safe room and the trial have a place of their own in the act of the gods (maps/special.js):
+       the Temple of Hestia, the Arena of Heroes. Elsewhere they wear the depth's own map. */
+    g.place = DS.Maps && DS.Maps.special ? DS.Maps.special(kind, g.depth) : null;
+    if (g.place && DS.Biomes.get(g.place.key)) g.biome = DS.Biomes.get(g.place.key);
     g.horror = DS.Modifiers.horrorFor(g.depth);
     g.modifier = null;
     g.shrine = null;
@@ -302,15 +306,21 @@ window.DS = window.DS || {};
                    { kind: 'boss', eyebrow: DS.Acts.label(g.depth) + '  ·  BOSS', subtitle: g.biome.name });
     }
     if (kind === 'safe') {
-      g.showBanner('SAFE ROOM', 'TRADE - ENCHANT - BREATHE', '#a8e4ff',
+      g.showBanner(g.place ? g.place.label.toUpperCase() : 'SAFE ROOM', 'TRADE - ENCHANT - BREATHE', '#a8e4ff',
                    { kind: 'floor', eyebrow: DS.Acts.label(g.depth),
+                     title: g.place ? g.place.label : undefined,
                      subtitle: 'Trade  ·  Enchant  ·  Breathe' });
     }
 
     /* A place has a voice of its own; a safe room and the trial are hushed or
        write their own. */
     const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(g.depth) : null;
-    DS.Audio.setAmbience(kind === 'safe' || kind === 'trial' ? null : (rung && rung.ambience) || null);
+    DS.Audio.setAmbience(kind === 'safe' || kind === 'trial' ? (g.place && g.place.ambience) || null
+                                                            : (rung && rung.ambience) || null);
+
+    // The endless laps go further wrong each time round (difficulty.js corruption).
+    g.corruption = DS.Difficulty && DS.Difficulty.corruption ? DS.Difficulty.corruption(g.depth) : 0;
+    if (DS.PostFX && DS.PostFX.setCorruption) DS.PostFX.setCorruption(g.corruption);
 
     DS.R.setCam(Ent.centerX(g.player), Ent.centerY(g.player));
     if (DS.R3D && DS.R3D.loadLevel) DS.R3D.loadLevel(g.map, g.biome, g);

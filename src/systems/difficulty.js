@@ -140,6 +140,16 @@ window.DS = window.DS || {};
     return rung;
   }
 
+  /* How far gone the world is. Endless walks the thirty maps over and over, and each lap the
+     colours go a little further wrong (core/postfx.js setCorruption): nothing in the scripted
+     run, then 0.3, 0.6, and 0.85 for ever after - still a place you can read. */
+  function corruption(depth) {
+    const d = depthOf(depth);
+    if (d <= LADDER_END) return 0;
+    const lap = Math.floor((d - LADDER_END - 1) / LADDER_END) + 1;
+    return Math.min(0.85, 0.3 * lap);
+  }
+
   /* Depths 1 and 2 are the tutorial: every generator asks this before it rolls
      anything cruel. Only the first time - the endless shore is not a lesson. */
   function isTutorial(depth) {
@@ -292,6 +302,7 @@ window.DS = window.DS || {};
   DS.Difficulty = {
     forDepth: forDepth,
     biomeForDepth: biomeForDepth,
+    corruption: corruption,
     bossForDepth: bossForDepth,
     bossHpMult: bossHpMult,
     isTutorial: isTutorial,

@@ -478,8 +478,8 @@ window.DS = window.DS || {};
     let act = A ? (endless ? 'ENDLESS' : 'ACT ' + A.roman(A.actOf(g.depth))) : 'DEPTH';
     let depth = A ? (endless ? String(g.depth) : A.depthInAct(g.depth) + ' / ' + DS.C.ACT_LENGTH) : String(g.depth);
     let title = (g.biome && g.biome.name) || '';
-    if (g.levelKind === 'safe') title = 'Safe Room';
-    else if (g.levelKind === 'trial') title = 'The Trial';
+    if (g.levelKind === 'safe') title = g.place ? g.place.label : 'Safe Room';
+    else if (g.levelKind === 'trial') title = g.place ? g.place.label : 'The Trial';
     else if (g.levelKind === 'boss') { depth = depth + '  ·  BOSS'; }
     text(N.locAct, act);
     text(N.locDepth, depth);

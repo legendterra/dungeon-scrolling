@@ -63,7 +63,10 @@ window.DS = window.DS || {};
 
     if (pending) {
       current = pending; pending = null; accumulator = 0; DS.currentScene = current;
-      if (!current.g) DS.Audio.setAmbience(null);   // a place's ambience belongs to a run
+      if (!current.g) {                              // a place's ambience and a lap's corruption belong to a run
+        DS.Audio.setAmbience(null);
+        if (DS.PostFX && DS.PostFX.setCorruption) DS.PostFX.setCorruption(0);
+      }
     }
     if (!current) return;
 

@@ -265,15 +265,26 @@ window.DS = window.DS || {};
     applyGrade();
   }
 
+  /* The corruption of the endless laps (difficulty.js corruption): the shadows go violet and
+     the greens drain out, the picture darkens at the edges and hardens. 0 is the game as
+     authored. It rides on top of whatever the theme chose, so it survives a floor change. */
+  let corrupt = 0;
+
+  function setCorruption(amount) {
+    corrupt = Math.max(0, Math.min(1, +amount || 0));
+    applyGrade();
+  }
+
   function applyGrade() {
     if (!gradePass) return;
     const u = gradePass.uniforms;
-    u.lift.value.fromArray(grade.lift);
+    const c = corrupt;
+    u.lift.value.set(grade.lift[0] + 0.045 * c, grade.lift[1] - 0.02 * c, grade.lift[2] + 0.06 * c);
     u.gamma.value.set(grade.gamma[0] * user.brightness, grade.gamma[1] * user.brightness, grade.gamma[2] * user.brightness);
-    u.gain.value.fromArray(grade.gain);
-    u.saturation.value = grade.sat;
-    u.contrast.value = grade.contrast;
-    u.vignette.value = Math.min(1, grade.vignette * user.vignette);
+    u.gain.value.set(grade.gain[0] * (1 + 0.06 * c), grade.gain[1] * (1 - 0.14 * c), grade.gain[2] * (1 + 0.08 * c));
+    u.saturation.value = grade.sat * (1 - 0.12 * c);
+    u.contrast.value = grade.contrast + 0.1 * c;
+    u.vignette.value = Math.min(1, (grade.vignette + 0.18 * c) * user.vignette);
   }
 
   function tune(o) {
@@ -567,6 +578,8 @@ window.DS = window.DS || {};
     init: init,
     render: render,
     setTheme: setTheme,
+    setCorruption: setCorruption,
+    get corruption() { return corrupt; },
     setRays: setRays,
     setQuality: setQuality,
     tune: tune,

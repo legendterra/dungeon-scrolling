@@ -128,3 +128,20 @@ test('Medusa\'s pillars are two tiles tall, two wide and stand on the floor: hig
     }
   }
 });
+
+test('the trial holds the Arbiter in the first two acts and a bull in the Arena of Heroes', () => {
+  DS.Maps.get; // the maps are loaded by levelcheck; the act of a depth is read off them
+  assert.equal(DS.Arena.trialBoss(3), 'arbiter');
+  assert.equal(DS.Arena.trialBoss(19), 'arbiter');
+  assert.equal(DS.Arena.trialBoss(24), 'minotaur');
+  assert.equal(DS.Arena.trialBoss(55), 'minotaur', 'endless echoes depth 25');
+  assert.equal(DS.Arena.trialBoss(38), 'arbiter', 'endless echoes depth 8');
+  for (const [depth, boss] of [[8, 'arbiter'], [24, 'minotaur']]) {
+    for (let s = 0; s < 4; s++) {
+      const level = lc.buildLevel(seedFor(s, depth), depth, 'trial');
+      assert.equal(level.spawns.boss.key, boss, 'depth ' + depth);
+      assert.equal(level.bossKey, boss);
+      assert.ok(lc.check(level).ok, 'the trial at ' + depth + ' can be finished');
+    }
+  }
+});

@@ -152,9 +152,9 @@ window.DS = window.DS || {};
     /* Where you are in the run, not just how deep: 'ACT II - 3/10', or
        'ENDLESS - 34' once the three acts are behind you. */
     const where = DS.Acts ? DS.Acts.label(g.depth) : 'DEPTH ' + g.depth;
-    const label = g.levelKind === 'safe' ? 'SAFE ROOM'
+    const label = g.levelKind === 'safe' ? (g.place ? g.place.label.toUpperCase() : 'SAFE ROOM')
                 : g.levelKind === 'boss' ? 'BOSS - ' + where
-                : g.levelKind === 'trial' ? 'THE TRIAL'
+                : g.levelKind === 'trial' ? (g.place ? g.place.label.toUpperCase() : 'THE TRIAL')
                 : where;
     /* Centred on the FRAME, not on the banner box: the box is the strip of top
        edge the currency plate leaves free, and its midpoint sits 21 units left

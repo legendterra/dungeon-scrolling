@@ -120,7 +120,15 @@ window.DS = window.DS || {};
     return gate;
   }
 
+  /* Who the trial holds. The Arbiter judges in the first two acts; in the Arena of Heroes it is a
+     bull. An endless depth answers as the depth it echoes. */
+  function trialBoss(depth) {
+    const act = DS.Maps && DS.Maps.actOfDepth ? DS.Maps.actOfDepth(depth) : 1;
+    return act === 3 ? 'minotaur' : 'arbiter';
+  }
+
   DS.Arena = {
+    trialBoss: trialBoss,
     decorate: decorate,
     vaultRows: vaultRows,
     furnishVault: furnishVault,

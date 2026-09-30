@@ -28,7 +28,14 @@
 
    `label` is what the banner and HUD show; the biome's name is derived from it,
    so two depths that share stone never share a name again. Depths with no
-   definition fall back to the old ladder in difficulty.js. */
+   definition fall back to the old ladder in difficulty.js.
+
+   A SPECIAL room is a place too, but not a depth: the safe room and the trial are
+   stops in front of a depth, and they used to wear the depth's own map. The gods'
+   act has rooms of its own - the Temple of Hestia for a rest, the Arena of Heroes
+   for a trial (src/world/maps/special.js). DS.Maps.defineSpecial takes the same
+   pieces as define, keyed by { kind: 'safe' | 'trial', act }, and DS.Maps.special
+   answers for a depth (an endless depth answers as the depth it echoes). */
 window.DS = window.DS || {};
 
 (function (DS) {
@@ -64,27 +71,70 @@ window.DS = window.DS || {};
     };
   }
 
-  function define(def) {
-    validate(def);
-    def.rung = rungOf(def);
-    byDepth[def.depth] = def;
-    byKey[def.key] = def;
-    order.push(def);
-
+  /* Hand each piece of a definition to the module that owns it. */
+  function handOver(def, special) {
     if (def.palette && DS.Biomes && DS.Biomes.register) {
-      DS.Biomes.register(Object.assign({ key: def.key, name: def.label.toUpperCase(), tiles: def.tiles || null }, def.palette));
+      DS.Biomes.register(Object.assign({ key: def.key, name: def.label.toUpperCase(), tiles: def.tiles || null,
+                                         special: !!special }, def.palette));
     }
     if (def.theme && DS.R3D && DS.R3D.registerTheme) DS.R3D.registerTheme(def.key, def.theme);
     if (def.grade && DS.PostFX && DS.PostFX.registerGrade) DS.PostFX.registerGrade(def.key, def.grade);
     if (def.backdrop && DS.Backdrop && DS.Backdrop.registerTheme) DS.Backdrop.registerTheme(def.key, def.backdrop);
     if (def.affinity && DS.Enemies && DS.Enemies.registerAffinity) DS.Enemies.registerAffinity(def.key, def.affinity);
     if (def.roster && DS.Enemies && DS.Enemies.registerRoster) DS.Enemies.registerRoster(def.key, def.roster);
+  }
+
+  function define(def) {
+    validate(def);
+    def.rung = rungOf(def);
+    byDepth[def.depth] = def;
+    byKey[def.key] = def;
+    order.push(def);
+    handOver(def, false);
     return def;
+  }
+
+  // --- special rooms ------------------------------------------------------------
+
+  const SPECIAL_KINDS = ['safe', 'trial'];
+  const specials = {};                    // 'safe.3' -> definition
+
+  function defineSpecial(def) {
+    if (!def || typeof def !== 'object') fail(def, 'not an object');
+    if (!def.key || typeof def.key !== 'string') fail(def, 'no key');
+    if (SPECIAL_KINDS.indexOf(def.kind) < 0) fail(def, 'kind must be one of ' + SPECIAL_KINDS.join('/'));
+    if (!Number.isInteger(def.act) || def.act < 1 || def.act > 3) fail(def, 'act must be 1, 2 or 3');
+    if (!def.label) fail(def, 'no label');
+    if (byKey[def.key]) fail(def, 'key already defined');
+    const slot = def.kind + '.' + def.act;
+    if (specials[slot]) fail(def, slot + ' is already ' + specials[slot].key);
+    def.flavor = def.flavor || 'plain';
+    def.rung = rungOf(Object.assign({ depth: null }, def));
+    specials[slot] = def;
+    byKey[def.key] = def;
+    handOver(def, true);
+    return def;
+  }
+
+  /* The act a depth belongs to for choosing a room: endless depths answer as the depth they echo. */
+  function actOfDepth(depth) {
+    const d = Math.max(1, Math.floor(depth || 1));
+    const echo = d > 30 ? ((d - 31) % 30) + 1 : d;
+    return echo <= 10 ? 1 : echo <= 20 ? 2 : 3;
+  }
+
+  /* The room of this kind that the depth's act has of its own, or null (the depth's own map serves). */
+  function special(kind, depth) {
+    return specials[kind + '.' + actOfDepth(depth)] || null;
   }
 
   DS.Maps = {
     FLAVORS: FLAVORS,
     define: define,
+    defineSpecial: defineSpecial,
+    special: special,
+    actOfDepth: actOfDepth,
+    specials: function () { return Object.keys(specials).map(function (k) { return specials[k]; }); },
     get: function (depth) { return byDepth[depth] || null; },
     byKey: function (key) { return byKey[key] || null; },
     /* The rung for a depth on the first pass through the ladder, or null. */

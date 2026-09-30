@@ -152,12 +152,12 @@ window.DS = window.DS || {};
 
   // --- the arena ------------------------------------------------------------
 
-  function buildArena(map, rng, out) {
+  function buildArena(map, rng, out, bossKey) {
     const from = HALL_END + GATE_W + 1;
     for (let tx = from; tx < map.w; tx++) fillColumn(map, tx, FLOOR);
 
     const bossX = from + 14;
-    out.boss = { key: 'arbiter', x: bossX * T, y: (FLOOR - 1) * T };
+    out.boss = { key: bossKey, x: bossX * T, y: (FLOOR - 1) * T };
     out.arena = { x0: from * T, x1: (map.w - 3) * T };
 
     // The prize, welded shut until the Arbiter is down.
@@ -185,7 +185,8 @@ window.DS = window.DS || {};
 
     buildGauntlet(map, rng, out);
     buildHall(map, rng, depth, out);
-    const arenaFrom = buildArena(map, rng, out);
+    const bossKey = DS.Arena ? DS.Arena.trialBoss(depth) : 'arbiter';
+    const arenaFrom = buildArena(map, rng, out, bossKey);
 
     out.player = { x: 3 * T, y: (FLOOR - 1) * T };
 
@@ -223,7 +224,7 @@ window.DS = window.DS || {};
     return {
       map: map, spawns: out, roomCount: Math.floor(MAP_W / 20),
       kind: 'trial', carved: true, flavor: 'trial',
-      bossKey: 'arbiter', trial: out.trial, noProps: true
+      bossKey: bossKey, trial: out.trial, noProps: true
     };
   }
 

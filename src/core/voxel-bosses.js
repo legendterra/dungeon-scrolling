@@ -160,7 +160,7 @@ window.DS = window.DS || {};
 
   function buildTalos() {
     const u = 2.2;
-    const bronze = 0xc98a3a, dark = 0x8a5a1e, ichor = 0xffb060;
+    const bronze = 0xe0aa52, dark = 0xb07830, ichor = 0xffd27a;
     const s = V.chibi({
       unit: u, skin: bronze, body: bronze, belt: dark, arms: bronze, legs: dark,
       hair: null, eyes: false
@@ -270,7 +270,7 @@ window.DS = window.DS || {};
   function buildZeus() {
     const u = 1.9;
     const s = V.chibi({
-      unit: u, skin: 0xe0b48c, body: 0xf4efe0, belt: C.gold, arms: 0xe0b48c, legs: 0xe8e0c8,
+      unit: u, skin: 0xe0b48c, body: 0xdfe6fa, belt: C.gold, arms: 0xe0b48c, legs: 0xe8e0c8,
       hair: 0xf4f2f8, eyes: false
     });
     const hr = 0.42 * u;
@@ -279,9 +279,13 @@ window.DS = window.DS || {};
       part(s.head, 0.11 * u, 0.08 * u, 0.05, k * 0.16 * u, hr * 1.0, hr * 1.04, arc, lit(arc, 1.6));
       part(s.head, 0.16 * u, 0.06 * u, 0.06, k * 0.16 * u, hr * 1.16, hr * 1.06, 0xf4f2f8);   // brows
     }
-    part(s.head, 0.66 * u, 0.44 * u, 0.3 * u, 0, hr * 0.22, hr * 0.98, 0xf4f2f8);            // the beard
-    part(s.head, 0.4 * u, 0.3 * u, 0.2 * u, 0, -0.08 * u, hr * 1.0, 0xf4f2f8);
-    part(s.head, 0.96 * u, 0.1 * u, 0.9 * u, 0, hr * 2.02, 0, C.gold);                       // the wreath
+    part(s.head, 0.6 * u, 0.26 * u, 0.22 * u, 0, hr * 0.36, hr * 0.98, 0xf4f2f8);            // the beard
+    part(s.head, 0.34 * u, 0.22 * u, 0.16 * u, 0, hr * 0.06, hr * 0.98, 0xf4f2f8);
+    part(s.head, 0.34 * u, 0.06 * u, 0.06 * u, 0, hr * 0.62, hr * 1.1, 0xf4f2f8);            // and a moustache
+    for (let i = 0; i < 8; i++) {                                                            // the wreath: leaves around the brow
+      const a = (i / 8) * Math.PI * 2;
+      part(s.head, 0.14 * u, 0.1 * u, 0.14 * u, Math.sin(a) * hr * 0.98, hr * 1.98, Math.cos(a) * hr * 0.9, C.gold);
+    }
     part(s.torso, 0.7 * u, 0.5 * u, 0.5 * u, 0, -0.08 * u, 0, 0xf4efe0);                     // a chiton to the knee
     part(s.torso, 0.7 * u, 0.6 * u, 0.08 * u, 0, 0.2 * u, -0.26 * u, 0xb8c4f0);              // the storm-coloured mantle
     part(s.torso, 0.14 * u, 0.62 * u, 0.06, -0.2 * u, 0.26 * u, 0.22 * u, C.gold);

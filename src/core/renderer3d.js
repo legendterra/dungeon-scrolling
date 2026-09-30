@@ -1194,6 +1194,8 @@ window.DS = window.DS || {};
     /* The QA can pin a theme (tools/qa/shoot-kinds.js): a band kind is judged
        on a floor built for looking at it, not on whichever depth it lands on. */
     if (DS.__forceTheme && THEMES[DS.__forceTheme]) return DS.__forceTheme;
+    /* A room with a place of its own (the Temple of Hestia, the Arena of Heroes) brings its light rig. */
+    if (biome && biome.special && THEMES[biome.key]) return biome.key;
     /* The trial chamber has to look like a place that wants you dead, not like
        whichever depth it was reached from. */
     if (flavor === 'trial') return 'trial';
