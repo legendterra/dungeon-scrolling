@@ -15,7 +15,7 @@ window.DS = window.DS || {};
   const K = function () { return DS.HKit; };
   function h(tag, cls, props, kids) { return DS.HUI.el(tag, cls, props, kids); }
 
-  const VERSION = DS.VERSION || 'v7.1.0';
+  const VERSION = DS.VERSION || 'v7.2.0';
 
   // --- shared: the controls sheet -------------------------------------------
 

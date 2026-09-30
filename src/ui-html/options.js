@@ -54,7 +54,7 @@ window.DS = window.DS || {};
       about.push({ kind: 'button', label: 'Read the notice now', text: 'OPEN', run: function (o) { o.close(); DS.Scenes.notice(); } });
     }
     about.push(
-      { kind: 'info', label: 'Version', text: 'Dungeon Scrolling ' + (DS.VERSION || 'v7.1.0') },
+      { kind: 'info', label: 'Version', text: 'Dungeon Scrolling ' + (DS.VERSION || 'v7.2.0') },
       { kind: 'info', label: 'Textures', text: 'CC0 photo scans by Poly Haven (polyhaven.com)' },
       { kind: 'info', label: 'Engine', text: 'three.js (MIT) · fonts Rajdhani and Nunito Sans (OFL, Google Fonts)' },
       { kind: 'info', label: 'Everything else', text: 'Art, sound and music are generated in code' },
