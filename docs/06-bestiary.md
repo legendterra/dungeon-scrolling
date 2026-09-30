@@ -139,6 +139,11 @@ Rantai kemenangan (sudah diuji `[RUNTIME]`):
 
 ![The Throne, depth 10: Slime King dan gerbang turun](docs/img/floor-throne.png)
 
+### Boss para dewa (v7.2.0)
+
+Minotaur (lantai 21), Medusa (23), Talos (27) di ruang harta sebuah lantai biasa; Hades (25) dan Zeus (30) di ruang boss.
+Definisi dan gerakannya di `entities/bosses3.js`, penjelasan di bab 11 (11.2b). Lich dan Magma Colossus pindah ke rotasi Endless.
+
 ### Boss tengah-run
 
 | Boss | File | Muncul |

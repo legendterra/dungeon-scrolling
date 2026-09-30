@@ -26,8 +26,10 @@ Izin dari user: kalau tes, audit, dan review lolos, **merge ke `main` dan deploy
 | Rencana v7b 7 | efek portal shader (`fx3d/portal.js`, dipakai di pintu keluar), `tools/qa/shoot-portal.js` | selesai |
 | Rencana v7b 6 | cutscene 3D masuk portal (`scenes/intro3d.js`, bisa di-skip), `tools/qa/shoot-intro.js`; memakai hero default sampai pembuat karakter jadi | selesai |
 | Monster Act II | 5 A + 3 B (`enemies5.js`, `voxel-bestiary2.js`), roster map 11-19 | selesai (v7.1.0) |
-| Monster Act III | 8 A + 6 B, roster map 21-29 | belum |
-| Boss baru | Hades, Zeus, Minotaur, Medusa, Talos; arena per boss; rotasi endless | belum |
+| Monster Act III | 8 A + 6 B, roster map 21-29 (`enemies6.js`, `voxel-bestiary3.js`) | selesai (v7.2.0, di branch kerja, belum dirilis) |
+| Boss baru | Hades d25, Zeus d30, Minotaur d21, Medusa d23, Talos d27 (`bosses3.js`, `voxel-bosses.js`), ruang harta (`world/arena.js`), arena per boss, rotasi endless | selesai (v7.2.0) |
+| Ruang khusus | Temple of Hestia, Arena of Heroes (`DS.Maps.defineSpecial`), tint korupsi Endless | selesai (v7.2.0) |
+| Ambience | 19 jenis (`Audio.setAmbience`), satu per map | selesai (v7.2.0) |
 | Fase 7 MC | voxel MC baru (menyatu dengan pembuat karakter) | belum |
 | Fase 8 | suara ambience, `docs/11-v7.md`, review per fase | sebagian (CHANGELOG v7.0.0 sudah) |
 
@@ -37,15 +39,15 @@ Izin dari user: kalau tes, audit, dan review lolos, **merge ke `main` dan deploy
 `shoot-monsters.js`, `shoot-maps.js`, `check-notice.js`, `check-options.js`, `check-leaderboard.js`, `check-character.js [--tour]`,
 `shoot-look.js [--only outfits|heads|traits|weapons]`, `check-review.js`, `check-bag.js`, `measure-hero.js`, `probe-load.js`.
 Dev server: `python devserver.py 8124`. Tambahkan `?notice=0` ke URL untuk melewati notice di alat QA.
-`check-board.js` lama gagal (memeriksa gambar canvas; UI sekarang HTML) - belum diperbarui.
+`check-board.js` lama (memeriksa gambar canvas) sudah dihapus; `npm run qa:board` sekarang menjalankan `check-leaderboard.js`.
 
 ## Berikutnya
 
-1. Monster Act III (`enemies6.js`, `voxel-bestiary3.js`, roster map 21-29), lalu boss baru (Hades d25, Zeus d30, Minotaur d21,
-   Medusa d23, Talos d27; set Limited-nya sudah ada di `look.js` BOSS_SETS dan otomatis terhitung lewat `g.runBosses`).
-2. Ruang khusus (safe room, trial, tint endless), arena boss lebih besar.
-3. Suara ambience, `docs/11-v7.md`, `/code-review` per fase.
-4. Opsional: set beli (`Look.setPrice` sudah ada, belum ada set yang dijual), toggle "tampilkan armor" di atas look, MC voxel baru (sekarang chibi dasar + look).
+1. **Rilis v7.2.0**: cabang kerja berisi Act III lengkap; naikkan `?v=` di `index.html` dan `DS.VERSION` (`core/prefs.js`) ke 7.2.0, jalankan
+   `npm test` dan `tools/qa/*` (lihat bab 11.6), `git push origin HEAD:main`, `npx --yes wrangler@4 deploy`. Izin deploy malam 2026-09-29 sudah dipakai
+   untuk v7.1.0: tanyakan lagi sebelum men-deploy.
+2. Poles: model voxel boss masih sederhana (Zeus, Talos), balancing angka HP/damage Act III belum dimainkan manusia.
+3. Opsional: set beli (`Look.setPrice` sudah ada, belum ada set yang dijual), toggle "tampilkan armor" di atas look, MC voxel baru (sekarang chibi dasar + look).
 
 ## Catatan
 

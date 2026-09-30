@@ -241,6 +241,8 @@ window.DS = window.DS || {};
 
   function hadesAnim(p, e, t) {
     rest(p);
+    p.armL.rotation.z = 0;                       // SHADES throws the arms wide; nothing else should inherit that
+    p.armR.rotation.z = 0;
     const st = e.state, tt = e.stateTimer || 0;
     for (let i = 0; i < p.wisps.length; i++) {
       const a = t * 1.6 + i * Math.PI / 2;

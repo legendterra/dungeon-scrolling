@@ -5,7 +5,7 @@
     "solve": "node tools/solve-levels.js",
     "qa:frame": "node tools/qa/measure-frame.js",
     "qa:climb": "node tools/qa/check-climb.js",
-    "qa:board": "node tools/qa/check-board.js",
+    "qa:board": "node tools/qa/check-leaderboard.js",
     "qa:api": "node tools/qa/check-api.js",
     "qa:menu": "node tools/qa/measure-menu.js",
     "qa:hud": "node tools/qa/audit-hud.js",

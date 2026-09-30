@@ -383,10 +383,12 @@ window.DS = window.DS || {};
     if (M.dist(Ent.centerX(g.player), Ent.centerY(g.player), t.x, t.y) > BOSS_WAKE) return;
 
     g.bossTrigger = null;
-    DS.Bosses.create(g, t.x, t.y, t.key);
+    const boss = DS.Bosses.create(g, t.x, t.y, t.key);
     DS.Audio.setMusic('boss');
     DS.R.shake(6);
-    g.showBanner('THE VAULT WAKES', 'NOTHING OPENS UNTIL IT FALLS', '#e8a05a');
+    // The vault's keeper announces itself by name, like the boss of a boss room.
+    g.showBanner(boss.name, 'NOTHING OPENS UNTIL IT FALLS', boss.barColor || '#e8a05a',
+                 { kind: 'boss', eyebrow: DS.Acts.label(g.depth) + '  ·  BOSS', subtitle: 'Nothing opens until it falls' });
   }
 
   /* The free starter bow. Granted only if the player is not already carrying a
