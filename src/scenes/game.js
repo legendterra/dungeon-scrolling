@@ -307,6 +307,11 @@ window.DS = window.DS || {};
                      subtitle: 'Trade  ·  Enchant  ·  Breathe' });
     }
 
+    /* A place has a voice of its own; a safe room and the trial are hushed or
+       write their own. */
+    const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(g.depth) : null;
+    DS.Audio.setAmbience(kind === 'safe' || kind === 'trial' ? null : (rung && rung.ambience) || null);
+
     DS.R.setCam(Ent.centerX(g.player), Ent.centerY(g.player));
     if (DS.R3D && DS.R3D.loadLevel) DS.R3D.loadLevel(g.map, g.biome, g);
   }

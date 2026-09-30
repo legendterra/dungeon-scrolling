@@ -346,6 +346,34 @@ window.DS = window.DS || {};
                                noise({ dur: 0.9, vol: 0.24, freq: 900, freqTo: 40 });
                                noise({ dur: 0.1, vol: 0.2, freq: 5400, type: 'highpass', delay: 0.05 }); },
 
+    /* The gods' bestiary: a shade coming up behind you, a priest's bell. */
+    whisper:     function () { [0, 0.16, 0.3].forEach(function (d, i) {
+                               noise({ dur: 0.22, vol: 0.075 - i * 0.015, freq: 2600 - i * 500, freqTo: 1500, type: 'bandpass', q: 7, delay: d });
+                             });
+                             tone({ freq: 196, to: 174, dur: 0.5, type: 'sine', vol: 0.035 }); },
+    chime:       function () { tone({ freq: 1318, dur: 0.9, type: 'sine', vol: 0.09, attack: 0.004 });
+                               tone({ freq: 1975, dur: 0.7, type: 'sine', vol: 0.05, delay: 0.02 });
+                               tone({ freq: 2637, dur: 0.5, type: 'sine', vol: 0.025, delay: 0.04 }); },
+
+    /* --- ambience: the small sounds of a place (played at random gaps by setAmbience) --- */
+    drip:        function () { tone({ freq: 1500 + Math.random() * 700, to: 620, dur: 0.07, type: 'sine', vol: 0.06 });
+                               tone({ freq: 930, to: 420, dur: 0.1, type: 'sine', vol: 0.03, delay: 0.06 }); },
+    gust:        function () { noise({ dur: 1.7, vol: 0.055, freq: 260, freqTo: 950, type: 'bandpass', q: 0.9 }); },
+    wave:        function () { noise({ dur: 2.2, vol: 0.06, freq: 420, freqTo: 1900, type: 'bandpass', q: 0.6 });
+                               noise({ dur: 1.4, vol: 0.04, freq: 1900, freqTo: 300, type: 'bandpass', q: 0.6, delay: 2.0 }); },
+    gullCry:     function () { tone({ freq: 1500, to: 2100, dur: 0.14, type: 'sawtooth', vol: 0.03 });
+                               tone({ freq: 2100, to: 1300, dur: 0.24, type: 'sawtooth', vol: 0.03, delay: 0.14 }); },
+    ember:       function () { [0, 0.06, 0.13].forEach(function (d) {
+                               noise({ dur: 0.02 + Math.random() * 0.02, vol: 0.05, freq: 2600 + Math.random() * 2200, type: 'bandpass', q: 2, delay: d });
+                             }); },
+    creak:       function () { tone({ freq: 90, to: 140, dur: 0.6, type: 'sawtooth', vol: 0.04 });
+                               noise({ dur: 0.5, vol: 0.03, freq: 700, freqTo: 1500, type: 'bandpass', q: 6 }); },
+    clang:       function () { tone({ freq: 620, to: 540, dur: 0.24, type: 'triangle', vol: 0.06 });
+                               tone({ freq: 1310, to: 1180, dur: 0.16, type: 'square', vol: 0.02 });
+                               noise({ dur: 0.05, vol: 0.07, freq: 3400, type: 'bandpass', q: 3 }); },
+    rumble:      function () { noise({ dur: 2.0, vol: 0.09, freq: 240, freqTo: 40 });
+                               tone({ freq: 58, to: 30, dur: 1.8, type: 'sine', vol: 0.07 }); },
+
     /* --- ambience --------------------------------------------------------------- */
     torch:       function () { [0, 0.05, 0.11].forEach(function (d) {
                                noise({ dur: 0.02 + Math.random() * 0.03, vol: 0.05 + Math.random() * 0.04,
@@ -379,7 +407,7 @@ window.DS = window.DS || {};
     coin: 30, shard: 30, uiHover: 35, uiTab: 35, torch: 250, telegraph: 120,
     rattle: 120, squish: 90, growl: 200, land: 60, landHard: 60, enemyDie: 60,
     clack: 100, hiss: 200, chain: 200, bubble: 150, howl: 300, bleat: 200, neigh: 250, spore: 200,
-    steam: 250, boulder: 150, zap: 150, buzz: 250
+    steam: 250, boulder: 150, zap: 150, buzz: 250, whisper: 300, chime: 200, clang: 120
   };
   /* Names that are detuned a little on every play so a repeated sound does not
      sound like a sample loop. Tonal cues (UI, jingles) stay exact. */
@@ -389,7 +417,8 @@ window.DS = window.DS || {};
     swingAxe: 0.05, swingSpear: 0.06, swingStaff: 0.05, bowLoose: 0.06, shoot: 0.06,
     enemyDie: 0.08, hurt: 0.04, jump: 0.05, land: 0.08, landHard: 0.05, dash: 0.05,
     squish: 0.12, rattle: 0.1, growl: 0.1, torch: 0.1, screech: 0.08,
-    clack: 0.08, bubble: 0.1, howl: 0.06, bleat: 0.08, neigh: 0.05, zap: 0.06, buzz: 0.08
+    clack: 0.08, bubble: 0.1, howl: 0.06, bleat: 0.08, neigh: 0.05, zap: 0.06, buzz: 0.08,
+    whisper: 0.05, drip: 0.14, gust: 0.1, wave: 0.08, gullCry: 0.1, ember: 0.1, creak: 0.1, clang: 0.08, rumble: 0.06
   };
   const lastPlayed = {};
 
@@ -444,7 +473,9 @@ window.DS = window.DS || {};
   }
 
   const ROARS = { warden: 'roarWarden', king: 'roarKing', arbiter: 'roarArbiter',
-                  wyrm: 'roarWyrm', lich: 'roarLich', magma: 'roarMagma' };
+                  wyrm: 'roarWyrm', lich: 'roarLich', magma: 'roarMagma',
+                  minotaur: 'roarMinotaur', medusa: 'roarMedusa', talos: 'roarTalos',
+                  hades: 'roarHades', zeus: 'roarZeus' };
   function roar(bossKey) { play(ROARS[bossKey] || 'bossRoar'); }
 
   /* Torches crackle when the hero is near one. `dist` is the distance in level
@@ -509,9 +540,59 @@ window.DS = window.DS || {};
 
   function stopMusic() { music.on = false; music.mood = null; }
 
+  // --- ambience -------------------------------------------------------------
+
+  /* What a place sounds like when nothing is happening: [cue, least gap ms,
+     most gap ms, volume]. Every entry runs on its own random gap, so nothing
+     loops audibly. A map names its kind in its definition (src/world/maps/*.js,
+     `ambience`); the run sets it when a floor loads and main.js clears it when
+     the scene is not a run. */
+  const AMBIENT = {
+    sea:       [['wave', 3200, 6400, 0.9], ['gullCry', 5200, 12000, 0.7]],
+    cave:      [['drip', 1500, 4600, 0.9]],
+    wet:       [['drip', 600, 2000, 1], ['rumble', 14000, 26000, 0.3]],
+    prison:    [['chain', 3200, 8000, 0.3], ['drip', 2600, 6400, 0.6]],
+    swamp:     [['bubble', 2200, 6200, 0.35], ['drip', 3400, 8000, 0.5]],
+    wind:      [['gust', 3400, 7600, 0.9]],
+    ash:       [['ember', 600, 2000, 0.8], ['gust', 4600, 10000, 0.6]],
+    ice:       [['creak', 3600, 9000, 0.9], ['gust', 5200, 11000, 0.5]],
+    hall:      [['drip', 3000, 7600, 0.5], ['gust', 6400, 14000, 0.4]],
+    aegean:    [['gust', 5000, 11000, 0.5], ['gullCry', 9000, 20000, 0.3]],
+    olympus:   [['gust', 4200, 9000, 0.6], ['chime', 6000, 13000, 0.35]],
+    garden:    [['whisper', 5200, 12000, 0.4], ['gust', 5600, 12000, 0.35]],
+    tartarus:  [['chain', 1800, 4800, 0.55], ['rumble', 6000, 14000, 0.5], ['creak', 5000, 11000, 0.5]],
+    styx:      [['whisper', 2400, 6000, 0.8], ['drip', 3400, 8000, 0.45]],
+    storm:     [['rumble', 3000, 8000, 1], ['gust', 2600, 6400, 0.7]],
+    forge:     [['clang', 1800, 4400, 0.7], ['steam', 3800, 8600, 0.4], ['ember', 900, 2600, 0.6]],
+    golden:    [['chime', 3000, 8000, 0.5], ['gust', 6400, 14000, 0.3]],
+    zeus:      [['thunder', 3000, 8000, 0.45], ['rumble', 2600, 6400, 0.9], ['gust', 2400, 5600, 0.7]]
+  };
+
+  const amb = { kind: null, next: [] };
+
+  function setAmbience(kind) {
+    const wanted = kind && AMBIENT[kind] ? kind : null;
+    if (amb.kind === wanted) return;
+    const now = Date.now();
+    amb.kind = wanted;
+    amb.next = wanted ? AMBIENT[wanted].map(function (e) { return now + e[1] + Math.random() * (e[2] - e[1]); }) : [];
+  }
+
+  function tickAmbience() {
+    if (!ctx || !amb.kind) return;
+    const now = Date.now();
+    const list = AMBIENT[amb.kind];
+    for (let i = 0; i < list.length; i++) {
+      if (now < amb.next[i]) continue;
+      amb.next[i] = now + list[i][1] + Math.random() * (list[i][2] - list[i][1]);
+      play(list[i][0], { vol: list[i][3] });
+    }
+  }
+
   /* Called once per frame. Schedules slightly ahead of the audio clock so the
      sequencer never depends on frame timing staying perfectly even. */
   function update() {
+    tickAmbience();
     if (!ctx || !music.on) return;
     const stepDur = 60 / music.cfg.bpm / 2; // eighth notes
     const horizon = ctx.currentTime + 0.25;
@@ -566,6 +647,10 @@ window.DS = window.DS || {};
     sfxNames: function () { return Object.keys(SFX); },
     setMusic: setMusic,
     stopMusic: stopMusic,
+    setAmbience: setAmbience,
+    ambienceKinds: function () { return Object.keys(AMBIENT); },
+    ambienceCues: function (kind) { return (AMBIENT[kind] || []).map(function (e) { return e[0]; }); },
+    ambience: function () { return amb.kind; },
     update: update,
     toggleMute: toggleMute,
     setVolumes: setVolumes,

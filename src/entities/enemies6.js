@@ -101,7 +101,7 @@ window.DS = window.DS || {};
   }
 
   def('centaur', {
-    w: 16, h: 18, hp: 22, touch: 0, speed: 0.75, sight: 210, armor: 0,
+    w: 16, h: 18, hp: 22, touch: 0, speed: 0.75, sight: 280, armor: 0,
     gore: ['#8a5a34', '#f2c14e'], sprite: 'skeleton',
     wind: 30, strike: 4, recover: 46, range: 190, damage: 2,
     behavior: centaur, minDepth: 22, tell: 'neigh'
@@ -145,7 +145,7 @@ window.DS = window.DS || {};
   }
 
   def('gorgonite', {
-    w: 12, h: 17, hp: 24, touch: 0, speed: 0.42, sight: 170, armor: 1,
+    w: 12, h: 17, hp: 24, touch: 0, speed: 0.42, sight: 230, armor: 1,
     gore: ['#b8b4a8', '#5cbf62', '#f4f0d8'], sprite: 'zombie',
     wind: 48, strike: 8, recover: 60, range: GAZE_REACH, damage: 1,
     behavior: gorgonite, minDepth: 23, tell: 'gaze'
@@ -257,7 +257,7 @@ window.DS = window.DS || {};
     }
     e.heat = M.clamp(e.heat + (sees ? 0.32 : -0.4) + (phase === 'wind' ? 0.3 : 0), 0, 100);
     e.armor = e.heat < 70 ? e.cfg.armor : 0;
-    if (e.heat >= 100) { e.venting = 70; DS.Audio.play('steam'); return; }
+    if (e.heat >= 100) { e.venting = 70; e.vx = 0; DS.Audio.play('steam'); return; }
     if (phase === 'wind') { e.vx *= 0.3; tellFx(e, '#ffb060', 4); return; }
     if (phase === 'strike') {
       e.vx *= 0.3;
@@ -325,7 +325,7 @@ window.DS = window.DS || {};
   }
 
   def('cyclops', {
-    w: 20, h: 28, hp: 60, touch: 0, speed: 0.36, sight: 200, armor: 2, heavy: true,
+    w: 20, h: 28, hp: 60, touch: 0, speed: 0.36, sight: 300, armor: 2, heavy: true,
     gore: ['#a88a5a', '#7a5230', '#f4f0d8'], sprite: 'shielder',
     wind: 50, strike: 10, recover: 60, range: 36, damage: 3,
     behavior: cyclops, minDepth: 28, tell: 'growl'
@@ -374,7 +374,7 @@ window.DS = window.DS || {};
   }
 
   def('sunpriest', {
-    w: 11, h: 17, hp: 24, touch: 0, speed: 0.55, sight: 200, armor: 0,
+    w: 11, h: 17, hp: 24, touch: 0, speed: 0.55, sight: 280, armor: 0,
     gore: ['#f2c14e', '#fff0a8', '#f4f0d8'], sprite: 'skeleton',
     wind: 52, strike: 8, recover: 70, range: 170, damage: 3,
     behavior: sunpriest, minDepth: 29, tell: 'chime'
@@ -382,17 +382,25 @@ window.DS = window.DS || {};
 
   // --- variations ----------------------------------------------------------------------------------------
 
-  /* Satyr: a leaper. It hops in from a distance and jabs on the landing. */
+  /* Satyr: a leaper. It crouches, and the length of the leap is fixed by where you
+     stood as it crouched; it jabs on the way through. Close in or far, it pounces:
+     a satyr on top of you is not a safe satyr. */
   function satyr(g, e, dx, dy, dist, sees, slow, phase) {
-    if (phase === 'wind') { e.vx *= 0.3; tellFx(e, '#c8ff8a', 5); return; }
+    if (phase === 'wind') {
+      e.vx *= 0.3;
+      face(e, dx);
+      e.leapVx = M.clamp(Math.abs(dx) / 24, 0.9, 2.6);
+      tellFx(e, '#c8ff8a', 5);
+      return;
+    }
     if (phase === 'strike') {
-      if (!e.leapt) { e.leapt = true; hop(e, e.facing, 2.4 * slow, 4.6); DS.Audio.play('bleat'); }
+      if (!e.leapt) { e.leapt = true; hop(e, e.facing, (e.leapVx || 2.4) * slow, 4.6); DS.Audio.play('bleat'); }
       if (!e.struck && hitBox(g, e, e.x - 3, e.y - 3, e.w + 6, e.h + 6)) e.struck = true;
       return;
     }
     e.leapt = false;
     if (phase === 'recover') { if (e.onGround) e.vx *= 0.7; return; }
-    if (sees && dist < e.cfg.range && dist > 30 && e.attackCooldown <= 0 && e.onGround) {
+    if (sees && dist < e.cfg.range && e.attackCooldown <= 0 && e.onGround) {
       face(e, dx);
       E.beginAttack(e);
       return;
@@ -494,24 +502,27 @@ window.DS = window.DS || {};
   });
 
   /* A storm spirit: a cloud that comes over you and rains sparks straight down, one at
-     a time, from where it hangs. Get out from under it. */
+     a time, from where it hangs. It drifts after you only slowly while it rains, so
+     the way out from under it is to walk. */
   function stormspirit(g, e, dx, dy, dist, sees, slow, phase) {
     e.animTimer += 0.1;
     e.touchDamage = 0;
-    if (phase === 'wind') { e.vx *= 0.8; e.vy *= 0.8; tellFx(e, '#ffe45c', 3); e.x += e.vx; e.y += e.vy; return; }
-    if (phase === 'strike') {
-      if (e.frame % 8 === 0) {
+    if (phase !== 'none') {
+      const follow = M.clamp(dx * 0.03, -0.5, 0.5) * slow;
+      e.vx = M.approach(e.vx, follow, 0.05);
+      e.vy *= 0.8;
+      if (phase === 'wind') tellFx(e, '#ffe45c', 3);
+      if (phase === 'strike' && e.frame % 8 === 0) {
         DS.Audio.play('zap');
         Ent.spawnProjectile(g, {
-          x: cx(e) - 3 + M.clamp(dx * 0.05, -8, 8), y: e.y + e.h, vx: 0, vy: 1.2, gravity: 0.05, damage: e.attackDamage,
+          x: cx(e) - 3, y: e.y + e.h, vx: 0, vy: 1.2, gravity: 0.05, damage: e.attackDamage,
           friendly: false, kind: 'orb', element: 'lightning', life: 60, w: 6, h: 8, trailColor: '#ffe45c'
         });
       }
       e.x += e.vx; e.y += e.vy;
       return;
     }
-    if (phase === 'recover') { e.vx *= 0.9; e.vy *= 0.9; e.x += e.vx; e.y += e.vy; return; }
-    if (sees && Math.abs(dx) < 44 && dy > 20 && e.attackCooldown <= 0) {
+    if (sees && Math.abs(dx) < 12 && dy > 20 && e.attackCooldown <= 0) {
       face(e, dx);
       E.beginAttack(e);
       return;

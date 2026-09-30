@@ -28,6 +28,8 @@
     theme: { fog: 0x2a2216, ambient: 0x8a7a5a, hemiSky: 0xb8a880, hemiGround: 0x3a3020, dir: 0xffe4b0, dirI: 0.66 },
     grade: { sat: 1.12 },
     affinity: { shielder: 1.6, skeleton: 1.4, cultist: 1.2 },
+    ambience: 'aegean',
+    roster: { hoplite: 34, shielder: 22, skeleton: 24, cultist: 12, bat: 8 },
     backdrop: {
       curve: { gain: 0.66, warm: 0.4 },
       hero: { kind: 'sun', col: 0xffe8b0, core: 0xfffff0, edge: 0xe0a040, az: 0.5, elev: 11.0, r: 6.2,
@@ -69,6 +71,8 @@
     theme: { fog: 0x1a2236, ambient: 0x7a86a0, hemiSky: 0xa4b0cc, hemiGround: 0x2c3244, dir: 0xffe6b0, dirI: 0.66 },
     grade: { sat: 1.08, contrast: 1.04 },
     affinity: { harpy: 2.4, golem: 1.2, bat: 0.6 },
+    ambience: 'olympus',
+    roster: { centaur: 28, satyr: 22, harpy: 26, golem: 14, bat: 6 },
     backdrop: {
       curve: { gain: 0.62, warm: 0.34 },
       hero: { kind: 'sun', col: 0xffe090, core: 0xfffce8, edge: 0xe0a030, az: 0.46, elev: 9.0, r: 6.6,
@@ -109,6 +113,8 @@
     theme: { fog: 0x121a0a, ambient: 0x5a6a44, hemiSky: 0x7a9058, hemiGround: 0x1c2410, dir: 0xd8f08a, dirI: 0.5 },
     grade: { sat: 1.06 },
     affinity: { shielder: 1.6, wraith: 1.3, skeleton: 1.3 },
+    ambience: 'garden',
+    roster: { gorgonite: 30, hoplite: 22, stonesnake: 22, wraith: 14, skeleton: 12 },
     backdrop: {
       curve: { gain: 0.46, warm: 0.3 },
       hero: { kind: 'sun', col: 0xd8f08a, core: 0xf8ffe0, edge: 0x7a9a30, az: 0.5, elev: 8.0, r: 6.0,
@@ -148,6 +154,8 @@
     theme: { fog: 0x2a0e0a, ambient: 0x8a4636, hemiSky: 0xa84a38, hemiGround: 0x3a1a14, dir: 0xff6a3a, dirI: 0.72 },
     grade: { sat: 1.14, contrast: 1.1 },
     affinity: { cultist: 1.6, magmacrab: 1.6, wraith: 1.2 },
+    ambience: 'tartarus',
+    roster: { fury: 28, titanslave: 24, cultist: 20, magmacrab: 18, wraith: 10 },
     backdrop: {
       curve: { gain: 0.55, warm: 0.4 },
       hero: { kind: 'dome', col: 0xff4a20, core: 0xffc090, edge: 0x901008, az: 0.5, elev: 6.0, r: 4.4,
@@ -187,6 +195,8 @@
     theme: { fog: 0x0a0818, ambient: 0x3e3858, hemiSky: 0x544c78, hemiGround: 0x100c1c, dir: 0x8ad0ff, dirI: 0.4 },
     grade: { sat: 1.06, gamma: 1.05 },
     affinity: {},
+    ambience: 'styx',
+    roster: { shade: 40, cerberuspup: 30, wraith: 30 },
     backdrop: {
       curve: { gain: 0.3, warm: 0.3 },
       hero: { kind: 'sigil', col: 0x5ac8ff, core: 0xe0fbff, edge: 0x1a5a8a, az: 0.5, elev: 9.0, r: 5.0,
@@ -227,6 +237,8 @@
     theme: { fog: 0x101624, ambient: 0x5a647c, hemiSky: 0x7a86a4, hemiGround: 0x1c2232, dir: 0xffe8b0, dirI: 0.56 },
     grade: { sat: 1.08, contrast: 1.08 },
     affinity: { harpy: 2.4, golem: 1.2 },
+    ambience: 'storm',
+    roster: { stormspirit: 30, harpy: 26, centaur: 26, golem: 18 },
     backdrop: {
       curve: { gain: 0.42, warm: 0.3 },
       hero: { kind: 'sun', col: 0xffe8a8, core: 0xfffce8, edge: 0xe0a830, az: 0.46, elev: 9.0, r: 6.0,
@@ -266,6 +278,8 @@
     theme: { fog: 0x1c0804, ambient: 0x7a3c24, hemiSky: 0x9a4a28, hemiGround: 0x241008, dir: 0xff8a3c, dirI: 0.54 },
     grade: { sat: 1.18, contrast: 1.1 },
     affinity: { magmacrab: 2.2, golem: 1.6, bomber: 1.4 },
+    ambience: 'forge',
+    roster: { automaton: 34, magmacrab: 26, golem: 22, bomber: 18 },
     backdrop: {
       curve: { gain: 0.34, warm: 0.42 },
       hero: { kind: 'dome', col: 0xff5a1c, core: 0xffd0a0, edge: 0xa02008, az: 0.5, elev: 6.0, r: 4.6,
@@ -306,6 +320,8 @@
     theme: { fog: 0x241c08, ambient: 0x8a7844, hemiSky: 0xb8a468, hemiGround: 0x2c240e, dir: 0xffe890, dirI: 0.62 },
     grade: { sat: 1.1 },
     affinity: { shielder: 1.6, cultist: 1.3 },
+    ambience: 'golden',
+    roster: { cyclops: 34, hoplite: 28, shielder: 16, cultist: 14, satyr: 8 },
     backdrop: {
       curve: { gain: 0.5, warm: 0.42 },
       hero: { kind: 'crown', col: 0xffe070, core: 0xfffbe0, edge: 0xd09a20, az: 0.5, elev: 8.0, r: 3.2,
@@ -344,6 +360,8 @@
     theme: { fog: 0x2c220c, ambient: 0x94804c, hemiSky: 0xc4b070, hemiGround: 0x34280e, dir: 0xfff0a8, dirI: 0.72 },
     grade: { sat: 1.1, contrast: 1.04 },
     affinity: { cultist: 1.8, shielder: 1.2, harpy: 1.4 },
+    ambience: 'golden',
+    roster: { sunpriest: 28, griffin: 20, cultist: 22, centaur: 16, hoplite: 14 },
     backdrop: {
       curve: { gain: 0.72, warm: 0.44 },
       hero: { kind: 'sun', col: 0xfff0a0, core: 0xffffff, edge: 0xf0b830, az: 0.5, elev: 10.0, r: 9.0,
@@ -381,6 +399,8 @@
     theme: { fog: 0x262c48, ambient: 0x8a92b4, hemiSky: 0xaab4d4, hemiGround: 0x3a4062, dir: 0xffe8a0, dirI: 0.78 },
     grade: { sat: 1.1, contrast: 1.1 },
     affinity: {},
+    ambience: 'zeus',
+    roster: { stormspirit: 40, griffin: 30, sunpriest: 30 },
     backdrop: {
       curve: { gain: 0.78, warm: 0.3 },
       hero: { kind: 'eclipse', col: 0xffe090, core: 0x14162c, edge: 0xffc860, az: 0.5, elev: 12.0, r: 6.0,

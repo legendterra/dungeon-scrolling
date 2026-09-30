@@ -49,7 +49,7 @@ window.DS = window.DS || {};
 
   function buildCentaur() {
     const root = new THREE.Group();
-    const q = quad(root, { len: 1.1, w: 0.46, h: 0.44, legH: 0.56, legW: 0.12, col: 0x8a5a34, belly: 0xa87a54, dark: 0x3a2618 });
+    const q = quad(root, { len: 1.2, w: 0.5, h: 0.5, legH: 0.56, legW: 0.17, col: 0x8a5a34, belly: 0xa87a54, dark: 0x3a2618 });
     const tail = new THREE.Group();
     tail.position.set(0, q.top - 0.06, q.back - 0.02);
     part(tail, 0.12, 0.5, 0.12, 0, -0.22, -0.06, 0x3a2618);
@@ -139,7 +139,7 @@ window.DS = window.DS || {};
     body.add(whipArm);
     part(body, 0.1, 0.3, 0.1, -0.26, 0.5, 0.02, 0xd8b8a8);
     root.add(body);
-    const w = wings(root, 0.72, 1.5, 0x4a1a24, 0x2c0f16);
+    const w = wings(root, 0.72, 1.5, 0x4a1a24, 0x2c0f16, 0.05, 1.7);
     return bare(root, Object.assign({ body: body, whipArm: whipArm, whip: whip, animate: furyAnim }, w));
   }
   function furyAnim(p, e, t, c) {
@@ -430,7 +430,7 @@ window.DS = window.DS || {};
     }
     part(root, 0.16, 0.16, 0.5, 0, 0.58, -0.66, fur);
     part(root, 0.22, 0.22, 0.16, 0, 0.58, -0.94, dark);
-    const w = wings(root, 0.8, 1.9, pale, fur, 0.08);
+    const w = wings(root, 0.8, 1.9, pale, fur, 0.09, 2.1);
     return bare(root, Object.assign({ head: head }, w));
   }
 

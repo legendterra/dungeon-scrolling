@@ -129,7 +129,7 @@ window.DS = window.DS || {};
     const src = ladderRung(((d - LADDER_END - 1) % LADDER_END) + 1);
     const rung = {
       depth: d, key: src.key, label: src.label, flavor: src.flavor,
-      theme: src.theme, closed: !!src.closed, endless: true, lap: lap
+      theme: src.theme, closed: !!src.closed, ambience: src.ambience || null, endless: true, lap: lap
     };
     /* Rungs are pure functions of the depth, so dropping the cache is free;
        it only keeps the same object for the depth being played. Bounded so an

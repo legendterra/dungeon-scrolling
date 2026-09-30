@@ -51,16 +51,17 @@ window.DS = window.DS || {};
 
   /* A pair of jointed wings (the bat's rig: pose flaps wingL/wingR and the
      outer pair follows). */
-  function wings(root, y, span, col, tip, thick) {
+  function wings(root, y, span, col, tip, thick, depth) {
     const out = [];
+    const dz = depth || 1;                       // how deep a wing is, front to back, against the bat's
     for (let side = -1; side <= 1; side += 2) {
       const inner = new THREE.Group();
       inner.position.set(side * 0.16, y, 0);
-      part(inner, span * 0.5, thick || 0.06, 0.3, side * span * 0.25, 0, 0, col);
+      part(inner, span * 0.5, thick || 0.06, 0.3 * dz, side * span * 0.25, 0, 0, col);
       const outer = new THREE.Group();
       outer.position.set(side * span * 0.5, 0, 0);
-      part(outer, span * 0.5, (thick || 0.06) * 0.85, 0.26, side * span * 0.25, -0.02, 0, tip || col);
-      part(outer, span * 0.14, (thick || 0.06) * 0.9, 0.22, side * span * 0.52, -0.02, 0, BLACK);
+      part(outer, span * 0.5, (thick || 0.06) * 0.85, 0.26 * dz, side * span * 0.25, -0.02, 0, tip || col);
+      part(outer, span * 0.14, (thick || 0.06) * 0.9, 0.22 * dz, side * span * 0.52, -0.02, 0, BLACK);
       inner.add(outer);
       root.add(inner);
       out.push(inner, outer);

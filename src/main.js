@@ -61,7 +61,10 @@ window.DS = window.DS || {};
     // the loop alive, so a test can drive R3D.render() on a private scene.
     if (DS.__paused) { lastTime = now; return; }
 
-    if (pending) { current = pending; pending = null; accumulator = 0; DS.currentScene = current; }
+    if (pending) {
+      current = pending; pending = null; accumulator = 0; DS.currentScene = current;
+      if (!current.g) DS.Audio.setAmbience(null);   // a place's ambience belongs to a run
+    }
     if (!current) return;
 
     if (!lastTime) lastTime = now;

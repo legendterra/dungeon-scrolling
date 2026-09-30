@@ -91,3 +91,15 @@ test('a new map key cannot repeat, and a bad definition says why', () => {
   assert.throws(() => DS.Maps.define({ key: 'x', depth: 0, label: 'Bad', flavor: 'plain' }), /depth/);
   assert.throws(() => DS.Maps.define({ key: 'y', depth: 98, label: 'Bad', flavor: 'sky' }), /flavor/);
 });
+
+test('every map names an ambience the audio layer has', () => {
+  const kinds = new Set(load(['src/core/audio.js']).Audio.ambienceKinds());
+  const used = new Set();
+  for (const m of maps) {
+    assert.ok(m.ambience, m.key + ' has no ambience');
+    assert.ok(kinds.has(m.ambience), m.key + ' names an unknown ambience: ' + m.ambience);
+    assert.equal(m.rung.ambience, m.ambience, m.key + ' rung carries it');
+    used.add(m.ambience);
+  }
+  assert.ok(used.size >= 12, 'the places do not all sound alike (' + used.size + ' kinds)');
+});
