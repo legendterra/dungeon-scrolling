@@ -1,4 +1,4 @@
-/* The bosses of the gods (entities/bosses3.js), each on a flat room with a stand-in hero
+﻿/* The bosses of the gods (entities/bosses3.js), each on a flat room with a stand-in hero
    that counts the wounds it is given: the mechanic each one is built around, and the
    rotation that puts them on depths 25 and 30 and in the vaults of 21, 23 and 27. */
 const test = require('node:test');
@@ -64,7 +64,7 @@ test('the Minotaur drives his horns into the wall after a rush, and is dazed wit
   w.boss.facing = -1;
   w.g.arena = { x0: 12 * w.T, x1: 48 * w.T };
   w.step(3);
-  w.DS.Bosses.go(w.boss, 'RUSH', 170);
+  w.DS.Bosses.go(w.boss, 'RUSH', 260);
   const hit = w.until(400, () => w.boss.state === 'STUN', () => w.hero(-200));
   assert.ok(hit > 0, 'he reached the wall');
   assert.ok(w.boss.x <= w.g.arena.x0 + 2 || w.boss.x + w.boss.w >= w.g.arena.x1 - 2, 'at the end of the room');
@@ -211,9 +211,22 @@ test('from half health the storm is on: bolts are marked without a move asking f
   w.boss.hp = Math.floor(w.boss.maxHp * 0.4);
   w.step(80, () => w.hero(-200));
   assert.equal(w.boss.phase, 2);
-  let most = 0;
-  w.step(600, () => { w.hero(-200); most = Math.max(most, (w.boss.pillars || []).length); w.boss.state = w.boss.state === 'IDLE' ? 'IDLE' : w.boss.state; });
-  assert.ok(most > 0, 'a stray bolt was marked');
+  // Held at rest for good, so no move of his own can mark anything: only the storm can.
+  let marked = 0, last = 0;
+  w.step(900, () => {
+    w.hero(-200);
+    w.boss.state = 'IDLE'; w.boss.stateTimer = 9999;
+    const n = (w.boss.pillars || []).length;
+    if (n > last) marked += n - last;
+    last = n;
+  });
+  assert.ok(marked >= 3, 'stray bolts were marked (' + marked + ')');
+
+  // The same rest in the first half marks nothing at all.
+  const calm = fight('zeus', 30);
+  let none = 0;
+  calm.step(900, () => { calm.hero(-200); calm.boss.state = 'IDLE'; calm.boss.stateTimer = 9999; none = Math.max(none, (calm.boss.pillars || []).length); });
+  assert.equal(none, 0, 'no storm before half health');
 });
 
 test('every god fights through both phases without throwing, from three seeds', () => {
@@ -283,4 +296,74 @@ test('Medusa springs over a pillar and bites where she lands: cover is not a pla
   w.step(70);                                      // the hero stays where he was put: it is she who moves
   assert.ok(w.boss.x < x0 - 24, 'she is on the far side of it (' + Math.round(x0 - w.boss.x) + ' px)');
   assert.ok(w.hits.n > 0, 'and the bite found the hero');
+});
+
+test('a bolt or a flame marked under the hero lands on the ledge he stands on, not on the floor below it', () => {
+  for (const [key, move, total] of [['zeus', 'BOLTS', 100], ['hades', 'SOULFIRE', 90]]) {
+    const w = fight(key, key === 'zeus' ? 30 : 25);
+    const ledgeRow = FLOOR - 4;                                  // a ledge whose top edge is 64 px above the floor
+    w.g.map.isPlatform = (tx, ty) => ty === ledgeRow && tx >= 20 && tx <= 40;
+    const p = w.g.player;
+    p.x = 30 * w.T; p.y = ledgeRow * w.T - p.h;                  // standing on it, and staying there
+    w.boss.facing = -1;
+    w.DS.Bosses.go(w.boss, move, total);
+    w.step(30);
+    const under = (w.boss.pillars || []).filter((q) => Math.abs(q.x - (p.x + p.w / 2)) < 1);
+    assert.ok(under.length >= 1, key + ': something is marked under him');
+    assert.equal(under[0].y, ledgeRow * w.T, key + ': on the ledge, not at ' + under[0].y);
+    w.step(total);
+    assert.ok(w.hits.n > 0, key + ': and it reaches him there');
+  }
+});
+
+test('bolts fall on the floor under a ledge as well as on the ledge: the floor under a roof is not a shelter', () => {
+  for (const [key, move, total, depth] of [['zeus', 'BOLTS', 100, 30], ['hades', 'SOULFIRE', 90, 25]]) {
+    const w = fight(key, depth);
+    const ledgeRow = FLOOR - 4;
+    const under = (tx) => tx >= 20 && tx <= 40;                    // a long ledge over the middle of the room
+    // The map as the real one answers: groundBelow stops at the ledge, solidBelow goes on to the rock.
+    w.g.map.isPlatform = (tx, ty) => under(tx) && ty === ledgeRow;
+    w.g.map.groundBelow = (tx) => (under(tx) ? ledgeRow * w.T : FLOOR * w.T);
+    w.g.map.solidBelow = () => FLOOR * w.T;
+    w.boss.x = 6 * w.T; w.boss.facing = 1;
+    const p = w.g.player;
+    p.x = 30 * w.T; p.y = FLOOR * w.T - p.h;                       // on the floor, under the ledge
+    w.DS.Bosses.go(w.boss, move, total);
+    w.step(30);
+    const marks = w.boss.pillars || [];
+    assert.ok(marks.length >= 3, key + ': ' + marks.length + ' marked');
+    for (const q of marks) assert.equal(q.y, FLOOR * w.T, key + ': a mark at x ' + Math.round(q.x) + ' sits at ' + q.y + ', not on the floor');
+    w.step(total);
+    assert.ok(w.hits.n > 0, key + ': and the one under the hero reaches him under the ledge');
+  }
+});
+
+test('a bull needs room to run: pinned against the bound he faces, a rush is called off instead of stunning him for nothing', () => {
+  for (const seed of [1, 2, 3]) {
+    const w = fight('minotaur', 21, seed);
+    w.g.arena = { x0: 12 * w.T, x1: 48 * w.T };
+    w.boss.x = w.g.arena.x0;                                       // touching the west bound
+    w.boss.facing = -1;
+    let stunned = 0, called = 0, prev = '';
+    w.step(1500, () => {
+      w.hero(-90);                                                 // standing outside the arena, to the west
+      if (w.boss.state === 'STUN') stunned++;
+      if (prev === 'RUSH' && w.boss.state === 'IDLE') called++;    // counted before he is sent again
+      if (w.boss.state === 'IDLE') w.DS.Bosses.go(w.boss, 'RUSH', 260);
+      prev = w.boss.state;
+    });
+    assert.equal(stunned, 0, 'seed ' + seed + ': dazed ' + stunned + ' frames against a bound he had no runway to');
+    assert.ok(called >= 3, 'seed ' + seed + ': and the rushes were called off (' + called + ')');
+  }
+});
+
+test('with the room to run he still charges the length of it and is stunned at the far bound only', () => {
+  const w = fight('minotaur', 21);
+  w.g.arena = { x0: 12 * w.T, x1: 40 * w.T };                      // the size of a vault's arena
+  w.boss.x = 14 * w.T;
+  w.boss.facing = 1;
+  w.DS.Bosses.go(w.boss, 'RUSH', 260);
+  const at = w.until(400, () => w.boss.state === 'STUN', () => w.hero(200));
+  assert.ok(at > 34, 'he ran first (' + at + ' frames)');
+  assert.ok(w.boss.x + w.boss.w >= w.g.arena.x1 - 4, 'and it was the east bound that stopped him, at ' + Math.round(w.boss.x));
 });

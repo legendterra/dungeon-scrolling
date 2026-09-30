@@ -113,3 +113,20 @@ test('a 60 cap on a fast panel stays high', () => {
   DS.Settings.set('gfx', 'fpsCap', '60');
   assert.equal(feed(DS, 16.7, 12), 'high');
 });
+
+// --- the corruption of the endless laps ----------------------------------------------------------
+
+test('corruption starts at nothing, holds what it is given, and cannot leave 0..1', () => {
+  const DS = fresh('max');
+  assert.equal(DS.PostFX.corruption, 0);
+  DS.PostFX.setCorruption(0.6);
+  assert.equal(DS.PostFX.corruption, 0.6);
+  DS.PostFX.setCorruption(5);
+  assert.equal(DS.PostFX.corruption, 1);
+  DS.PostFX.setCorruption(-2);
+  assert.equal(DS.PostFX.corruption, 0);
+  DS.PostFX.setCorruption('nope');
+  assert.equal(DS.PostFX.corruption, 0, 'not a number is not corruption');
+  DS.PostFX.setCorruption(undefined);
+  assert.equal(DS.PostFX.corruption, 0);
+});

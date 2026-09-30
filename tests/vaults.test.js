@@ -64,6 +64,31 @@ test('the labyrinth and the forge and the garden are corridors that end in a vau
   }
 });
 
+test('every ledge and every pillar of a vault chamber is where the plan says, and the ledges can be reached from the floor', () => {
+  for (const [depth, key] of [[21, 'minotaur'], [23, 'medusa'], [27, 'talos']]) {
+    for (let s = 0; s < 3; s++) {
+      const level = lc.buildLevel(seedFor(s, depth) + 5, depth);
+      const c = judge(level, key + ' seed ' + s);
+      const F = DS.LevelGen.ROOM_H - 2;
+      const x0 = level.map.w - DS.Arena.VAULT_W;
+      const plan = DS.Arena.VAULTS[key];
+      for (const [a, b, h] of plan.ledges) {
+        for (let x = x0 + a; x <= x0 + b; x++) {
+          assert.equal(level.map.get(x, F - h), TILE.PLATFORM, key + ' ledge tile ' + x);
+          assert.ok(level.map.isDesigned(x, F - h), key + ' ledge is designed');
+          assert.ok(c.reach.seen.has(x + ',' + (F - h - 1)), key + ' ledge at ' + x + ' can be stood on');
+        }
+      }
+      for (const [a, b, h] of plan.blocks) {
+        for (let x = x0 + a; x <= x0 + b; x++) for (let k = 1; k <= h; k++) assert.ok(level.map.isSolid(x, F - k), key + ' block tile');
+      }
+      // Every planned feature is inside the arena, in front of the bars.
+      const gx = x0 + DS.Arena.GATE_AT;
+      for (const [a, b] of plan.ledges.concat(plan.blocks)) assert.ok(x0 + b < gx, key + ' feature past the bars');
+    }
+  }
+});
+
 test('a mountain with no floor boss has the shaft and the vault with nobody in it', () => {
   for (const depth of [22, 26]) {
     assert.equal(DS.Maps.get(depth).floorBoss || null, null);
@@ -144,4 +169,24 @@ test('the trial holds the Arbiter in the first two acts and a bull in the Arena 
       assert.ok(lc.check(level).ok, 'the trial at ' + depth + ' can be finished');
     }
   }
+});
+
+test('no saw, ball or moving platform is put in or beside a boss\'s arena', () => {
+  const T = DS.C.TILE;
+  let placed = 0;
+  for (const depth of [7, 21, 23, 27]) {
+    for (let s = 0; s < 12; s++) {
+      const level = lc.buildLevel(seedFor(s, depth) + 9, depth);
+      const arena = level.spawns.arena;
+      assert.ok(arena, 'depth ' + depth + ' has an arena');
+      const g = { depth: depth, rng: DS.makeRng(555 + s * 3 + depth), map: level.map, hazards: [], chests: [], crates: [], puzzles: [] };
+      DS.Hazards.generate(g, level);
+      for (const h of g.hazards) {
+        if (h.kind === 'crumble') continue;
+        placed++;
+        assert.ok(h.x + h.w < arena.x0 - 2 * T || h.x > arena.x1 + 2 * T, depth + ' seed ' + s + ': a ' + h.kind + ' at ' + Math.round(h.x) + ' is inside the arena ' + arena.x0 + '-' + arena.x1);
+      }
+    }
+  }
+  assert.ok(placed > 0, 'hazards are still placed elsewhere (' + placed + ')');
 });

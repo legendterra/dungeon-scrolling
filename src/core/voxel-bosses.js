@@ -62,7 +62,7 @@ window.DS = window.DS || {};
     rest(p);
     const st = e.state, tt = e.stateTimer || 0;
     if (st === 'RUSH') {
-      const winding = tt > 136;
+      const winding = tt > ((e.def && e.def.timers && e.def.timers.RUSH) || 260) - 34;
       p.torso.rotation.x = winding ? 0.15 : 0.5;
       p.head.rotation.x = winding ? 0.4 + Math.sin(t * 18) * 0.18 : 0.55;
       p.armL.rotation.x = -0.7;

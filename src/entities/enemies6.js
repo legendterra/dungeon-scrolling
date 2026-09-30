@@ -256,7 +256,8 @@ window.DS = window.DS || {};
       return;
     }
     e.heat = M.clamp(e.heat + (sees ? 0.32 : -0.4) + (phase === 'wind' ? 0.3 : 0), 0, 100);
-    e.armor = e.heat < 70 ? e.cfg.armor : 0;
+    if (e.armor0 == null) e.armor0 = e.armor;                     // the kind's armour plus what its rank adds
+    e.armor = e.heat < 70 ? e.armor0 : 0;
     if (e.heat >= 100) { e.venting = 70; e.vx = 0; DS.Audio.play('steam'); return; }
     if (phase === 'wind') { e.vx *= 0.3; tellFx(e, '#ffb060', 4); return; }
     if (phase === 'strike') {
@@ -472,16 +473,29 @@ window.DS = window.DS || {};
     behavior: titanslave, minDepth: 24, tell: 'chain'
   });
 
-  /* A Cerberus pup: three heads, three bites, one after the other. */
+  /* A Cerberus pup: three heads, three lunges, one after the other. The hero is safe for about half
+     a second after a wound, so bites packed into half a second would be one bite; the lunges are
+     spaced wider than that, and each one turns to where the hero is NOW. Each is its own chance to
+     be caught, or to step away and let the next head come. */
+  const LUNGE_GAP = 36;
+
   function cerberuspup(g, e, dx, dy, dist, sees, slow, phase) {
-    if (phase === 'wind') { e.vx *= 0.4; tellFx(e, '#ff7a3d', 4); e.bites = 0; return; }
+    if (phase === 'wind') { e.vx *= 0.4; tellFx(e, '#ff7a3d', 4); e.bites = 0; e.lunging = 0; return; }
     if (phase === 'strike') {
-      e.vx = e.facing * 0.9 * slow;
-      const slot = Math.floor((1 - e.attackTimer / Math.max(1, e.cfg.strike)) * 3);
-      if (slot > (e.bites || 0) - 1 && (e.bites || 0) < 3) {
+      const slot = Math.min(2, Math.floor((e.cfg.strike - e.attackTimer) / LUNGE_GAP));
+      if (slot >= (e.bites || 0) && (e.bites || 0) < 3) {
         e.bites = (e.bites || 0) + 1;
+        face(e, dx);
+        e.vx = e.facing * 2.3 * slow;
+        e.lunging = 12;
+        e.struck = false;
         DS.Audio.play('growl');
-        hitBox(g, e, e.facing > 0 ? e.x + e.w - 4 : e.x + 4 - 20, e.y - 2, 20, e.h + 4, e.attackDamage, e.facing);
+      }
+      if (e.lunging > 0) {
+        e.lunging--;
+        if (!e.struck && hitBox(g, e, e.facing > 0 ? e.x + e.w - 4 : e.x + 4 - 20, e.y - 2, 20, e.h + 4, e.attackDamage, e.facing)) e.struck = true;
+      } else {
+        e.vx *= 0.8;
       }
       return;
     }
@@ -497,7 +511,7 @@ window.DS = window.DS || {};
   def('cerberuspup', {
     w: 13, h: 11, hp: 18, touch: 0, speed: 0.85, sight: 170, armor: 0,
     gore: ['#2c2624', '#ff7a3d'], sprite: 'zombie',
-    wind: 24, strike: 30, recover: 44, range: 30, damage: 1,
+    wind: 24, strike: 3 * LUNGE_GAP, recover: 44, range: 30, damage: 1,
     behavior: cerberuspup, minDepth: 25, tell: 'growl'
   });
 

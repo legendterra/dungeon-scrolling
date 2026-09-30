@@ -59,10 +59,22 @@ window.DS = window.DS || {};
     return M.clamp(x, s.lo, s.hi);
   }
 
-  /* The walking surface under x, or `fallback` over a pit. */
+  /* The floor under x - the rock, not a ledge over it - or `fallback` over a pit. A bolt that fell on the
+     top of a ledge would leave everyone standing under the ledge untouchable. */
   function floorAt(g, x, fallback) {
-    const y = g.map.groundBelow(Math.floor(x / T));
+    const tx = Math.floor(x / T);
+    const y = g.map.solidBelow ? g.map.solidBelow(tx) : g.map.groundBelow(tx);
     return y >= g.map.pixelH ? fallback : y;
+  }
+
+  /* The first thing to stand on at or below `y` in the column of `x`: the floor, or a ledge. A bolt
+     marked under the hero lands there, so a ledge is not a place to sit out the storm. */
+  function surfaceUnder(g, x, y, fallback) {
+    const tx = Math.floor(x / T);
+    for (let ty = Math.max(0, Math.floor(y / T)); ty < g.map.h; ty++) {
+      if (g.map.isSolid(tx, ty) || g.map.isPlatform(tx, ty)) return ty * T;
+    }
+    return fallback;
   }
 
   function alive(g, kind) {
@@ -122,11 +134,14 @@ window.DS = window.DS || {};
      (the tell is long and loud), then runs the length of the room in a straight line: step
      aside and he hits the wall with his horns and stands dazed, with none of his armour.
      A whirl of the axe on the ground, a leap and a shockwave from the Warden's own list. */
-  const RUSH_T = 170;      // long enough to cross the room from any side: the wall ends it, not the clock
+  const RUSH_T = 260;      // long enough to cross any arena from any side: the wall ends it, not the clock
+  const RUN_ROOM = 64;     // less than four tiles ahead of him and there is nothing to dodge, only a free stun
 
   B.MOVES.RUSH = function (g, e, dx) {
     e.stateTimer--;
     const t = RUSH_T - e.stateTimer;
+    const lo = g.arena ? g.arena.x0 : 2 * T;
+    const hi = g.arena ? g.arena.x1 : g.map.pixelW - 2 * T;
     if (t < 34) {
       e.vx *= 0.6;
       if (t < 3) e.facing = M.sign(dx) || e.facing;
@@ -135,10 +150,22 @@ window.DS = window.DS || {};
       if (t > 10 && t % 6 === 0) DS.FX.spark(cx(e) + e.facing * 14, e.y + 10, 2, '#ffb060');
       return;
     }
+    if (t === 34) {
+      /* A bull needs room to run. Pinned against the bound he faces (a hero standing outside the arena
+         will do it) there is no charge to step aside from, only a stun handed out for nothing: he snorts
+         and thinks again. */
+      const runway = e.facing > 0 ? hi - (e.x + e.w) : e.x - lo;
+      if (runway < RUN_ROOM) {
+        DS.Audio.play('growl');
+        DS.FX.dust(cx(e) + e.facing * 12, feetY(e), 6);
+        go(e, 'IDLE', 18);
+        return;
+      }
+    }
     e.vx = e.facing * (e.phase === 2 ? 4.1 : 3.5);
     if (e.frame % 3 === 0) DS.FX.trail(cx(e), cy(e) + DS.rand.float(-8, 8), e.def.tint);
     const wall = Phys.wallAhead(g.map, e, e.facing) ||
-                 (g.arena && (e.x <= g.arena.x0 + 1 || e.x + e.w >= g.arena.x1 - 1));
+                 (e.facing > 0 ? e.x + e.w >= hi - 1 : e.x <= lo + 1);      // the bound he is running AT
     if (wall) {
       e.vx = 0;
       DS.R.shake(9);
@@ -402,7 +429,7 @@ window.DS = window.DS || {};
       }
       if (p) {
         const x = clampX(g, cx(p));
-        pillar(e, x, floorAt(g, x, feetY(e)), 52, SOUL);
+        pillar(e, x, surfaceUnder(g, x, p.y + p.h, floorAt(g, x, feetY(e))), 52, SOUL);   // where the hero stands, ledge or floor
       }
     }
     if (e.stateTimer <= 0) go(e, 'IDLE', 34);
@@ -460,7 +487,7 @@ window.DS = window.DS || {};
     if (p) {
       for (let i = -1; i <= 1; i++) {
         const x = clampX(g, cx(p) + i * 44);
-        pillar(e, x, floorAt(g, x, feetY(e)), 46 + Math.abs(i) * 8, SOUL);
+        pillar(e, x, surfaceUnder(g, x, p.y + p.h, floorAt(g, x, feetY(e))), 46 + Math.abs(i) * 8, SOUL);
       }
     }
     DS.R.flash('#7ff0ff', 8);
@@ -489,7 +516,7 @@ window.DS = window.DS || {};
       }
       if (p) {
         const x = clampX(g, cx(p));
-        pillar(e, x, floorAt(g, x, feetY(e)), 50, BOLT);
+        pillar(e, x, surfaceUnder(g, x, p.y + p.h, floorAt(g, x, feetY(e))), 50, BOLT);   // under the hero, ledge or floor
       }
     }
     if (e.stateTimer <= 0) go(e, 'IDLE', 30);
@@ -574,7 +601,7 @@ window.DS = window.DS || {};
     if (p) {
       for (let i = -1; i <= 1; i += 2) {
         const x = clampX(g, cx(p) + i * 50);
-        pillar(e, x, floorAt(g, x, feetY(e)), 48, BOLT);
+        pillar(e, x, surfaceUnder(g, x, p.y + p.h, floorAt(g, x, feetY(e))), 48, BOLT);
       }
     }
     DS.R.flash('#ffffff', 10);

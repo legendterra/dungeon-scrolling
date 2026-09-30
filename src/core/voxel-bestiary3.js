@@ -381,9 +381,9 @@ window.DS = window.DS || {};
     part(root, 0.1, 0.1, 0.3, 0, q.top - 0.04, q.back - 0.14, 0xff7a3d, lit(0xff5a1a, 1));
     return bare(root, { heads: heads, legsX: q.legs, animate: function (p, e, t, c) {
       gait(p.legsX, c, c.strike ? 1 : 0);
-      // Three jaws, one after another, through the strike.
-      const phase = c.strike ? (t * 9) % 3 : -1;
-      for (let i = 0; i < p.heads.length; i++) p.heads[i].jaw.rotation.x = c.wind * 0.4 + (Math.floor(phase) === i ? 0.8 : 0);
+      // Three jaws, one after another: the one that is lunging is the one that is open.
+      const biting = c.strike ? ((e.bites || 1) - 1) % 3 : -1;
+      for (let i = 0; i < p.heads.length; i++) p.heads[i].jaw.rotation.x = c.wind * 0.4 + (biting === i && e.lunging > 0 ? 0.8 : 0);
     } });
   }
 

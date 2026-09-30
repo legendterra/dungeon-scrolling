@@ -213,10 +213,39 @@ test('a storm spirit rains straight down and is harmless to touch', () => {
 });
 
 test('the Cerberus pup bites with three heads, one after another', () => {
+  const perAttack = [];
   for (const seed of SEEDS) {
     const w = spawn('cerberuspup', 'normal', seed);
-    let most = 0, last = 0;
-    w.run(300, () => { w.hero(-12, 0); if (w.hits.n > last) { most = Math.max(most, w.hits.n - last); } last = w.hits.n; });
-    assert.ok(w.hits.n >= 2, 'more than one bite lands (' + w.hits.n + ')');
+    let cur = null, lastHits = 0, prev = 'none';
+    w.run(900, () => {
+      w.hero(-12, 0);
+      const st = w.e.attackState, n = w.hits.n;
+      if (prev === 'none' && st !== 'none') cur = 0;                 // an attack begins
+      if (cur !== null) cur += n - lastHits;
+      if (st === 'none' && prev !== 'none' && cur !== null) { perAttack.push(cur); cur = null; }
+      lastHits = n; prev = st;
+    });
+  }
+  assert.ok(perAttack.length >= 4, perAttack.length + ' attacks measured');
+  assert.equal(Math.max.apply(null, perAttack), 3, 'three wounds in one attack: ' + perAttack.join(','));
+  assert.ok(perAttack.every((n) => n <= 3), 'never more than the three heads: ' + perAttack.join(','));
+});
+
+test('an elite automaton keeps the armour of its rank while it is cool, loses it when hot, and gets it back', () => {
+  for (const tier of ['elite', 'miniboss']) {
+    const w = spawn('automaton', tier, 1);
+    const ranked = w.e.armor;
+    assert.ok(ranked > w.DS.Enemies.TYPES.automaton.armor, tier + ' carries more than the kind');
+    w.run(40, () => w.hero(50, 0));
+    assert.equal(w.e.armor, ranked, tier + ' cool: ' + w.e.armor + ' of ' + ranked);
+    let hot = null, back = false, vented = false;
+    w.run(3000, () => {
+      w.hero(50, 0);
+      if (w.e.heat >= 70 && !(w.e.venting > 0)) hot = w.e.armor;
+      if (w.e.venting > 0) vented = true;
+      if (vented && w.e.heat < 40 && w.e.armor === ranked) back = true;
+    });
+    assert.equal(hot, 0, tier + ' hot: none');
+    assert.ok(back, tier + ' has its rank armour back after the vent');
   }
 });

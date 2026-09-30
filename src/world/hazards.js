@@ -192,6 +192,8 @@ window.DS = window.DS || {};
 
     const map = g.map;
     const rooms = level.roomCount;
+    // The fight is the hazard: no saw, ball or moving platform in (or within three tiles of) a boss's arena.
+    const arena = level.spawns && level.spawns.arena;
     /* Hazard density belongs to the difficulty curve, which pins the teaching
        floors at ZERO. The old formula gave depth 1 a 39% chance of a saw per
        room, which is how a first-time player met a spinning blade before they
@@ -205,6 +207,7 @@ window.DS = window.DS || {};
       if (!g.rng.chance(chance)) continue;
 
       const tx = room * DS.LevelGen.ROOM_W + g.rng.int(5, 14);
+      if (arena && tx * T >= arena.x0 - 3 * T && tx * T <= arena.x1 + 3 * T) continue;
       // The ground, not the ceiling - roofed rooms have both.
       const floorY = map.groundBelow(tx);
       // No floor in this column means we are over a pit — leave the parkour

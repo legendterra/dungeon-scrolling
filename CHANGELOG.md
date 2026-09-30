@@ -18,7 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Endless corrupts the colours**: from depth 31 each lap of the thirty maps grades further toward violet shadows, drained green and a harder, darker frame (0.3, 0.6, 0.85).
 - **QA**: `tools/qa/check-bestiary.js --only bosses` fights all eleven bosses live (and checks the bars open), `check-act3.js` (every Act III floor and special room through the scene loop with the real HUD), `shoot-bosses.js`, `shoot-special.js`; 287 unit tests (bestiary3, bosses3, vaults, plus ambience, special rooms and corruption).
 
-### Fixed
+### Fixed (found by the code review of this release)
+- **Standing under a ledge made the hero immune to Zeus's bolts and Hades's flames**: the pillars were placed with the map's `groundBelow`, which stops at a one-way ledge, so under a ledge they landed on top of it. Random marks now fall on the rock, and the one marked under the hero falls on whatever he stands on - the floor, or the ledge (a ledge is not a place to sit out the storm either).
+- **The Minotaur could be pinned and cheesed**: with the hero standing outside the vault's open west edge he sat against the bound and stunned himself over and over (a rush that started touching the bound ended in a stun on its first step). A bull needs room to run now: with less than four tiles ahead of him the rush is called off, and the wall test looks only at the bound he is running at.
+- **Saws, spiked balls and moving platforms were put inside the vault arenas** (and the Climb's); nothing is put in or within three tiles of a boss's arena now.
+- **The bronze automaton lost the armour of its rank** (elite, miniboss, colossal) the first frame it acted.
+- **The Cerberus pup's second and third bite never landed**: the hero is safe for about half a second after a wound, and the three bites fell inside it. They are three lunges 36 frames apart now, each turning to where the hero is.
+- Two tests passed without testing what they claimed (the phase-2 storm, the pup's bites); both are rewritten so that removing the feature fails them.
 - A satyr standing on top of the hero never attacked (its leap only started beyond thirty pixels); the leap length is now fixed by where the hero stood as it crouched.
 - The storm spirit rained sparks wherever it happened to be; it now waits until it is over you and drifts after you only slowly while it rains.
 - The "THE WARDEN FALLS" banner named the Warden for every floor boss.
