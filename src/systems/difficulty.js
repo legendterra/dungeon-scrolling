@@ -129,7 +129,7 @@ window.DS = window.DS || {};
     const src = ladderRung(((d - LADDER_END - 1) % LADDER_END) + 1);
     const rung = {
       depth: d, key: src.key, label: src.label, flavor: src.flavor,
-      theme: src.theme, closed: !!src.closed, ambience: src.ambience || null, endless: true, lap: lap
+      theme: src.theme, closed: !!src.closed, ambience: src.ambience || null, floorBoss: src.floorBoss || null, endless: true, lap: lap
     };
     /* Rungs are pure functions of the depth, so dropping the cache is free;
        it only keeps the same object for the depth being played. Bounded so an
@@ -148,11 +148,14 @@ window.DS = window.DS || {};
 
   /* --- the bosses ------------------------------------------------------------
 
-     Two per act, in a fixed order, and then the same six again in endless -
-     each lap tougher than the last. The key is what the boss room spawns:
-     'king' is the Slime King (entities/boss.js), everything else is a
-     DS.Bosses kind. */
-  const BOSS_ROTATION = ['warden', 'king', 'arbiter', 'wyrm', 'lich', 'magma'];
+     Two per act, in a fixed order: the Warden and the Slime King, the Arbiter and
+     the Frost Wyrm, Hades and Zeus. Endless carries on down the same list, with the
+     two the acts gave up to the gods (the Lich and the Magma Colossus) first, and
+     then it comes round to the Warden again - each lap tougher than the last. The
+     key is what the boss room spawns: 'king' is the Slime King (entities/boss.js),
+     everything else is a DS.Bosses kind. */
+  const BOSS_ROTATION = ['warden', 'king', 'arbiter', 'wyrm', 'hades', 'zeus', 'lich', 'magma'];
+  const SCRIPTED_BOSSES = 6;        // the act bosses, two an act, before endless picks the list up
 
   function bossForDepth(depth) {
     const Acts = DS.Acts;
@@ -161,7 +164,7 @@ window.DS = window.DS || {};
 
     let ordinal;
     if (Acts.isEndless(d)) {
-      ordinal = BOSS_ROTATION.length + Acts.depthInAct(d) / DS.C.ENDLESS_BOSS_EVERY - 1;
+      ordinal = SCRIPTED_BOSSES + Acts.depthInAct(d) / DS.C.ENDLESS_BOSS_EVERY - 1;
     } else {
       ordinal = (Acts.actOf(d) - 1) * 2 + (Acts.depthInAct(d) === ACT_LENGTH ? 1 : 0);
     }

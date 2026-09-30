@@ -325,6 +325,9 @@ window.DS = window.DS || {};
 
   // --- registration -----------------------------------------------------------
 
+  // The helpers the bosses of the gods (bosses3.js) share.
+  B.kit = { shot: shot, feetY: feetY, aimAt: aimAt, ring: ring };
+
   /* Sizes are the collision box; the voxel models (core/voxel.js) are built
      to the same footprint. `sprite` is the 2D fallback sheet, scaled up and
      tinted by bosses.js like the Warden's and the Arbiter's. */

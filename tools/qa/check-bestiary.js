@@ -24,6 +24,9 @@
  *
  * v7: `--only v7` runs just the bestiary of the three acts (the 35 monsters of
  * enemies4-6.js), each two at a time beside the hero on the floor it lives on.
+ * `--only bosses [--depths 21,25]` fights every boss the run can meet: the eight of the
+ * rotation in their rooms (5..40) and the floor bosses in their vaults (21, 23, 27), and
+ * checks that the bars open when a vault boss falls.
  *
  * Exit code 1 when any check fails. Every console error on the page fails too.
  */
@@ -168,6 +171,39 @@ const DRIVER = `(() => {
              awake: w.awake, chase: w.chase, dMin: Math.round(w.dMin), dyAt: Math.round(w.dyAt) };
   }
 
+  function fightBoss(g, depth, seconds) {
+    tally.loot.length = 0; tally.shots = 0;
+    const b = g.boss;
+    if (!b) return { depth: depth, error: 'no boss on this floor' };
+    let reward = null;
+    const down = g.onFloorBossDown, win = g.onBossDefeated;
+    g.onFloorBossDown = function () { reward = 'floor'; return down && down.apply(this, arguments); };
+    g.onBossDefeated = function () { reward = 'act'; return win && win.apply(this, arguments); };
+    const p = g.player;
+    p.x = b.x + (b.x > p.x ? -70 : 70); p.y = b.y + b.h - p.h; p.vx = 0; p.vy = 0;
+    const w = watch(b);
+    let hp = b.hp, heroHits = 0;
+    const frames = Math.round(seconds * 60);
+    let f = 0;
+    for (; f < frames; f++) {
+      const before = vit(p), live = !(g.hitstop > 0);
+      stepOnce(true, f);
+      if (vit(p) < before) heroHits++;
+      observe(w, live);
+      if (b.hp < hp) w.hurtByHero = true;
+      hp = b.hp;
+      if (f % 240 === 120) Ent.damageEnemy(g, b, Math.ceil(b.maxHp * 0.12), { dir: 1 });
+    }
+    const sim = summary(w);
+    const pickups0 = g.pickups.length, chests0 = (g.chests || []).length;
+    const killFrames = finish(g, b, true, f);
+    for (let k = 0; k < 90; k++) stepOnce(false, f + killFrames + k);
+    return { depth: depth, name: b.name, key: b.bossKey, heroHits: heroHits, shots: tally.shots, sim: sim,
+             phase: b.phase, died: !!b.dead, reward: reward, killFrames: killFrames,
+             pickups: g.pickups.length - pickups0, chests: (g.chests || []).length - chests0,
+             stairs: !!(g.map && g.map.exit) };
+  }
+
   window.__BST = {
     /* A pack of one kind beside the hero on a normal floor at this depth. */
     pack: function (depth, kind, n, seconds, attack, custom) {
@@ -208,36 +244,27 @@ const DRIVER = `(() => {
        worn down with real hits through its enrage to its death. */
     boss: function (depth, seconds) {
       const g = load(depth, 'boss');
-      tally.loot.length = 0; tally.shots = 0;
-      const b = g.boss;
-      if (!b) return { depth: depth, error: 'no boss on this floor' };
-      let reward = null;
-      const down = g.onFloorBossDown, win = g.onBossDefeated;
-      g.onFloorBossDown = function () { reward = 'floor'; return down && down.apply(this, arguments); };
-      g.onBossDefeated = function () { reward = 'act'; return win && win.apply(this, arguments); };
+      return fightBoss(g, depth, seconds);
+    },
+
+    /* A floor that holds a boss in a vault (the Climb, the labyrinth, the garden, the
+       forge): the hero walks up to where the boss sleeps, it wakes by itself, and the
+       fight is the same. The bars must open when it dies. */
+    floorBoss: function (depth, seconds) {
+      const g = load(depth, 'normal');
+      clearRoom(g);
+      const t = g.bossTrigger;
+      if (!t) return { depth: depth, error: 'no floor boss on this floor' };
+      const gate = (g.puzzles.find((q) => q.kind === 'bosslock') || {}).gate || null;
       const p = g.player;
-      p.x = b.x + (b.x > p.x ? -70 : 70) ; p.y = b.y + b.h - p.h; p.vx = 0; p.vy = 0;
-      const w = watch(b);
-      let hp = b.hp, heroHits = 0;
-      const frames = Math.round(seconds * 60);
-      let f = 0;
-      for (; f < frames; f++) {
-        const before = vit(p), live = !(g.hitstop > 0);
-        stepOnce(true, f);
-        if (vit(p) < before) heroHits++;
-        observe(w, live);
-        if (b.hp < hp) w.hurtByHero = true;
-        hp = b.hp;
-        if (f % 240 === 120) Ent.damageEnemy(g, b, Math.ceil(b.maxHp * 0.12), { dir: 1 });
-      }
-      const sim = summary(w);
-      const pickups0 = g.pickups.length, chests0 = (g.chests || []).length;
-      const killFrames = finish(g, b, true, f);
-      for (let k = 0; k < 90; k++) stepOnce(false, f + killFrames + k);
-      return { depth: depth, name: b.name, heroHits: heroHits, shots: tally.shots, sim: sim,
-               phase: b.phase, died: !!b.dead, reward: reward, killFrames: killFrames,
-               pickups: g.pickups.length - pickups0, chests: (g.chests || []).length - chests0,
-               stairs: !!(g.map && g.map.exit) };
+      p.x = t.x - 120; p.y = t.y - p.h; p.vx = 0; p.vy = 0;
+      for (let f = 0; f < 240 && !g.boss; f++) stepOnce(false, f);
+      const r = fightBoss(g, depth, seconds);
+      for (let k = 0; k < 120; k++) stepOnce(false, 5000 + k);
+      r.gate = gate ? { open: !!gate.open, lift: gate.lift || 0 } : null;
+      r.lockedDoor = !!g.lockedDoor;
+      r.sealed = (g.chests || []).filter((c) => c.sealed).length;
+      return r;
     }
   };
   return true;
@@ -307,6 +334,31 @@ async function main() {
 
     const only = value(args, '--only');
     legacy: {
+    if (only === 'bosses') {
+      const list = value(args, '--depths') ? value(args, '--depths').split(',').map(Number) : [5, 10, 15, 20, 25, 30, 35, 40, 21, 23, 27];
+      for (const d of list) {
+        const floor = [7, 21, 23, 27].includes(d);
+        const r = await session.eval(`__BST.${floor ? 'floorBoss' : 'boss'}(${d}, ${Math.max(seconds, 25)})`);
+        report.boss.push(r);
+        if (r.error) { check('boss d' + d, false, r.error); continue; }
+        const tag = 'boss d' + d + ' ' + r.name;
+        console.log('     ' + tag + ': states ' + r.sim.states.join(',') + ', hero hit ' + r.heroHits +
+                    'x, shots ' + r.shots + ', reward ' + r.reward + ', pickups +' + r.pickups + ', chests +' + r.chests);
+        check(tag + ': position finite', r.sim.nan === 0, r.sim.nan + ' bad frames');
+        const moves = r.sim.states.filter((s) => ['INTRO', 'IDLE', 'ENRAGE'].indexOf(s) < 0);
+        check(tag + ': uses its moves', moves.length >= 2, moves.join(','));
+        check(tag + ': lands a hit on the hero', r.heroHits > 0, r.heroHits + ' hits');
+        check(tag + ': takes damage', r.sim.hurtByHero);
+        check(tag + ': enrages', r.phase === 2);
+        check(tag + ': dies', r.died);
+        check(tag + ': hands the floor its reward', r.reward === (floor ? 'floor' : 'act'), String(r.reward));
+        if (floor) {
+          check(tag + ': the bars open and the door obeys', r.gate && r.gate.open && !r.lockedDoor, JSON.stringify(r.gate) + ' locked ' + r.lockedDoor);
+          check(tag + ': no chest is left sealed', r.sealed === 0, r.sealed + ' sealed');
+        }
+      }
+      break legacy;
+    }
     if (only === 'v7') {
       const have = await session.eval('Object.keys(DS.Enemies.TYPES)');
       const only7 = value(args, '--kinds');
@@ -374,7 +426,7 @@ async function main() {
     }
 
     /* --- the three new bosses --- */
-    for (const d of [20, 25, 30]) {
+    for (const d of [20, 25, 30, 35, 40]) {
       const r = await session.eval(`__BST.boss(${d}, ${Math.max(seconds, 25)})`);
       report.boss.push(r);
       if (r.error) { check('boss d' + d, false, r.error); continue; }

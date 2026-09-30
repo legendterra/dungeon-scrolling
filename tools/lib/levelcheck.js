@@ -59,6 +59,7 @@ const FILES = [
   'src/systems/difficulty.js',
   'src/systems/reach.js',
   'src/world/parkour.js',
+  'src/world/arena.js',
   'src/world/mountain.js',
   'src/world/water.js',
   'src/world/trial.js',

@@ -848,6 +848,9 @@ window.DS = window.DS || {};
       map.sealPits();
       plantDoors(map, out);
       plantTorches(map, out);
+      // Each boss fights in a room that suits it (world/arena.js).
+      const plan = DS.Difficulty ? DS.Difficulty.bossForDepth(depth) : null;
+      if (plan && DS.Arena) DS.Arena.decorate(map, plan.key, ROOM_H - 2);
       return { map: map, spawns: out, roomCount: 1, kind: kind };
     }
 
@@ -875,13 +878,17 @@ window.DS = window.DS || {};
        is a climb almost always; anything else keeps parkour as an occasional
        change of pace, and the tutorial floors stay exactly what the ladder says. */
     const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(depth) : null;
+    /* A floor whose map names a floor boss is always the corridor, and ends in the
+       boss's vault instead of an exit room (world/arena.js). */
+    const vaultBoss = rung && rung.floorBoss && DS.Arena ? rung.floorBoss : null;
     /* A puzzle floor (the Torch Hall) is always the corridor: its barrier needs
        a long flat hall to stand in, and a carved floor rarely has one. */
-    const carvedChance = flavor === 'carved' ? 0.85
+    const carvedChance = vaultBoss ? 0
+                        : flavor === 'carved' ? 0.85
                         : ((DS.Difficulty && DS.Difficulty.isTutorial(depth)) || (rung && rung.puzzle)
                            ? 0 : 0.25);
     if (DS.Parkour && rng.chance(carvedChance)) return buildCarved(rng, depth, out);
-    if (flavor === 'carved' && DS.Parkour) return buildCarved(rng, depth, out);
+    if (flavor === 'carved' && DS.Parkour && !vaultBoss) return buildCarved(rng, depth, out);
 
     // Longer levels the deeper you go, but never long enough to drag.
     const diff = DS.Difficulty ? DS.Difficulty.forDepth(depth) : null;
@@ -905,14 +912,17 @@ window.DS = window.DS || {};
       picks[rng.int(0, Math.min(2, middle - 1))] = PADDED_ROOMS[QUIET_HALL];
     }
 
-    const totalRooms = middle + 2; // start + middle + exit
+    // start + middle + exit, or start + middle + the vault chamber (two rooms wide)
+    const totalRooms = middle + 1 + (vaultBoss ? DS.Arena.VAULT_ROOMS : 1);
     const map = DS.Map.create(ROOM_W * totalRooms, ROOM_H);
 
     decodeInto(map, PADDED_START, 0, out);
     for (let i = 0; i < picks.length; i++) {
       decodeInto(map, picks[i], ROOM_W * (i + 1), out);
     }
-    decodeInto(map, PADDED_EXIT, ROOM_W * (totalRooms - 1), out);
+    const vaultAt = ROOM_W * (middle + 1);
+    if (vaultBoss) decodeInto(map, padTemplate(DS.Arena.vaultRows()), vaultAt, out);
+    else decodeInto(map, PADDED_EXIT, ROOM_W * (totalRooms - 1), out);
 
     plantDoors(map, out);
     plantTorches(map, out);
@@ -950,6 +960,12 @@ window.DS = window.DS || {};
     }
     out.chests = cleanChests;
 
+    if (vaultBoss) {
+      // After the chest filters above, which would thin the vault's sealed pair.
+      DS.Arena.furnishVault(map, out, vaultBoss, vaultAt, ROOM_H - 2);
+      return { map: map, spawns: out, roomCount: totalRooms, kind: kind, flavor: 'corridor',
+               bossKey: vaultBoss, bossGate: out.bossGate, noProps: true };
+    }
     return { map: map, spawns: out, roomCount: totalRooms, kind: kind,
              flavor: 'corridor' };
   }

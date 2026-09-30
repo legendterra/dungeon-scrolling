@@ -255,7 +255,7 @@
   /* 7 - THE CLIMB. An alpine peak under a cold moon: pines below, snow ranges,
      and, as you rise, a SEA OF CLOUD opening under you. */
   define({
-    depth: 7, key: 'm07_climb', label: 'The Climb', flavor: 'mountain',
+    depth: 7, key: 'm07_climb', label: 'The Climb', flavor: 'mountain', floorBoss: 'warden',
     palette: {
       pal: { D: '#5a6070', d: '#3e4450', g: '#8a95a8', G: '#ccd6e4' }, doorStyle: 'arch',
       sky: ['#131a26', '#080b12'], light: '#dceaff', darkness: 0.60, lightRadius: 76, dust: '#8a95a8'

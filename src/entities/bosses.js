@@ -45,7 +45,9 @@ window.DS = window.DS || {};
   /* Moves a boss file can add without touching the brain: MOVES[state] runs
      every frame the boss is in that state, the same as the cases below. A
      kind can also carry `timers` (frames per move), `onEnrage(g, e)` for its
-     phase change and `init(g, e)` for anything it sets up at spawn. */
+     phase change, `init(g, e)` for anything it sets up at spawn and `tick(g, e)`,
+     which runs every frame whatever the boss is doing (for what a move leaves
+     behind: a marked pillar that has not landed yet). */
   const MOVES = {};
 
   // --- construction ---------------------------------------------------------
@@ -163,6 +165,7 @@ window.DS = window.DS || {};
     }
 
     updateSmites(g, e);
+    if (e.def.tick) e.def.tick(g, e);
     Phys.step(e, g.map);
     keepInArena(g, e);
     touchPlayer(g, e);

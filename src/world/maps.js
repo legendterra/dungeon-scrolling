@@ -21,6 +21,7 @@
      roster    { kind: weight }                    -> DS.Enemies.registerRoster (who lives here)
      tiles     { wall, top, plat }                 -> the level's HD tile look
      ambience  'sea' | 'cave' | ...                -> DS.Audio.setAmbience (what the place sounds like)
+     floorBoss 'warden' | 'minotaur' | ...          -> the floor ends in that boss's vault (mountain.js, arena.js)
 
    A module that is not loaded (the level checker runs in node, with no renderer)
    simply skips its share, so the ladder itself is testable on its own.
@@ -58,7 +59,8 @@ window.DS = window.DS || {};
   function rungOf(def) {
     return {
       depth: def.depth, key: def.key, label: def.label, flavor: def.flavor,
-      theme: def.key, puzzle: !!def.puzzle, closed: !!def.closed, ambience: def.ambience || null, map: def
+      theme: def.key, puzzle: !!def.puzzle, closed: !!def.closed, ambience: def.ambience || null,
+      floorBoss: def.floorBoss || null, map: def
     };
   }
 

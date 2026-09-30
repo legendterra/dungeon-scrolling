@@ -57,20 +57,21 @@ test('HUD labels read act and step, or endless depth', () => {
   assert.equal(A.shortLabel(34), 'END 34');
 });
 
-test('boss rotation: six act bosses, then they come round again in endless', () => {
+test('boss rotation: six act bosses, then endless carries on down the list and comes round again', () => {
   const keys = [5, 10, 15, 20, 25, 30].map((d) => D.bossForDepth(d).key);
-  assert.deepEqual(keys, ['warden', 'king', 'arbiter', 'wyrm', 'lich', 'magma']);
+  assert.deepEqual(keys, ['warden', 'king', 'arbiter', 'wyrm', 'hades', 'zeus']);
   assert.equal(D.bossForDepth(7), null);
-  assert.equal(D.bossForDepth(35).key, 'warden');
-  assert.equal(D.bossForDepth(40).key, 'king');
-  assert.equal(D.bossForDepth(60).key, 'magma');
-  assert.equal(D.bossForDepth(65).key, 'warden');
+  // Endless: the two the gods gave up first, then the whole list from the top.
+  assert.deepEqual([35, 40].map((d) => D.bossForDepth(d).key), ['lich', 'magma']);
+  assert.deepEqual([45, 50, 55, 60, 65, 70, 75, 80].map((d) => D.bossForDepth(d).key),
+    ['warden', 'king', 'arbiter', 'wyrm', 'hades', 'zeus', 'lich', 'magma']);
   assert.equal(D.bossForDepth(30).cycle, 0);
-  assert.equal(D.bossForDepth(35).cycle, 1);
-  assert.equal(D.bossForDepth(65).cycle, 2);
+  assert.equal(D.bossForDepth(40).cycle, 0);
+  assert.equal(D.bossForDepth(45).cycle, 1);
+  assert.equal(D.bossForDepth(85).cycle, 2);
   // Each lap of the rotation is harder than the last.
   assert.ok(D.bossHpMult(35) > D.bossHpMult(30));
-  assert.ok(D.bossHpMult(65) > D.bossHpMult(60));
+  assert.ok(D.bossHpMult(75) > D.bossHpMult(70));
 });
 
 test('difficulty never flattens into a clamp: every depth to 60 is at least as hard', () => {

@@ -15,7 +15,7 @@
      the world in the Aegean sun, red Minoan columns, and a great stone bull's
      head watching. */
   define({
-    depth: 21, key: 'm21_labyrinth', label: 'The Labyrinth of Minos', flavor: 'plain',
+    depth: 21, key: 'm21_labyrinth', label: 'The Labyrinth of Minos', flavor: 'plain', floorBoss: 'minotaur',
     palette: {
       pal: { D: '#a08c6a', d: '#6e5e44', g: '#d4c098', G: '#f0e2c0' }, doorStyle: 'arch',
       sky: ['#3a3020', '#181208'], light: '#ffe8b0', darkness: 0.50, lightRadius: 84, dust: '#d4c098'
@@ -100,7 +100,7 @@
      standing in it, grey and cracked, every one of them caught in the middle of
      turning away. */
   define({
-    depth: 23, key: 'm23_gorgon', label: 'The Gorgon\'s Garden', flavor: 'carved',
+    depth: 23, key: 'm23_gorgon', label: 'The Gorgon\'s Garden', flavor: 'plain', floorBoss: 'medusa',
     palette: {
       pal: { D: '#7a8468', d: '#4e5840', g: '#a8b490', G: '#d4e0b8' }, doorStyle: 'arch',
       sky: ['#1a2610', '#0a0f06'], light: '#d8f08a', darkness: 0.62, lightRadius: 76, dust: '#a8b490'
@@ -265,7 +265,7 @@
      a bronze man half made and still on its scaffold, chains and pulleys, and a
      canal of lava going by underfoot. */
   define({
-    depth: 27, key: 'm27_forge', label: 'The Forge of Hephaestus', flavor: 'carved', closed: true,
+    depth: 27, key: 'm27_forge', label: 'The Forge of Hephaestus', flavor: 'plain', floorBoss: 'talos', closed: true,
     palette: {
       pal: { D: '#5a3a2a', d: '#301c14', g: '#a06a44', G: '#e0a070' }, doorStyle: 'gate',
       sky: ['#240a04', '#0e0402'], light: '#ff9040', darkness: 0.68, lightRadius: 72, dust: '#a05a30'

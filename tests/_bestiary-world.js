@@ -25,12 +25,15 @@ const ENEMY_FILES = ['src/entities/enemies4.js', 'src/entities/enemies5.js', 'sr
 const VOXEL_FILES = ['src/core/voxel-bestiary.js', 'src/core/voxel-bestiary2.js', 'src/core/voxel-bestiary3.js'].filter(has);
 const MAP_FILES = ['src/world/maps/act1.js', 'src/world/maps/act2.js', 'src/world/maps/act3.js'].filter(has);
 
-function loadWorld() {
+const BOSS_FILES = ['src/entities/boss.js', 'src/entities/bosses.js', 'src/entities/bosses2.js', 'src/entities/bosses3.js'].filter(has);
+
+/* `withBosses`: the boss brain and every boss kind on top of the bestiary. */
+function loadWorld(withBosses) {
   const DS = load([
     'src/core/rng.js', 'src/systems/difficulty.js', 'src/systems/physics.js',
     'src/entities/base.js', 'src/entities/enemies.js', 'src/entities/enemies2.js',
     'src/entities/enemies3.js'
-  ].concat(ENEMY_FILES, ['src/world/maps.js'], MAP_FILES), STUBS);
+  ].concat(ENEMY_FILES, ['src/world/maps.js'], MAP_FILES, withBosses ? BOSS_FILES : []), STUBS);
   DS.Ent.tickStatus = function () {};
   return DS;
 }
@@ -65,4 +68,4 @@ function world(DS, depth) {
 }
 
 
-module.exports = { STUBS, ROOT, has, ENEMY_FILES, VOXEL_FILES, MAP_FILES, loadWorld, room, world };
+module.exports = { STUBS, ROOT, has, ENEMY_FILES, VOXEL_FILES, MAP_FILES, BOSS_FILES, loadWorld, room, world };

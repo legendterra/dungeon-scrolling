@@ -11,7 +11,11 @@
 
    The vault seals itself behind a portcullis and every chest inside it is
    welded shut until the warden is dead. The exit door is in there too, so the
-   boss is the price of the floor rather than an optional detour. */
+   boss is the price of the floor rather than an optional detour.
+
+   Only when the map names a floor boss (`floorBoss`, world/maps/act1.js: the Climb
+   has the warden). The other mountains - the slopes of Olympus, the storm summit -
+   have the same shaft and the same vault with nobody in it: no bars, no seals. */
 window.DS = window.DS || {};
 
 (function (DS) {
@@ -147,7 +151,7 @@ window.DS = window.DS || {};
 
   // --- the shaft and the vault ---------------------------------------------
 
-  function buildInterior(map, rng, top, out) {
+  function buildInterior(map, rng, top, out, bossKey) {
     // Everything east of the climb is solid rock until it is carved.
     for (let tx = CLIMB_W + 1; tx < map.w; tx++) fillColumn(map, tx, 0);
 
@@ -191,19 +195,21 @@ window.DS = window.DS || {};
 
     /* The portcullis: five tiles of bars, and solid rock above them, so the
        only way to the prize is through the gate the warden holds shut. */
-    fillRect(map, gateTx, vaultTop, gateTx, FLOOR - 6);
-    const gate = {
-      kind: 'gate', barrier: true,
-      x: gateTx * T, y: (FLOOR - 5) * T, closedY: (FLOOR - 5) * T,
-      w: T, h: 5 * T,
-      solid: true, open: false, openTimer: 0, lift: 0
-    };
-    map.solids.push(gate);
-    out.bossGate = gate;
+    if (bossKey) {
+      fillRect(map, gateTx, vaultTop, gateTx, FLOOR - 6);
+      const gate = {
+        kind: 'gate', barrier: true,
+        x: gateTx * T, y: (FLOOR - 5) * T, closedY: (FLOOR - 5) * T,
+        w: T, h: 5 * T,
+        solid: true, open: false, openTimer: 0, lift: 0
+      };
+      map.solids.push(gate);
+      out.bossGate = gate;
+    }
 
-    // Treasure behind the bars, welded shut until the fight is won.
-    out.chests.push({ x: (gateTx + 4) * T, y: (FLOOR - 1) * T, sealed: true, tier: 'vault' });
-    out.chests.push({ x: (gateTx + 8) * T, y: (FLOOR - 1) * T, sealed: true });
+    // Treasure in the vault, welded shut until the fight is won (when there is one).
+    out.chests.push({ x: (gateTx + 4) * T, y: (FLOOR - 1) * T, sealed: !!bossKey, tier: 'vault' });
+    out.chests.push({ x: (gateTx + 8) * T, y: (FLOOR - 1) * T, sealed: !!bossKey });
 
     // The way onward is inside the vault too, so the boss is not optional.
     const doorTx = vaultRight - 2;
@@ -218,20 +224,25 @@ window.DS = window.DS || {};
       { tx: CLIMB_W + 2, row: floorRow }
     ];
 
-    out.boss = {
-      key: 'warden',
-      x: Math.floor((vaultLeft + gateTx) / 2) * T,
-      y: (FLOOR - 1) * T
-    };
-    out.arena = { x0: vaultLeft * T, x1: gateTx * T };
+    if (bossKey) {
+      out.boss = {
+        key: bossKey,
+        x: Math.floor((vaultLeft + gateTx) / 2) * T,
+        y: (FLOOR - 1) * T
+      };
+      out.arena = { x0: vaultLeft * T, x1: gateTx * T };
+    }
   }
 
   function build(rng, depth, out) {
     const map = DS.Map.create(MAP_W, MAP_H);
 
+    const rung = DS.Difficulty ? DS.Difficulty.biomeForDepth(depth) : null;
+    const bossKey = rung && rung.floorBoss ? rung.floorBoss : null;
+
     const steps = plateaus(rng);
     const top = buildClimb(map, rng, steps, out);
-    buildInterior(map, rng, top, out);
+    buildInterior(map, rng, top, out, bossKey);
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
@@ -252,7 +263,7 @@ window.DS = window.DS || {};
     return {
       map: map, spawns: out, roomCount: Math.floor(MAP_W / 20),
       kind: 'normal', carved: true, flavor: 'mountain',
-      bossKey: 'warden', bossGate: out.bossGate, noProps: true
+      bossKey: bossKey, bossGate: out.bossGate || null, noProps: true
     };
   }
 

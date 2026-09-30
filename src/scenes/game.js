@@ -122,7 +122,7 @@ window.DS = window.DS || {};
 
       DS.Audio.setMusic('dungeon');
       g.toast(broke ? 'THE SEALS BREAK' : 'THE WAY OPENS', '#f2c14e');
-      g.showBanner('THE WARDEN FALLS', broke ? 'THE VAULT IS YOURS' : 'THE DOOR OBEYS',
+      g.showBanner(((boss && boss.name) || 'THE WARDEN') + ' FALLS', broke ? 'THE VAULT IS YOURS' : 'THE DOOR OBEYS',
                    '#f2c14e');
 
       // The fight pays on its own, on top of whatever is in the vault.
