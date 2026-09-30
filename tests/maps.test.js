@@ -111,11 +111,12 @@ test('the act of the gods has a safe room and a trial of its own, found by depth
   assert.equal(hestia.label, 'Temple of Hestia');
   assert.equal(arena.key, 't3_heroes');
   assert.equal(arena.label, 'Arena of Heroes');
-  // The first two acts keep wearing the map of the depth in front of them.
-  for (const d of [1, 5, 10, 15, 20]) {
-    assert.equal(DS.Maps.special('safe', d), null, 'safe ' + d);
-    assert.equal(DS.Maps.special('trial', d), null, 'trial ' + d);
-  }
+  // The first two acts rest in a merchant's camp and keep the built-in eclipse arena for their trial.
+  for (const d of [1, 5, 10]) assert.equal(DS.Maps.special('safe', d).key, 's1_camp', 'safe ' + d);
+  for (const d of [11, 15, 20]) assert.equal(DS.Maps.special('safe', d).key, 's2_camp', 'safe ' + d);
+  for (const d of [1, 5, 10, 15, 20]) assert.equal(DS.Maps.special('trial', d), null, 'trial ' + d);
+  assert.equal(DS.Maps.special('safe', 40).key, 's1_camp', 'endless depth 40 echoes depth 10');
+  assert.equal(DS.Maps.special('safe', 45).key, 's2_camp', 'endless depth 45 echoes depth 15');
   // An endless depth answers as the depth it echoes.
   assert.equal(DS.Maps.special('safe', 55).key, 's3_hestia');
   assert.equal(DS.Maps.special('trial', 84).key, 't3_heroes');
@@ -135,7 +136,7 @@ test('a special room is complete: palette, tiles, light rig, backdrop, an ambien
     for (const l of m.backdrop.recipe.layers) assert.ok(KINDS.has(l.kind), m.key + ' uses a band kind the backdrop does not know: ' + l.kind);
     assert.equal(DS.Maps.byKey(m.key), m);
   }
-  assert.equal(DS.Maps.specials().length, 2);
+  assert.equal(DS.Maps.specials().length, 4);
 });
 
 test('a special room may not take a key or a slot twice', () => {

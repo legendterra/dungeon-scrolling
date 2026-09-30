@@ -28,8 +28,8 @@ Izin dari user: kalau tes, audit, dan review lolos, **merge ke `main` dan deploy
 | Monster Act II | 5 A + 3 B (`enemies5.js`, `voxel-bestiary2.js`), roster map 11-19 | selesai (v7.1.0) |
 | Monster Act III | 8 A + 6 B, roster map 21-29 (`enemies6.js`, `voxel-bestiary3.js`) | selesai (v7.2.0, di branch kerja, belum dirilis) |
 | Boss baru | Hades d25, Zeus d30, Minotaur d21, Medusa d23, Talos d27 (`bosses3.js`, `voxel-bosses.js`), ruang harta (`world/arena.js`), arena per boss, rotasi endless | selesai (v7.2.0) |
-| Ruang khusus | Temple of Hestia, Arena of Heroes (`DS.Maps.defineSpecial`), tint korupsi Endless | selesai (v7.2.0) |
-| Ambience | 19 jenis (`Audio.setAmbience`), satu per map | selesai (v7.2.0) |
+| Ruang khusus | Merchant's Camp (Act I-II), Temple of Hestia, Arena of Heroes (`DS.Maps.defineSpecial`), tint korupsi Endless | selesai (v7.2.0) |
+| Ambience | 20 jenis (`Audio.setAmbience`), satu per map | selesai (v7.2.0) |
 | Fase 7 MC | voxel MC baru (menyatu dengan pembuat karakter) | belum |
 | Fase 8 | suara ambience, `docs/11-v7.md`, review per fase | sebagian (CHANGELOG v7.0.0 sudah) |
 

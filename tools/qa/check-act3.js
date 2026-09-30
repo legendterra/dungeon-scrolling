@@ -73,8 +73,9 @@ async function main() {
       [29, 'normal', { boss: null, place: null, ambience: 'golden', title: /Apollo/i }],
       [30, 'safe',   { boss: null, place: 's3_hestia', ambience: 'hearth', title: /Temple of Hestia/i }],
       [30, 'boss',   { boss: 'zeus', place: null, ambience: 'zeus', title: /Zeus/i }],
-      // The first two acts keep the room of the depth in front of them.
-      [5,  'safe',   { boss: null, place: null, ambience: null, title: /Safe Room/i }],
+      // The first two acts rest in a merchant's camp, and keep the eclipse arena for the trial.
+      [5,  'safe',   { boss: null, place: 's1_camp', ambience: 'camp', title: /Merchant/i }],
+      [15, 'safe',   { boss: null, place: 's2_camp', ambience: 'camp', title: /Merchant/i }],
       [14, 'trial',  { boss: 'arbiter', place: null, ambience: null, title: /Trial/i }],
       // Endless: the map again, the corruption up, the rooms of the act it echoes.
       [51, 'normal', { boss: 'minotaur', place: null, ambience: 'aegean', title: /Labyrinth/i, corruption: 0.3 }],

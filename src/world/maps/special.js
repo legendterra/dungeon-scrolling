@@ -1,17 +1,89 @@
-/* The rooms that are not a depth: the safe room and the trial, in the act of the gods.
+/* The rooms that are not a depth: the safe room and the trial.
 
-   In acts I and II they wear the map of the depth in front of them, as they always
-   did. Act III has rooms of its own. The rest in front of Hades and in front of
-   Zeus is the Temple of Hestia, goddess of the hearth: a round of marble around
-   one fire that never goes out. The trial is the Arena of Heroes: a coliseum in
-   the noon sun, statues of the ones who won, sand under the feet, and a bull
-   (world/arena.js says which boss the trial holds).
+   The rest in front of a boss is a merchant's camp in a niche of the cave in the first
+   two acts - a fire, a lantern, the stone shut in around it - and in the act of the gods
+   it is the Temple of Hestia, goddess of the hearth: a round of marble around one fire
+   that never goes out. The trial keeps the eclipse over the obelisks in acts I and II
+   (the built-in 'trial' theme, the Arbiter's arena) and is the Arena of Heroes in act III:
+   a coliseum in the noon sun, statues of the ones who won, sand under the feet, and a
+   bull (world/arena.js says which boss the trial holds).
 
    Same pieces as a map (src/world/maps.js), keyed by kind and act. */
 (function (DS) {
   'use strict';
   if (!DS.Maps || !DS.Maps.defineSpecial) return;
   const defineSpecial = DS.Maps.defineSpecial;
+
+  /* The merchant's camp, acts I and II: a niche of the cave with a fire in it. Closed, and the
+     fire is the only sun. Dry and amber in the first act, damp and greener in the second. */
+  defineSpecial({
+    key: 's1_camp', kind: 'safe', act: 1, label: 'Merchant\'s Camp', flavor: 'plain', closed: true,
+    palette: {
+      pal: { D: '#6a5a48', d: '#3a3024', g: '#a8906a', G: '#e0c898' }, doorStyle: 'cave',
+      sky: ['#1a120a', '#080604'], light: '#ffb060', darkness: 0.58, lightRadius: 92, dust: '#c8a878'
+    },
+    tiles: {
+      wall: { tex: 'tile_rock', color: '#8a7458' },
+      top: { tex: 'tile_slate', color: '#b09878' },
+      plat: { tex: 'tile_planksold', color: '#8a6a44' }
+    },
+    theme: { fog: 0x140e08, ambient: 0x6a5238, hemiSky: 0x8a6c48, hemiGround: 0x1c140c, dir: 0xffb060, dirI: 0.56 },
+    grade: { sat: 1.1 },
+    ambience: 'camp',
+    backdrop: {
+      curve: { gain: 0.44, warm: 0.5 },
+      hero: { kind: 'furnace', col: 0xffa040, core: 0xfff0c0, edge: 0xc05a10, az: 0.5, elev: 3.6, r: 2.4,
+              halos: [1.6, 2.8], rays: 8, fan: 8, glow: 0.4, gain: 0.9 },
+      recipe: {
+        tex: 'wetrock', ceiling: { y: 10.5, col: 0x0c0806 },
+        skyGlow: 0.5, haze: 0.62, ground: 0x0e0a06,
+        motes: { col: 0xffc878, size: 0.24, alpha: 0.5, rise: 0.3 },
+        layers: [
+          { kind: 'rubble',      sp: 2.2, d: 4.5, col: 0x3a2c1c, s0: 0.25, s1: 0.9 },
+          { kind: 'stalactites', sp: 2.2, d: 7.5, col: 0x2c2014, h0: 1.4, h1: 3.0 },
+          { kind: 'rubble',      sp: 3.0, d: 12,  col: 0x2a1e12, s0: 0.5, s1: 1.3 },
+          { kind: 'stalactites', sp: 2.4, d: 12,  col: 0x241a10, h0: 1.6, h1: 3.2 },
+          { kind: 'spires',      sp: 5.0, d: 19,  col: 0x1c140c, h0: 2.2, h1: 3.6 },
+          { kind: 'spires',      sp: 6.0, d: 46,  col: 0x120c08, h0: 2.0, h1: 3.2 }
+        ]
+      }
+    }
+  });
+
+  defineSpecial({
+    key: 's2_camp', kind: 'safe', act: 2, label: 'Merchant\'s Camp', flavor: 'plain', closed: true,
+    palette: {
+      pal: { D: '#3e5a5c', d: '#243638', g: '#78a09c', G: '#b4dcd4' }, doorStyle: 'cave',
+      sky: ['#0a1414', '#040808'], light: '#ffc070', darkness: 0.6, lightRadius: 90, dust: '#7aa8a0'
+    },
+    tiles: {
+      wall: { tex: 'tile_rockdark', color: '#4a6a68' },
+      top: { tex: 'tile_slate', color: '#8aa8a0' },
+      plat: { tex: 'tile_planksold', color: '#5a4a3a' }
+    },
+    theme: { fog: 0x081012, ambient: 0x40584c, hemiSky: 0x5c8078, hemiGround: 0x101c1a, dir: 0xffb868, dirI: 0.5 },
+    grade: { sat: 1.06, gamma: 1.04 },
+    ambience: 'camp',
+    backdrop: {
+      curve: { gain: 0.4, warm: 0.44 },
+      hero: { kind: 'furnace', col: 0xffa040, core: 0xfff0c0, edge: 0xc05a10, az: 0.5, elev: 3.6, r: 2.4,
+              halos: [1.6, 2.8], rays: 8, fan: 8, glow: 0.38, gain: 0.86 },
+      recipe: {
+        tex: 'wetrock', ceiling: { y: 10.5, col: 0x040a0a },
+        skyGlow: 0.5, haze: 0.62, ground: 0x081010,
+        mist: { sp: 3.6, size: 0.2, alpha: 0.12, col: 0x5c8c88 },
+        motes: { col: 0xffc878, size: 0.24, alpha: 0.45, rise: 0.3 },
+        layers: [
+          { kind: 'rubble',      sp: 2.2, d: 4.5, col: 0x1a2c2a, s0: 0.25, s1: 0.9 },
+          { kind: 'mushrooms',   sp: 6.5, d: 7.5, col: 0x16282a, cap: 0x4aa898, glowCol: 0x6ad8b8, h0: 1.6, h1: 3.2 },
+          { kind: 'stalactites', sp: 2.2, d: 7.5, col: 0x142422, h0: 1.4, h1: 3.0 },
+          { kind: 'stalactites', sp: 2.4, d: 12,  col: 0x10201e, h0: 1.6, h1: 3.2 },
+          { kind: 'spires',      sp: 5.0, d: 19,  col: 0x0c1a18, h0: 2.2, h1: 3.6 },
+          { kind: 'spires',      sp: 6.0, d: 46,  col: 0x081412, h0: 2.0, h1: 3.2 }
+        ]
+      }
+    }
+  });
 
   /* The Temple of Hestia. Closed: a ceiling, no sky, and the hearth for a sun. */
   defineSpecial({

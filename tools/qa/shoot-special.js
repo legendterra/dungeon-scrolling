@@ -24,7 +24,8 @@ function value(args, flag) {
 
 /* [name, depth, kind, park fx, park fy] */
 const SHOTS = [
-  ['safe-act1',      5,  'safe',   null],
+  ['safe-camp-act1', 5,  'safe',   null],
+  ['safe-camp-act2', 15, 'safe',   null],
   ['safe-hestia',    25, 'safe',   null],
   ['trial-act2',     14, 'trial',  [1, 1]],
   ['trial-heroes',   24, 'trial',  [1, 1]],
