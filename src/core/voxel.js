@@ -1157,8 +1157,12 @@ window.DS = window.DS || {};
     }
 
     if (p.head && p.head !== p.root) {
+      /* A rig that never recorded its rest height (the v7 look rig) has it taken
+         once, here. Reading the live y instead added the bob on top of last
+         frame's bob, so the head drifted down through the body as he walked. */
+      if (p.headY0 == null) p.headY0 = p.head.position.y;
       p.head.rotation.z = e.hurtFlash > 0 ? Math.sin(time * 40) * 0.12 : 0;
-      p.head.position.y = (p.headY0 != null ? p.headY0 : p.head.position.y) + bob;
+      p.head.position.y = p.headY0 + bob;
     }
 
     if (p.armL && p.armR) {

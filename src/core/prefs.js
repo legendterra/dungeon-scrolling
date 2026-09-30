@@ -11,7 +11,7 @@ window.DS = window.DS || {};
 (function (DS) {
   'use strict';
 
-  DS.VERSION = 'v7.2.0';
+  DS.VERSION = 'v7.2.1';
 
   const S = DS.Settings;
   const num = function (min, max, step) { return { type: 'number', min: min, max: max, step: step }; };

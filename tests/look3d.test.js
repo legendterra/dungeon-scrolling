@@ -230,3 +230,16 @@ test('build and height show on the doll, and the breathing frame moves the upper
   const a = DS.Look2D.paint(DS.Look.DEFAULT_LOOK), b = DS.Look2D.paint(DS.Look.DEFAULT_LOOK, { bob: 1 });
   for (let y = 44; y < 47; y++) for (let x = 0; x < 32; x++) assert.equal(a.px[y * 32 + x], b.px[y * 32 + x]);
 });
+
+test('walking the look hero through Voxel.pose keeps the head on the neck (intro cutscene)', () => {
+  const DS = fresh();
+  const m = DS.Voxel.build('hero', {});
+  const rest = m.head.position.y;
+  let lo = rest, hi = rest;
+  for (let f = 0; f < 430; f++) {
+    DS.Voxel.pose(m, { x: 200 - f * 0.4, vx: 1.1, attackState: 'none', attackTimer: 0, cfg: { wind: 20 }, hurtFlash: 0 }, f / 60);
+    lo = Math.min(lo, m.head.position.y);
+    hi = Math.max(hi, m.head.position.y);
+  }
+  assert.ok(hi - lo <= 0.05, 'head bob stays a bob, not a drift: ' + (hi - lo).toFixed(3));
+});
